@@ -19,6 +19,7 @@ export default function HomePage() {
         <p className="text-sm" style={{ color: "#717182" }}>Trade on NAM ecosystem milestones. Backed by real outcomes.</p>
       </div>
 
+
       <StatsBar />
 
       {isLoading && (
