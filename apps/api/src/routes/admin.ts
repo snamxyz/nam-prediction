@@ -1,8 +1,9 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
-import { markets, internalMetrics } from "../db/schema";
+import { markets } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { resolveMarketOnChain } from "../services/resolution";
+import { processDailyResolution } from "../services/queue/resolution-queue";
 
 const ADMIN_ADDRESSES = (process.env.ADMIN_ADDRESSES || "")
   .split(",")
@@ -55,47 +56,23 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
     }
   )
 
-  // GET /admin/metrics — List all internal metrics
-  .get("/metrics", async () => {
-    const allMetrics = await db.select().from(internalMetrics);
-    return { data: allMetrics, success: true };
-  })
-
-  // POST /admin/metrics — Upsert an internal metric
-  .post(
-    "/metrics",
-    async ({ body, set }) => {
-      const callerAddress = (body.adminAddress || "").toLowerCase();
-      if (!ADMIN_ADDRESSES.includes(callerAddress)) {
-        set.status = 403;
-        return { success: false, error: "Not authorized" };
-      }
-
-      const { metricName, value } = body;
-
-      // Upsert: insert or update on conflict
-      await db
-        .insert(internalMetrics)
-        .values({
-          metricName,
-          value: value.toString(),
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: internalMetrics.metricName,
-          set: {
-            value: value.toString(),
-            updatedAt: new Date(),
-          },
-        });
-
-      return { success: true, data: { metricName, value } };
-    },
-    {
-      body: t.Object({
-        adminAddress: t.String(),
-        metricName: t.String(),
-        value: t.Number(),
-      }),
+  // POST /admin/trigger-resolution — Manually trigger daily resolution cycle
+  .post("/trigger-resolution", async ({ body, set }) => {
+    const callerAddress = (body.adminAddress || "").toLowerCase();
+    if (!ADMIN_ADDRESSES.includes(callerAddress)) {
+      set.status = 403;
+      return { success: false, error: "Not authorized" };
     }
-  );
+
+    try {
+      await processDailyResolution();
+      return { success: true, data: { message: "Daily resolution triggered" } };
+    } catch (err: any) {
+      set.status = 500;
+      return { success: false, error: err.message };
+    }
+  }, {
+    body: t.Object({
+      adminAddress: t.String(),
+    }),
+  });

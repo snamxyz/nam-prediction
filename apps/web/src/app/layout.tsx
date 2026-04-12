@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Navbar } from "@/components/Navbar";
-import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { LiveTicker } from "@/components/LiveTicker";
 import Background from "@/components/UI/Background";
 

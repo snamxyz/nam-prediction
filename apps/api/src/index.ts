@@ -2,8 +2,10 @@ import { Elysia } from "elysia";
 import { marketRoutes } from "./routes/markets";
 import { portfolioRoutes } from "./routes/portfolio";
 import { adminRoutes } from "./routes/admin";
+import { authRoutes } from "./routes/auth";
 import { startIndexer } from "./services/indexer";
 import { startResolutionService } from "./services/resolution";
+import { setupResolutionSchedule, startResolutionWorker } from "./services/queue/resolution-queue";
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
@@ -25,6 +27,7 @@ const app = new Elysia()
   .use(marketRoutes)
   .use(portfolioRoutes)
   .use(adminRoutes)
+  .use(authRoutes)
   .listen(PORT);
 
 console.log(`🔮 nam-prediction API running at http://localhost:${PORT}`);
@@ -32,5 +35,9 @@ console.log(`🔮 nam-prediction API running at http://localhost:${PORT}`);
 // Start background services
 startIndexer().catch((err) => console.error("[Indexer] Startup error:", err));
 startResolutionService();
+
+// Start BullMQ resolution worker + schedule
+setupResolutionSchedule().catch((err) => console.error("[BullMQ] Schedule setup error:", err));
+startResolutionWorker();
 
 export type App = typeof app;

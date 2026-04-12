@@ -13,24 +13,24 @@ export function Providers({ children }: { children: ReactNode }) {
   const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
 
   return (
-    // <PrivyProvider
-    //   appId={privyAppId}
-    //   config={{
-    //     defaultChain: base,
-    //     supportedChains: [base],
-    //     appearance: {
-    //       theme: "dark",
-    //       accentColor: "#01d243",
-    //     },
-    //     embeddedWallets: {
-    //       createOnLogin: "users-without-wallets",
-    //     },
-    //     loginMethods: ["email", "wallet", "google"],
-    //   }}
-    // >
+    <PrivyProvider
+      appId={privyAppId}
+      config={{
+        defaultChain: base,
+        supportedChains: [base],
+        appearance: {
+          theme: "dark",
+          accentColor: "#01d243",
+        },
+        embeddedWallets: {
+          createOnLogin: "users-without-wallets",
+        },
+        loginMethods: ["email", "wallet", "google", "twitter"],
+      }}
+    >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>{children}</WagmiProvider>
       </QueryClientProvider>
-    // </PrivyProvider>
+    </PrivyProvider>
   );
 }

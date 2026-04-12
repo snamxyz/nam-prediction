@@ -5,6 +5,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagm
 import { parseUnits } from "viem";
 import { CPMMABI, ERC20ABI } from "@nam-prediction/shared";
 import { USDC_ADDRESS } from "@/lib/contracts";
+import { useAuth } from "@/hooks/useAuth";
 
 const QUICK = [1, 5, 10, 100];
 
@@ -17,6 +18,7 @@ interface TradePanelProps {
 
 export function TradePanel({ marketId, ammAddress, yesPrice, noPrice }: TradePanelProps) {
   const { address, isConnected } = useAccount();
+  const { isAuthenticated, login } = useAuth();
   const [side, setSide] = useState<"YES" | "NO">("YES");
   const [amount, setAmount] = useState("");
 
@@ -140,19 +142,25 @@ export function TradePanel({ marketId, ammAddress, yesPrice, noPrice }: TradePan
         </div>
 
         {/* Trade button */}
-        <button onClick={handleTrade} disabled={!isConnected || num <= 0 || isLoading}
-          className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
-          style={isConnected && num > 0 && !isLoading
-            ? { background: C, color: isYes ? "#000" : "#fff", cursor: "pointer" }
-            : { background: "rgba(31,32,40,0.50)", color: "#717182", cursor: "not-allowed" }}>
-          {!isConnected
-            ? "Connect Wallet"
-            : isLoading
-            ? "Processing..."
-            : num > 0
-            ? `Buy ${side} · $${num.toFixed(2)}`
-            : "Enter an amount"}
-        </button>
+        {!isAuthenticated ? (
+          <button onClick={login}
+            className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
+            style={{ background: "#01d243", color: "#000", cursor: "pointer" }}>
+            Connect to Trade
+          </button>
+        ) : (
+          <button onClick={handleTrade} disabled={!isConnected || num <= 0 || isLoading}
+            className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
+            style={isConnected && num > 0 && !isLoading
+              ? { background: C, color: isYes ? "#000" : "#fff", cursor: "pointer" }
+              : { background: "rgba(31,32,40,0.50)", color: "#717182", cursor: "not-allowed" }}>
+            {isLoading
+              ? "Processing..."
+              : num > 0
+              ? `Buy ${side} · $${num.toFixed(2)}`
+              : "Enter an amount"}
+          </button>
+        )}
         <p className="text-center text-[10px] mt-3" style={{ color: "rgba(113,113,130,0.50)" }}>By trading, you agree to the Terms of Use.</p>
       </div>
     </div>

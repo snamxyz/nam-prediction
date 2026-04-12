@@ -1,42 +1,24 @@
 // ─── Resolution source types ───
 export const ResolutionSource = {
   ADMIN: "admin",
-  INTERNAL: "internal",
+  API: "api",
   DEXSCREENER: "dexscreener",
-  UMA: "uma",
 } as const;
 export type ResolutionSourceType = (typeof ResolutionSource)[keyof typeof ResolutionSource];
 
 // Resolution source on-chain IDs
 export const ResolutionSourceId = {
   admin: 0,
-  internal: 1,
+  api: 1,
   dexscreener: 2,
-  uma: 3,
 } as const;
-
-// Source-specific resolution configs
-export interface InternalResolutionConfig {
-  metricName: string;
-  comparison: ">=" | "<=" | "==" | ">";
-  threshold: number;
-}
 
 export interface DexScreenerResolutionConfig {
   comparison: ">=" | "<=";
   threshold: number;
 }
 
-export interface UmaResolutionConfig {
-  claim: string;
-  bond: number;
-}
-
-export type ResolutionConfig =
-  | InternalResolutionConfig
-  | DexScreenerResolutionConfig
-  | UmaResolutionConfig
-  | null;
+export type ResolutionConfig = DexScreenerResolutionConfig | Record<string, unknown> | null;
 
 // ─── Market types ───
 export interface Market {
@@ -78,14 +60,6 @@ export interface UserPosition {
   noBalance: string;
   avgEntryPrice: number;
   pnl: string;
-}
-
-// ─── Internal metrics ───
-export interface InternalMetric {
-  id: number;
-  metricName: string;
-  value: string;
-  updatedAt: string;
 }
 
 // ─── API response wrappers ───

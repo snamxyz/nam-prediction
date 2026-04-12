@@ -27,7 +27,7 @@ export const markets = pgTable("markets", {
   noPrice: real("no_price").notNull().default(0.5),
   volume: numeric("volume", { precision: 30, scale: 6 }).notNull().default("0"),
   liquidity: numeric("liquidity", { precision: 30, scale: 6 }).notNull().default("0"),
-  resolutionSource: text("resolution_source").notNull().default("admin"), // admin | internal | dexscreener | uma
+  resolutionSource: text("resolution_source").notNull().default("admin"), // admin | api | dexscreener
   resolutionConfig: jsonb("resolution_config"), // source-specific JSON config
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -74,8 +74,32 @@ export const internalMetrics = pgTable("internal_metrics", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Users (Privy auth) ───
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  privyUserId: text("privy_user_id").notNull().unique(),
+  walletAddress: text("wallet_address"),
+  displayName: text("display_name"),
+  loginMethod: text("login_method"), // wallet | twitter | google | email
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ─── Daily Markets (rolling NAM price markets) ───
+export const dailyMarkets = pgTable("daily_markets", {
+  id: serial("id").primaryKey(),
+  marketId: integer("market_id").references(() => markets.id),
+  date: text("date").notNull().unique(), // YYYY-MM-DD resolution date
+  threshold: numeric("threshold", { precision: 30, scale: 10 }).notNull(),
+  settlementPrice: numeric("settlement_price", { precision: 30, scale: 10 }),
+  status: text("status").notNull().default("active"), // active | resolved | creating
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ─── Type exports ───
 export type MarketRow = typeof markets.$inferSelect;
 export type TradeRow = typeof trades.$inferSelect;
 export type UserPositionRow = typeof userPositions.$inferSelect;
 export type InternalMetricRow = typeof internalMetrics.$inferSelect;
+export type UserRow = typeof users.$inferSelect;
+export type DailyMarketRow = typeof dailyMarkets.$inferSelect;

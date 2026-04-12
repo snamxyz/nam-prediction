@@ -1,17 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePrivy } from "@privy-io/react-auth";
-import { useAccount } from "wagmi";
+import { useAuth } from "@/hooks/useAuth";
 import { TrendingUp, Search, Wallet, User } from "lucide-react";
 
 export function Navbar() {
-  const { login, logout, authenticated, user } = usePrivy();
-  const { address } = useAccount();
-
-  const displayAddress = address
-    ? `${address.slice(0, 6)}…${address.slice(-4)}`
-    : user?.email?.address || "Connected";
+  const { login, logout, isAuthenticated, displayName } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 w-full" style={{ background: "rgba(10,11,15,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
@@ -49,12 +43,12 @@ export function Navbar() {
               style={{ background: "#1f2028", border: "1px solid rgba(255,255,255,0.08)", color: "#e8e9ed" }} />
           </div>
 
-          {authenticated ? (
+          {isAuthenticated ? (
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
                 style={{ background: "#1f2028", border: "1px solid rgba(255,255,255,0.08)", color: "#e8e9ed" }}>
                 <Wallet className="w-4 h-4" />
-                <span className="text-xs font-mono">{displayAddress}</span>
+                <span className="text-xs font-mono">{displayName}</span>
               </div>
               <button onClick={logout} className="px-3 py-2 text-sm rounded-lg transition-colors"
                 style={{ background: "rgba(31,32,40,0.50)", color: "#717182" }}

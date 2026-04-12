@@ -24,9 +24,8 @@ function formatVolume(vol: string): string {
 
 const SOURCE_ICONS: Record<string, string> = {
   admin: "👤",
-  internal: "📊",
+  api: "🔗",
   dexscreener: "📈",
-  uma: "⚖️",
 };
 
 export function MarketCard({ market }: { market: Market }) {

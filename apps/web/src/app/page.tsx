@@ -4,12 +4,16 @@ import dynamic from "next/dynamic";
 import { useMarkets } from "@/hooks/useMarkets";
 import { MarketCard } from "@/components/MarketCard";
 import { StatsBar } from "@/components/StatsBar";
+import { DailyMarketHero } from "@/components/DailyMarketHero";
 
 export default function HomePage() {
   const { data: markets, isLoading, error } = useMarkets();
 
   return (
     <div>
+      {/* Featured Daily NAM Market */}
+      <DailyMarketHero />
+
       <div className="mb-8">
         <h1 className="text-2xl font-semibold mb-2" style={{ color: "#e8e9ed" }}>NAM Prediction Markets</h1>
         <p className="text-sm" style={{ color: "#717182" }}>Trade on NAM ecosystem milestones. Backed by real outcomes.</p>

@@ -36,9 +36,8 @@ async function handleMarketCreated(log: any) {
   // Map on-chain resolution source ID to string
   const sourceMap: Record<number, string> = {
     0: "admin",
-    1: "internal",
+    1: "api",
     2: "dexscreener",
-    3: "uma",
   };
   const sourceStr = sourceMap[Number(resolutionSource)] || "admin";
 
@@ -49,7 +48,7 @@ async function handleMarketCreated(log: any) {
       const decoded = Buffer.from(resolutionData.slice(2), "hex").toString("utf-8");
       resolutionConfig = JSON.parse(decoded);
     } catch {
-      // resolutionData may be raw bytes (e.g. UMA claim text) — store as-is
+      // resolutionData may be raw bytes — store as-is
       resolutionConfig = { raw: resolutionData };
     }
   }

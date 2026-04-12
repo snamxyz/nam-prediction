@@ -3,17 +3,16 @@ import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { db } from "../db/client";
 import { markets } from "../db/schema";
-import { eq, and, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
-import { resolveInternal } from "./resolvers/internal";
 import { resolveDexScreener } from "./resolvers/dexscreener";
-import { resolveUma } from "./resolvers/uma";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
+const RESOLUTION_API_URL = process.env.RESOLUTION_API_URL || "";
 const RESOLUTION_POLL_INTERVAL = Number(process.env.RESOLUTION_POLL_INTERVAL) || 60000;
 
-// ─── Resolve a single market on-chain (used by internal + dexscreener resolvers) ───
+// ─── Resolve a single market on-chain ───
 
 export async function resolveMarketOnChain(
   marketId: number,
@@ -46,29 +45,36 @@ async function pollResolutions() {
   if (!FACTORY_ADDRESS) return;
 
   try {
-    // Find all unresolved markets
+    // Find all unresolved markets with "api" resolution source
     const unresolvedMarkets = await db
       .select()
       .from(markets)
       .where(eq(markets.resolved, false));
 
     for (const market of unresolvedMarkets) {
+      if (market.resolutionSource === "admin") continue; // admin markets resolved manually
+
       try {
-        switch (market.resolutionSource) {
-          case "internal":
-            await resolveInternal(market);
-            break;
-          case "dexscreener":
-            await resolveDexScreener(market);
-            break;
-          case "uma":
-            await resolveUma(market);
-            break;
-          case "admin":
-            // Admin markets are resolved manually via /admin/resolve endpoint
-            break;
-          default:
-            console.warn(`[Resolution] Market #${market.onChainId}: unknown source "${market.resolutionSource}"`);
+        if (market.resolutionSource === "dexscreener") {
+          await resolveDexScreener(market);
+          continue;
+        }
+
+        // "api" source — fetch from backend API
+        if (!RESOLUTION_API_URL) continue;
+
+        const response = await fetch(
+          `${RESOLUTION_API_URL}?marketId=${market.onChainId}`
+        );
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        // Expects { result: 1 } for YES, { result: 2 } for NO, or { result: 0 } / absent if not yet resolved
+        const result = Number(data.result);
+
+        if (result === 1 || result === 2) {
+          await resolveMarketOnChain(market.onChainId, result);
+          console.log(`[Resolution] Auto-resolved market #${market.onChainId} → ${result === 1 ? "YES" : "NO"}`);
         }
       } catch (err) {
         console.error(`[Resolution] Error resolving market #${market.onChainId}:`, err);
