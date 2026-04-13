@@ -6,7 +6,7 @@ async function main() {
 
   // Collateral address (USDC on Base mainnet)
   const USDC_ADDRESS =
-    process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b4CF1daEdda";
+    process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 
   // UMA Optimistic Oracle V3 on Base (address(0) disables UMA features)
   const UMA_ORACLE_ADDRESS =

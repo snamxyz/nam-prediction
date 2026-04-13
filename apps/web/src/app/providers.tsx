@@ -2,7 +2,7 @@
 
 import { PrivyProvider } from "@privy-io/react-auth";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider } from "@privy-io/wagmi";
 import { wagmiConfig } from "@/lib/wagmi";
 import { useState, type ReactNode } from "react";
 import { base } from "viem/chains";

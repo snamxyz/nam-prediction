@@ -1,13 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseUnits } from "viem";
+import { useAccount } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
+import { parseUnits, createPublicClient, createWalletClient, custom, http } from "viem";
+import { base } from "viem/chains";
 import { CPMMABI, ERC20ABI } from "@nam-prediction/shared";
 import { USDC_ADDRESS } from "@/lib/contracts";
 import { useAuth } from "@/hooks/useAuth";
+import { useWallets } from "@privy-io/react-auth";
+import { postApi } from "@/lib/api";
 
 const QUICK = [1, 5, 10, 100];
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(process.env.NEXT_PUBLIC_RPC_URL || "https://mainnet.base.org"),
+});
 
 interface TradePanelProps {
   marketId: number;
@@ -19,39 +28,61 @@ interface TradePanelProps {
 export function TradePanel({ marketId, ammAddress, yesPrice, noPrice }: TradePanelProps) {
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login } = useAuth();
+  const { wallets } = useWallets();
+  const queryClient = useQueryClient();
   const [side, setSide] = useState<"YES" | "NO">("YES");
   const [amount, setAmount] = useState("");
-
-  const { writeContract: writeApprove, data: approveHash } = useWriteContract();
-  const { writeContract: writeTrade, data: tradeHash } = useWriteContract();
-
-  const { isLoading: isApproving } = useWaitForTransactionReceipt({ hash: approveHash });
-  const { isLoading: isTrading } = useWaitForTransactionReceipt({ hash: tradeHash });
-
-  const isLoading = isApproving || isTrading;
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleTrade = async () => {
-    if (!address || !amount) return;
-    const usdcAmount = parseUnits(amount, 6);
-    writeApprove(
-      {
+    if (!address || !amount || !wallets.length) return;
+    setIsLoading(true);
+    try {
+      const wallet = wallets[0];
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: address,
+        chain: base,
+        transport: custom(provider),
+      });
+
+      const usdcAmount = parseUnits(amount, 6);
+
+      // Step 1: Approve USDC spend
+      const approveHash = await walletClient.writeContract({
         address: USDC_ADDRESS,
         abi: ERC20ABI,
         functionName: "approve",
         args: [ammAddress, usdcAmount],
-      },
-      {
-        onSuccess: () => {
-          const fnName = side === "YES" ? "buyYes" : "buyNo";
-          writeTrade({
-            address: ammAddress,
-            abi: CPMMABI,
-            functionName: fnName,
-            args: [usdcAmount],
-          });
-        },
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      // Step 2: Execute trade
+      const fnName = side === "YES" ? "buyYes" : "buyNo";
+      const tradeHash = await walletClient.writeContract({
+        address: ammAddress,
+        abi: CPMMABI,
+        functionName: fnName,
+        args: [usdcAmount],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: tradeHash });
+
+      // Step 3: Record trade in backend and refresh data
+      try {
+        await postApi(`/markets/${marketId}/record-trade`, { txHash: tradeHash });
+      } catch (err) {
+        console.error("Failed to record trade:", err);
       }
-    );
+      queryClient.invalidateQueries({ queryKey: ["market", String(marketId)] });
+      queryClient.invalidateQueries({ queryKey: ["market-trades", String(marketId)] });
+      queryClient.invalidateQueries({ queryKey: ["markets"] });
+
+      setAmount("");
+    } catch (err) {
+      console.error("Trade failed:", err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const num = parseFloat(amount) || 0;

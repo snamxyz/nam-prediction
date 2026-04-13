@@ -8,7 +8,7 @@ import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
-const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b4CF1daEdda") as `0x${string}`;
+const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
 const DAILY_MARKET_LIQUIDITY = Number(process.env.DAILY_MARKET_LIQUIDITY) || 100; // USDC
 
@@ -154,12 +154,34 @@ export async function createDailyMarket(threshold: number): Promise<void> {
     await publicClient.waitForTransactionReceipt({ hash: createHash });
     console.log(`[DailyMarket] Market created for ${dateStr} with threshold $${threshold}`);
 
-    // The daily_markets row will be linked to the markets row after the indexer processes the event
-    // For now, we update status to 'active'. The market_id will be linked later.
+    // Give the indexer a few seconds to process the MarketCreated event
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Try to link the daily_markets row to the newly indexed market
+    let linkedMarketId: number | null = null;
+    const recentMarkets = await db
+      .select()
+      .from(markets)
+      .where(eq(markets.resolved, false))
+      .orderBy(desc(markets.createdAt));
+
+    for (const m of recentMarkets) {
+      if (m.question.includes(dateStr) && m.resolutionSource === "dexscreener") {
+        linkedMarketId = m.id;
+        break;
+      }
+    }
+
     await db
       .update(dailyMarkets)
-      .set({ status: "active" })
+      .set({ status: "active", marketId: linkedMarketId })
       .where(eq(dailyMarkets.date, dateStr));
+
+    if (linkedMarketId) {
+      console.log(`[DailyMarket] Linked daily market to markets.id=${linkedMarketId}`);
+    } else {
+      console.warn(`[DailyMarket] Could not link market yet — fallback will resolve later`);
+    }
 
   } catch (err) {
     console.error(`[DailyMarket] Failed to create market for ${dateStr}:`, err);

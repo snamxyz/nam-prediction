@@ -1,7 +1,25 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
-import { markets, trades, dailyMarkets } from "../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { markets, trades, userPositions, dailyMarkets } from "../db/schema";
+import { eq, desc, and } from "drizzle-orm";
+import { createPublicClient, http, decodeEventLog, formatUnits } from "viem";
+import { base } from "viem/chains";
+import { CPMMABI } from "@nam-prediction/shared";
+
+const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
+const rpcClient = createPublicClient({
+  chain: base,
+  transport: http(RPC_URL),
+});
+
+function addBigIntStrings(a: string, b: string): string {
+  return (BigInt(a || "0") + BigInt(b || "0")).toString();
+}
+
+function subBigIntStrings(a: string, b: string): string {
+  const result = BigInt(a || "0") - BigInt(b || "0");
+  return result < 0n ? "0" : result.toString();
+}
 
 export const marketRoutes = new Elysia({ prefix: "/markets" })
   // GET /markets — List all markets
@@ -98,4 +116,163 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
       return { data: marketTrades, success: true };
     },
     { params: t.Object({ id: t.String() }) }
+  )
+
+  // POST /markets/:id/record-trade — Record a trade from a tx hash (fallback for indexer)
+  .post(
+    "/:id/record-trade",
+    async ({ params, body, set }) => {
+      const { txHash } = body;
+      const marketId = Number(params.id);
+
+      // Check if already recorded
+      const existing = await db
+        .select()
+        .from(trades)
+        .where(eq(trades.txHash, txHash))
+        .limit(1);
+      if (existing.length > 0) {
+        return { success: true, data: existing[0], message: "Already recorded" };
+      }
+
+      // Find the market
+      const market = await db
+        .select()
+        .from(markets)
+        .where(eq(markets.id, marketId))
+        .limit(1);
+      if (market.length === 0) {
+        set.status = 404;
+        return { success: false, error: "Market not found" };
+      }
+      const dbMarket = market[0];
+
+      // Fetch the tx receipt from chain
+      let receipt;
+      try {
+        receipt = await rpcClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+      } catch (err) {
+        set.status = 400;
+        return { success: false, error: "Could not fetch tx receipt" };
+      }
+
+      // Decode Trade event logs
+      let tradeEvent = null;
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({
+            abi: CPMMABI,
+            data: log.data,
+            topics: log.topics,
+          });
+          if (decoded.eventName === "Trade") {
+            tradeEvent = decoded.args as {
+              marketId: bigint;
+              trader: `0x${string}`;
+              isYes: boolean;
+              isBuy: boolean;
+              shares: bigint;
+              collateral: bigint;
+            };
+            break;
+          }
+        } catch {
+          // Not a Trade event from this ABI, skip
+        }
+      }
+
+      if (!tradeEvent) {
+        set.status = 400;
+        return { success: false, error: "No Trade event found in tx" };
+      }
+
+      // Insert trade (convert from raw BigInt to human-readable decimals)
+      const [inserted] = await db
+        .insert(trades)
+        .values({
+          marketId: dbMarket.id,
+          trader: tradeEvent.trader.toLowerCase(),
+          isYes: tradeEvent.isYes,
+          isBuy: tradeEvent.isBuy,
+          shares: formatUnits(tradeEvent.shares, 18),
+          collateral: formatUnits(tradeEvent.collateral, 6),
+          txHash,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      // Update market prices from AMM
+      try {
+        const [yesPrice, noPrice] = (await rpcClient.readContract({
+          address: dbMarket.ammAddress as `0x${string}`,
+          abi: CPMMABI,
+          functionName: "getPrices",
+        })) as [bigint, bigint];
+
+        const yesPriceNum = Number(yesPrice) / 1e18;
+        const noPriceNum = Number(noPrice) / 1e18;
+
+        await db
+          .update(markets)
+          .set({
+            yesPrice: yesPriceNum,
+            noPrice: noPriceNum,
+            volume: (
+              Number(dbMarket.volume) +
+              Number(tradeEvent.collateral) / 1e6
+            ).toString(),
+          })
+          .where(eq(markets.id, dbMarket.id));
+      } catch (err) {
+        console.error("[record-trade] Failed to update prices:", err);
+      }
+
+      // Update user position
+      const traderAddr = tradeEvent.trader.toLowerCase();
+      const existingPos = await db
+        .select()
+        .from(userPositions)
+        .where(
+          and(
+            eq(userPositions.marketId, dbMarket.id),
+            eq(userPositions.userAddress, traderAddr)
+          )
+        )
+        .limit(1);
+
+      const sharesStr = formatUnits(tradeEvent.shares, 18);
+      if (existingPos.length === 0) {
+        await db.insert(userPositions).values({
+          marketId: dbMarket.id,
+          userAddress: traderAddr,
+          yesBalance: tradeEvent.isYes && tradeEvent.isBuy ? sharesStr : "0",
+          noBalance: !tradeEvent.isYes && tradeEvent.isBuy ? sharesStr : "0",
+          avgEntryPrice: 0,
+          pnl: "0",
+        });
+      } else {
+        const pos = existingPos[0];
+        let newYes = pos.yesBalance;
+        let newNo = pos.noBalance;
+        if (tradeEvent.isYes) {
+          newYes = tradeEvent.isBuy
+            ? addBigIntStrings(pos.yesBalance, sharesStr)
+            : subBigIntStrings(pos.yesBalance, sharesStr);
+        } else {
+          newNo = tradeEvent.isBuy
+            ? addBigIntStrings(pos.noBalance, sharesStr)
+            : subBigIntStrings(pos.noBalance, sharesStr);
+        }
+        await db
+          .update(userPositions)
+          .set({ yesBalance: newYes, noBalance: newNo })
+          .where(eq(userPositions.id, pos.id));
+      }
+
+      return { success: true, data: inserted };
+    },
+    {
+      params: t.Object({ id: t.String() }),
+      body: t.Object({ txHash: t.String() }),
+    }
   );

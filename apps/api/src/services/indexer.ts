@@ -1,4 +1,4 @@
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, formatUnits } from "viem";
 import { base } from "viem/chains";
 import { db } from "../db/client";
 import { markets, trades, userPositions } from "../db/schema";
@@ -91,14 +91,14 @@ async function handleTrade(log: any) {
   if (market.length === 0) return;
   const dbMarket = market[0];
 
-  // Insert trade
+  // Insert trade (convert from raw BigInt to human-readable decimals)
   await db.insert(trades).values({
     marketId: dbMarket.id,
     trader: trader.toLowerCase(),
     isYes: isYes,
     isBuy: isBuy,
-    shares: shares.toString(),
-    collateral: col.toString(),
+    shares: formatUnits(shares, 18),
+    collateral: formatUnits(col, 6),
     txHash: log.transactionHash,
   });
 
@@ -138,7 +138,7 @@ async function handleTrade(log: any) {
     )
     .limit(1);
 
-  const sharesStr = shares.toString();
+  const sharesStr = formatUnits(shares, 18);
   if (existing.length === 0) {
     await db.insert(userPositions).values({
       marketId: dbMarket.id,

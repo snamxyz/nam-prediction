@@ -81,7 +81,7 @@ export default function MarketPage() {
 
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
-  const endDate = new Date(market.endTime * 1000);
+  const endDate = new Date(market.endTime);
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -212,7 +212,7 @@ export default function MarketPage() {
           {/* UMA Resolution Request */}
           {market.resolutionSource === "uma" &&
             !market.resolved &&
-            Date.now() / 1000 >= market.endTime && (
+            Date.now() >= new Date(market.endTime).getTime() && (
               <div className="glass-card p-5">
                 <h3 className="font-semibold mb-3 text-sm" style={{ color: "#e8e9ed" }}>⚖️ Request UMA Resolution</h3>
                 <p className="text-xs mb-3" style={{ color: "#717182" }}>

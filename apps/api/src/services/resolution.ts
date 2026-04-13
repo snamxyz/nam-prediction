@@ -5,7 +5,6 @@ import { db } from "../db/client";
 import { markets } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
-import { resolveDexScreener } from "./resolvers/dexscreener";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -55,10 +54,7 @@ async function pollResolutions() {
       if (market.resolutionSource === "admin") continue; // admin markets resolved manually
 
       try {
-        if (market.resolutionSource === "dexscreener") {
-          await resolveDexScreener(market);
-          continue;
-        }
+        if (market.resolutionSource === "dexscreener") continue; // handled by BullMQ daily cron
 
         // "api" source — fetch from backend API
         if (!RESOLUTION_API_URL) continue;

@@ -4,9 +4,10 @@ import Link from "next/link";
 import { TrendingUp, TrendingDown, DollarSign, Clock, Users } from "lucide-react";
 import type { Market } from "@nam-prediction/shared";
 
-function formatTimeRemaining(endTime: number): string {
-  const now = Date.now() / 1000;
-  const diff = endTime - now;
+function formatTimeRemaining(endTime: string): string {
+  const now = Date.now();
+  const target = new Date(endTime).getTime();
+  const diff = (target - now) / 1000;
   if (diff <= 0) return "Ended";
   const days = Math.floor(diff / 86400);
   const hours = Math.floor((diff % 86400) / 3600);

@@ -28,7 +28,7 @@ export interface Market {
   yesToken: string;
   noToken: string;
   ammAddress: string;
-  endTime: number;
+  endTime: string;
   resolved: boolean;
   result: number; // 0 = unresolved, 1 = YES, 2 = NO
   yesPrice: number;
