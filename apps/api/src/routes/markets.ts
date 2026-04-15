@@ -5,6 +5,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { createPublicClient, http, decodeEventLog, formatUnits } from "viem";
 import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
+import { featureFlags } from "../config/feature-flags";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const rpcClient = createPublicClient({
@@ -85,6 +86,18 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
     };
   })
 
+  // GET /markets/features — Runtime rollout flags for clients and ops
+  .get("/features", async () => {
+    return {
+      success: true,
+      data: {
+        enableAmmTrading: featureFlags.enableAmmTrading,
+        enableClobTrading: featureFlags.enableClobTrading,
+        defaultMarketExecutionMode: featureFlags.defaultMarketExecutionMode,
+      },
+    };
+  })
+
   // GET /markets/:id — Single market detail
   .get(
     "/:id",
@@ -122,6 +135,15 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
   .post(
     "/:id/record-trade",
     async ({ params, body, set }) => {
+      console.log(`[record-trade] Received request to record trade for marketId=${params.id} with txHash=${body.txHash}`);
+      if (!featureFlags.enableAmmTrading) {
+        set.status = 503;
+        return {
+          success: false,
+          error: "AMM trading is disabled",
+        };
+      }
+
       const { txHash } = body;
       const marketId = Number(params.id);
 
@@ -146,6 +168,14 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         return { success: false, error: "Market not found" };
       }
       const dbMarket = market[0];
+
+      if (dbMarket.executionMode === "clob") {
+        set.status = 400;
+        return {
+          success: false,
+          error: "record-trade currently supports AMM markets only",
+        };
+      }
 
       // Fetch the tx receipt from chain
       let receipt;

@@ -1,0 +1,272 @@
+NAM 15-Minute Prediction Market — Full System Rundown
+=====================================================
+
+1. Market Creation (Backend)
+----------------------------
+
+The 15-minute markets are created automatically by the API server.
+
+Trigger: On server startup (if no active m15 market exists) or immediately after the previous m15 market resolves.
+
+Flow (m15-market.ts → createNextM15Market()):
+1. Checks if an active (unresolved, cadence=m15) market already exists in the DB — skips if yes.
+2. Fetches the live NAM/USDC price from DexScreener (via fetchNamPrice()).
+3. Computes the time window: now → endTime (now + 15 min), lockTime (endTime - 10 sec).
+4. Constructs the question: "Will NAM be >= $X.XXXXXX at <endTimeISO>?"
+5. Builds a resolutionConfig JSON: { comparison, threshold, cadence, lockTime, lockTimeUnix, pairAddress }.
+6. Sends two on-chain transactions (sequential nonces) to Base:
+   - Approve: Approves MarketFactory to spend USDC.
+   - Create: Calls MarketFactory.createMarket(question, endTimeUnix, liquidityUsdc, feeBps=200, sourceId=2 (dexscreener), resolutionData).
+7. Decodes the MarketCreated event from the receipt to get the onChainId, yesToken, noToken, liquidityPool.
+8. Inserts a row into the markets DB table with executionMode: "amm", cadence: "m15", status: "open", prices at 50/50.
+
+On-chain (MarketFactory.sol → createMarket()):
+- Clones OutcomeToken implementation twice (YES + NO) via EIP-1167 minimal proxy.
+- Clones CPMM implementation once.
+- Initializes tokens (pool is the minter/burner).
+- Transfers initial USDC from creator to the CPMM pool.
+- Calls CPMM.seedLiquidity() which sets yesReserve = noReserve = usdcAmount * 1e12 (50/50 split).
+- Emits MarketCreated.
+
+
+2. Market Making — AMM (CPMM.sol)
+----------------------------------
+
+The 15-minute markets use an on-chain Constant Product Market Maker (CPMM). There is no off-chain market maker or order-book based matching for these markets.
+
+Invariant: yesReserve * noReserve = k
+
+Pricing (getPrices()):
+- yesPrice = noReserve / (yesReserve + noReserve)
+- noPrice = yesReserve / (yesReserve + noReserve)
+- Returned in 1e18 precision.
+
+Fee: Configurable per-market, default 200 bps (2%). Applied before the swap math.
+
+Liquidity: Seeded by the market creator on creation. Additional liquidity can be added/removed via addLiquidity() / removeLiquidity().
+
+
+3. Executing Buys/Sells
+------------------------
+
+### Frontend (TradePanel.tsx)
+
+The user interacts with a trade panel on the market page:
+
+1. Select YES or NO — toggles which outcome to buy.
+2. Enter USDC amount — via input or quick buttons (+$1, +$5, +$10, +$100, Max=$1000).
+3. Preview — shows avg price, estimated shares, potential return, and max win.
+4. Click "Buy YES/NO" — triggers handleTrade().
+
+handleTrade() flow (all on-chain, no backend order routing):
+1. Gets the user's Privy-embedded wallet via useWallets().
+2. Creates a WalletClient using the Privy Ethereum provider.
+3. Step 1 — Approve: Calls USDC.approve(ammAddress, usdcAmount) and waits for receipt.
+4. Step 2 — Swap: Calls CPMM.buyYes(usdcAmount) or CPMM.buyNo(usdcAmount) and waits for receipt.
+5. Step 3 — Record: POSTs the txHash to POST /markets/:id/record-trade (fallback for indexer).
+6. Step 4 — Refresh: Invalidates React Query caches for the market, trades, and market list.
+
+### On-chain swap logic (CPMM.sol):
+
+Buy YES (buyYes(usdcIn)):
+1. Transfers USDC from trader to pool.
+2. Deducts fee: usdcAfterFee = usdcIn - (usdcIn * feeBps / 10000).
+3. Scales to 18 decimals: scaledIn = usdcAfterFee * 1e12.
+4. Adds scaledIn to noReserve (buying YES means adding to the other side).
+5. Computes new yesReserve = k / newNoReserve.
+6. sharesOut = oldYesReserve - newYesReserve.
+7. Mints sharesOut YES tokens to the trader.
+8. Emits Trade(marketId, trader, isYes=true, isBuy=true, shares, collateral).
+
+Buy NO (buyNo(usdcIn)): Mirror logic — adds to yesReserve, mints NO tokens.
+
+Sell YES (sellYes(sharesIn)):
+1. Burns YES tokens from seller.
+2. Adds sharesIn to yesReserve.
+3. Computes USDC output from the reduction in noReserve, scales back to 6 decimals.
+4. Deducts fee, transfers USDC to seller.
+5. Emits Trade(marketId, trader, isYes=true, isBuy=false, shares, usdcOut).
+
+Sell NO (sellNo(sharesIn)): Mirror logic.
+
+Note: There is currently no sell UI in TradePanel.tsx — only buy. Selling would require the user to call sellYes/sellNo directly or through a future sell panel.
+
+
+4. Trade Recording
+-------------------
+
+Trades are recorded through two redundant paths:
+
+### Path A: Indexer (Primary — indexer.ts)
+
+- On startup, the indexer watches Trade events on all known CPMM pool addresses via publicClient.watchContractEvent().
+- When a new pool is created (via MarketCreated event), it starts watching that pool's Trade events too.
+- On each Trade event:
+  1. Inserts a row into the trades table (marketId, trader, isYes, isBuy, shares, collateral, txHash).
+  2. Reads updated prices from CPMM.getPrices() and updates markets.yesPrice, markets.noPrice, markets.volume.
+  3. Upserts the user_positions table — increments/decrements yesBalance or noBalance depending on buy/sell and outcome.
+
+### Path B: Record-Trade API (Fallback — POST /markets/:id/record-trade)
+
+- Called by the frontend after a successful on-chain trade.
+- Checks if the trade is already recorded (dedup by txHash).
+- Fetches the transaction receipt from the chain.
+- Decodes the Trade event from the CPMM ABI.
+- Inserts into trades (with onConflictDoNothing), updates market prices and volume, upserts user positions.
+- Same logic as the indexer but triggered by the client rather than event subscription.
+
+### Data stored per trade (trades table):
+
+Column        | Description
+------------- | -------------------------------------------
+marketId      | FK to markets.id
+trader        | Lowercase wallet address
+isYes         | Whether the trade was on the YES outcome
+isBuy         | Whether it was a buy or sell
+shares        | Amount of outcome tokens (18 decimals str)
+collateral    | USDC amount (6 decimals str)
+txHash        | On-chain transaction hash
+timestamp     | Time of recording
+
+
+5. CLOB (Order Book) System — Exists but Separate
+--------------------------------------------------
+
+There is a parallel Central Limit Order Book (CLOB) system for markets with executionMode: "clob", but the 15-minute markets use executionMode: "amm" and do NOT go through it.
+
+For reference, the CLOB path works like:
+- POST /orders — Inserts a limit/market order into the orders DB table (requires Privy auth, validates market is CLOB-mode and not locked/expired).
+- A separate matching-engine service (Elysia HTTP server) runs an in-memory order book per market with price-time priority matching.
+- The engine supports YES/NO bids/asks, partial fills, self-trade prevention, and mirrored depth (a NO ask at 0.40 appears as a YES bid at 0.60).
+- Fills produce FillEvent objects with maker/taker info, price, and quantity.
+- Feature flags (enableAmmTrading / enableClobTrading) control which mode is active.
+
+The 15-minute markets currently bypass this entirely — all trading goes directly on-chain through the CPMM.
+
+
+6. Market Locking
+-----------------
+
+- Each m15 market has a lockTime = endTime - 10 seconds.
+- The resolution polling service checks all unresolved m15 markets and transitions status from "open" to "locked" when now >= lockTime.
+- The CLOB order endpoint rejects new orders if lockTime has passed (but since m15 markets use AMM, this only matters if the frontend checks market.status).
+- On-chain, there is no lock enforcement — the CPMM has no time-based guards, so the lock is only enforced at the application layer.
+
+
+7. Resolution
+-------------
+
+### Polling (resolution.ts → pollResolutions())
+
+Runs on a setInterval (default 60s). For each unresolved market:
+
+- resolutionSource: "admin" — Skipped (manual only).
+- resolutionSource: "dexscreener" + cadence: "m15" — Delegated to the DexScreener resolver.
+- resolutionSource: "dexscreener" + daily — Handled by BullMQ cron (separate worker), skipped here.
+- resolutionSource: "api" — Fetches from an external resolution API.
+
+### DexScreener Resolver (resolvers/dexscreener.ts → resolveDexScreener())
+
+1. Fetches the current NAM/USDC price from https://api.dexscreener.com/latest/dex/pairs/base/<pairAddress>.
+2. Reads the market's resolutionConfig → { comparison: ">=" | "<=", threshold: number }.
+3. If condition is met (e.g., price >= threshold) → resolve as YES (result=1).
+4. If past endTime and condition NOT met → resolve as NO (result=2).
+5. Otherwise → wait (log and skip).
+
+### On-chain resolution (resolveMarketOnChain())
+
+- Calls MarketFactory.resolveMarket(onChainId, result) via the admin wallet.
+- On-chain: sets market.resolved = true, market.result = 1 or 2, emits MarketResolved.
+
+### Post-resolution chain reaction
+
+After resolving an m15 market, maybeCreateNextM15() is called:
+- Uses the current NAM price as the new threshold.
+- Calls createNextM15Market(">=", currentPrice) to immediately spin up the next 15-minute market.
+- This creates a continuous rolling cycle of m15 markets.
+
+### Indexer picks up MarketResolved
+
+- Updates markets.resolved = true and markets.result in the DB.
+
+
+8. Redemption
+-------------
+
+After a market resolves:
+
+- Frontend: The market page shows "Market Resolved — YES/NO Wins" and directs users to the Portfolio page to redeem.
+- On-chain (MarketFactory.redeem(marketId)):
+  1. Checks market is resolved.
+  2. Gets the user's balance of the winning token (YES or NO ERC20).
+  3. Burns the winning tokens.
+  4. Converts from 18 decimals to 6 decimals: usdcAmount = balance / 1e12.
+  5. Transfers USDC from the CPMM pool to the user.
+  6. Emits Redeemed(marketId, user, amount).
+- Indexer catches the Redeemed event and zeros out the user's winning token balance in user_positions.
+
+
+9. Data Flow Summary
+--------------------
+
+User clicks "Buy YES $10"
+        |
+        v
+  [Frontend: TradePanel.tsx]
+  1. USDC.approve(CPMM, amount)
+  2. CPMM.buyYes(amount)          --- on-chain tx --->  [Base L2]
+  3. POST /markets/:id/record-trade                     |
+        |                                               |
+        v                                               v
+  [API: record-trade]                          [CPMM.sol: buyYes]
+  - decode Trade event                         - deduct 2% fee
+  - insert into trades table                   - x*y=k swap
+  - update market prices                       - mint YES tokens
+  - update user_positions                      - emit Trade event
+                                                        |
+                                                        v
+                                               [Indexer: watchContractEvent]
+                                               - insert trade (dedup)
+                                               - update prices from getPrices()
+                                               - update user_positions
+
+
+Every 60 seconds:
+  [Resolution Service: pollResolutions()]
+        |
+        v
+  [DexScreener Resolver]
+  - fetch NAM price
+  - compare to threshold
+        |
+    +---+-------------------+
+    v                       v
+  Price met threshold    Past endTime, not met
+  -> resolveMarket(YES)  -> resolveMarket(NO)
+        |                       |
+        +-------+---------------+
+                v
+  [MarketFactory.resolveMarket() on-chain]
+  - market.resolved = true
+  - emit MarketResolved
+                |
+                v
+  [maybeCreateNextM15()]
+  -> createNextM15Market(currentPrice)
+  -> new 15-min cycle begins
+
+
+10. Key Config & Feature Flags
+------------------------------
+
+Variable                        | Default  | Purpose
+------------------------------- | -------- | ----------------------------------------
+ENABLE_M15_MARKETS              | false    | Enable auto-creation of m15 markets
+M15_MARKET_DURATION_MINUTES     | 15       | Duration of each market
+MARKET_LOCK_WINDOW_SECONDS      | 10       | Lock period before end
+DEFAULT_FEE_BPS                 | 200      | CPMM trading fee (2%)
+M15_MARKET_LIQUIDITY            | 1        | Initial USDC liquidity (6 dec)
+RESOLUTION_POLL_INTERVAL        | 60000    | Polling interval (ms)
+enableAmmTrading                | flag     | Master switch for AMM trades
+enableClobTrading               | flag     | Master switch for CLOB trades
+DEXSCREENER_PAIR_ADDRESS        | env      | NAM/USDC pair on DexScreener

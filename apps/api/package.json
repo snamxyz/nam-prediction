@@ -8,10 +8,13 @@
     "start": "bun run dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:push": "bun run push-schema.ts",
+    "db:push:drizzle": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "market:create:15m": "bun run src/scripts/create-15m-market.ts"
   },
   "dependencies": {
+    "@elysiajs/cors": "^1.4.1",
     "@nam-prediction/shared": "workspace:*",
     "@privy-io/server-auth": "^1.32.5",
     "bullmq": "^5.73.3",

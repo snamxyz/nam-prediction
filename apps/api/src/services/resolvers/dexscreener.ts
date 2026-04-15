@@ -1,4 +1,5 @@
 import { resolveMarketOnChain } from "../resolution";
+import { createNextM15Market } from "../m15-market";
 import type { MarketRow } from "../../db/schema";
 
 const DEXSCREENER_PAIR_ADDRESS = process.env.DEXSCREENER_PAIR_ADDRESS || "";
@@ -61,13 +62,31 @@ export async function resolveDexScreener(market: MarketRow): Promise<void> {
     if (conditionMet) {
       console.log(`[DexScreener] Market #${market.onChainId}: NAM price $${price} ${config.comparison} $${threshold} → YES`);
       await resolveMarketOnChain(market.onChainId, 1);
+      await maybeCreateNextM15(market, price);
     } else if (isPastEnd) {
       console.log(`[DexScreener] Market #${market.onChainId}: past end time, price $${price} didn't meet threshold → NO`);
       await resolveMarketOnChain(market.onChainId, 2);
+      await maybeCreateNextM15(market, price);
     } else {
       console.log(`[DexScreener] Market #${market.onChainId}: NAM price $${price}, threshold $${threshold} — waiting...`);
     }
   } catch (err) {
     console.error(`[DexScreener] Error fetching price for market #${market.onChainId}:`, err);
+  }
+}
+
+/**
+ * After resolving an m15 market, automatically create the next one.
+ */
+async function maybeCreateNextM15(market: MarketRow, currentPrice: number): Promise<void> {
+  if (market.cadence !== "m15") return;
+
+  try {
+    console.log(`[DexScreener] Creating next m15 market with threshold $${currentPrice}`);
+    await createNextM15Market(">=", currentPrice);
+    console.log("[DexScreener] Next m15 market created successfully");
+  } catch (err) {
+    console.error("[DexScreener] Failed to create next m15 market:", err);
+    // Don't throw — the resolution itself already succeeded
   }
 }
