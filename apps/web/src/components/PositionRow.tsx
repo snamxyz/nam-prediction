@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
+import { toast } from "sonner";
 
 interface PositionRowProps {
   marketId: number;
@@ -33,15 +34,57 @@ export function PositionRow({
 }: PositionRowProps) {
   const { address } = useAccount();
   const queryClient = useQueryClient();
-  const { writeContract, data: txHash } = useWriteContract();
+  const toastIdRef = useRef<string | null>(null);
+  const { writeContract, data: txHash } = useWriteContract({
+    mutation: {
+      onError: (err: any) => {
+        const msg = err?.shortMessage || err?.message || "Redeem failed";
+        const isRejection = /user (rejected|denied)|rejected the request/i.test(msg);
+        const display = isRejection ? "Redeem cancelled" : msg;
+        if (toastIdRef.current) {
+          toast.error(display, { id: toastIdRef.current });
+          toastIdRef.current = null;
+        } else {
+          toast.error(display);
+        }
+      },
+    },
+  });
   const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
+  // Once the tx is in-flight, let the user know.
+  useEffect(() => {
+    if (!isLoading || !toastIdRef.current) return;
+    toast.loading("Redeeming\u2026", { id: toastIdRef.current });
+  }, [isLoading]);
+
   // Refresh portfolio + vault balance once the redemption tx confirms so the
-  // payout that landed in the user's escrow is reflected immediately.
+  // payout that landed in the user's escrow is reflected immediately. The
+  // backend indexer has a brief delay before it processes the Redeemed event,
+  // so we re-invalidate on a short backoff to pick up the new USDC balance.
   useEffect(() => {
     if (!isSuccess) return;
-    queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
-    queryClient.invalidateQueries({ queryKey: ["vault-balance", address] });
+
+    if (toastIdRef.current) {
+      toast.success("Redeemed. Payout added to your vault.", {
+        id: toastIdRef.current,
+      });
+      toastIdRef.current = null;
+    } else {
+      toast.success("Redeemed. Payout added to your vault.");
+    }
+
+    const kick = () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
+      queryClient.invalidateQueries({ queryKey: ["vault-balance", address] });
+    };
+    kick();
+    const t1 = setTimeout(kick, 1500);
+    const t2 = setTimeout(kick, 4000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [isSuccess, address, queryClient]);
 
   const yBal = Number(yesBalance);
@@ -55,6 +98,9 @@ export function PositionRow({
 
   const handleRedeem = () => {
     if (!MARKET_FACTORY_ADDRESS) return;
+    const id = `redeem-${onChainId}-${Date.now()}`;
+    toastIdRef.current = id;
+    toast.loading("Confirm redeem in your wallet\u2026", { id });
     writeContract({
       address: MARKET_FACTORY_ADDRESS,
       abi: MarketFactoryABI,

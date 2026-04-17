@@ -9,6 +9,7 @@ import { VAULT_ADDRESS, USDC_ADDRESS } from "@/lib/contracts";
 import { useAuth } from "@/hooks/useAuth";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { useWallets } from "@privy-io/react-auth";
+import { toast } from "sonner";
 
 const publicClient = createPublicClient({
   chain: base,
@@ -25,8 +26,6 @@ export function DepositWithdrawPanel() {
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
   const [amount, setAmount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [hasEscrow, setHasEscrow] = useState<boolean | null>(null);
 
   // Check whether this wallet already has a per-user escrow deployed.
@@ -58,8 +57,8 @@ export function DepositWithdrawPanel() {
   const handleDeposit = async () => {
     if (!address || !amount || !wallets.length) return;
     setIsLoading(true);
-    setError(null);
-    setSuccess(null);
+    const toastId = `deposit-${Date.now()}`;
+    const amountLabel = amount;
     try {
       if (!VAULT_ADDRESS) {
         throw new Error(
@@ -77,7 +76,7 @@ export function DepositWithdrawPanel() {
 
       const usdcAmount = parseUnits(amount, 6);
 
-      // Step 1: Approve USDC spend to Vault
+      toast.loading("Approve USDC spend in your wallet\u2026", { id: toastId });
       const approveHash = await walletClient.writeContract({
         address: USDC_ADDRESS,
         abi: ERC20ABI,
@@ -86,7 +85,7 @@ export function DepositWithdrawPanel() {
       });
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-      // Step 2: Deposit into Vault
+      toast.loading("Approved. Sending deposit\u2026", { id: toastId });
       const depositHash = await walletClient.writeContract({
         address: VAULT_ADDRESS,
         abi: VaultABI,
@@ -95,13 +94,15 @@ export function DepositWithdrawPanel() {
       });
       await publicClient.waitForTransactionReceipt({ hash: depositHash });
 
-      setSuccess(`Deposited $${amount} USDC`);
+      toast.success(`Deposited $${amountLabel} USDC`, { id: toastId });
       setAmount("");
       setHasEscrow(true);
       refetch();
     } catch (err: any) {
       console.error("Deposit failed:", err);
-      setError(err.shortMessage || err.message || "Deposit failed");
+      toast.error(err.shortMessage || err.message || "Deposit failed", {
+        id: toastId,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -110,8 +111,8 @@ export function DepositWithdrawPanel() {
   const handleWithdraw = async () => {
     if (!address || !amount || !wallets.length) return;
     setIsLoading(true);
-    setError(null);
-    setSuccess(null);
+    const toastId = `withdraw-${Date.now()}`;
+    const amountLabel = amount;
     try {
       if (!VAULT_ADDRESS) {
         throw new Error(
@@ -129,20 +130,24 @@ export function DepositWithdrawPanel() {
 
       const usdcAmount = parseUnits(amount, 6);
 
+      toast.loading("Confirm withdrawal in your wallet\u2026", { id: toastId });
       const withdrawHash = await walletClient.writeContract({
         address: VAULT_ADDRESS,
         abi: VaultABI,
         functionName: "withdraw",
         args: [usdcAmount],
       });
+      toast.loading("Processing withdrawal\u2026", { id: toastId });
       await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
 
-      setSuccess(`Withdrew $${amount} USDC`);
+      toast.success(`Withdrew $${amountLabel} USDC`, { id: toastId });
       setAmount("");
       refetch();
     } catch (err: any) {
       console.error("Withdraw failed:", err);
-      setError(err.shortMessage || err.message || "Withdraw failed");
+      toast.error(err.shortMessage || err.message || "Withdraw failed", {
+        id: toastId,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -169,7 +174,7 @@ export function DepositWithdrawPanel() {
             return (
               <button
                 key={t}
-                onClick={() => { setTab(t); setError(null); setSuccess(null); }}
+                onClick={() => setTab(t)}
                 className="py-2.5 rounded-lg text-sm font-semibold transition-all inner-border"
                 style={
                   active
@@ -217,18 +222,6 @@ export function DepositWithdrawPanel() {
             style={{ color: "#9aa0b4", background: "rgba(1,210,67,0.06)", border: "0.5px solid rgba(1,210,67,0.15)" }}
           >
             Your first deposit will create your personal vault (your funds are isolated from other users). A small one-time gas cost applies.
-          </p>
-        )}
-
-        {/* Error / Success */}
-        {error && (
-          <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ color: "#ff4757", background: "rgba(255,71,87,0.10)" }}>
-            {error}
-          </p>
-        )}
-        {success && (
-          <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ color: "#01d243", background: "rgba(1,210,67,0.10)" }}>
-            {success}
           </p>
         )}
 

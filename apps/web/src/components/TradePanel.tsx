@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fetchApi, authedPostApi } from "@/lib/api";
+import { toast } from "sonner";
 
 const QUICK = [1, 5, 10, 100];
 const SELL_PERCENTS = [25, 50, 100] as const;
@@ -72,7 +73,6 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const [slippagePct, setSlippagePct] = useState<number>(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
 
   const [estimate, setEstimate] = useState<
     | { shares?: string; sharesRaw?: string; usdc?: string; usdcRaw?: string; avgPrice?: string }
@@ -112,7 +112,8 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
     if (!address || !amount || !wallets.length) return;
     setIsLoading(true);
     setError(null);
-    setStatus(null);
+    const toastId = `trade-${Date.now()}`;
+    const amountLabel = amount;
     try {
       const token = await getAccessToken();
       if (!token) throw new Error("Not authenticated");
@@ -142,15 +143,13 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         minOutput = (expected * (BPS_DENOM - slippageBps)) / BPS_DENOM;
       }
 
-      // Fetch a fresh nonce from the API
-      setStatus("Preparing trade…");
+      toast.loading("Preparing trade\u2026", { id: toastId });
       const { nonce, suggestedDeadline } = await fetchApi<NonceResponse>(
         `/trading/nonce/${address}`
       );
       const deadline = BigInt(suggestedDeadline);
 
-      // Ask the user to sign the EIP-712 intent
-      setStatus("Waiting for wallet signature…");
+      toast.loading("Sign the trade in your wallet\u2026", { id: toastId });
       const signature = await walletClient.signTypedData({
         account: address,
         domain: { ...TRADING_DOMAIN, chainId: base.id },
@@ -169,7 +168,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         },
       });
 
-      setStatus("Submitting trade…");
+      toast.loading("Submitting trade\u2026", { id: toastId });
       const endpoint = mode === "BUY" ? "/trading/buy" : "/trading/sell";
       await authedPostApi(
         endpoint,
@@ -191,19 +190,23 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
       queryClient.invalidateQueries({ queryKey: ["markets"] });
       queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
       refetchBalance();
+
+      const successMsg =
+        mode === "BUY"
+          ? `Bought ${side} \u00b7 $${amountLabel}`
+          : `Sold ${side} \u00b7 ${amountLabel} shares`;
+      toast.success(successMsg, { id: toastId });
+
       setAmount("");
       setEstimate(null);
-      setStatus(null);
     } catch (err: any) {
       console.error("Trade failed:", err);
       const msg = err.shortMessage || err.message || "Trade failed";
       // Users cancelling the signature prompt is not really an error worth shouting about.
-      if (/user (rejected|denied)|rejected the request/i.test(msg)) {
-        setError("Signature rejected");
-      } else {
-        setError(msg);
-      }
-      setStatus(null);
+      const isRejection = /user (rejected|denied)|rejected the request/i.test(msg);
+      const display = isRejection ? "Signature rejected" : msg;
+      setError(display);
+      toast.error(display, { id: toastId });
     } finally {
       setIsLoading(false);
     }
@@ -509,16 +512,6 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           </p>
         )}
 
-        {/* Status */}
-        {status && !error && (
-          <p
-            className="text-xs mb-3 px-3 py-2 rounded-lg"
-            style={{ color: "#9aa0b4", background: "rgba(1,210,67,0.06)", border: "0.5px solid rgba(1,210,67,0.15)" }}
-          >
-            {status}
-          </p>
-        )}
-
         {/* Error */}
         {error && (
           <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ color: "#ff4757", background: "rgba(255,71,87,0.10)" }}>
@@ -547,7 +540,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             }
           >
             {isLoading
-              ? status || "Processing…"
+              ? "Processing…"
               : num > 0
               ? `${mode === "BUY" ? "Buy" : "Sell"} ${side} · ${mode === "BUY" ? `$${num.toFixed(2)}` : `${num} shares`}`
               : "Enter an amount"}

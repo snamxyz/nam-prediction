@@ -6,6 +6,7 @@ import { WagmiProvider } from "@privy-io/wagmi";
 import { wagmiConfig } from "@/lib/wagmi";
 import { useState, type ReactNode } from "react";
 import { base } from "viem/chains";
+import { Toaster } from "sonner";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -29,7 +30,15 @@ export function Providers({ children }: { children: ReactNode }) {
       }}
     >
       <QueryClientProvider client={queryClient}>
-        <WagmiProvider config={wagmiConfig}>{children}</WagmiProvider>
+        <WagmiProvider config={wagmiConfig}>
+          {children}
+          <Toaster
+            theme="dark"
+            position="top-right"
+            richColors
+            closeButton
+          />
+        </WagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
   );
