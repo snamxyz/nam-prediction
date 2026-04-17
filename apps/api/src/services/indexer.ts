@@ -133,6 +133,9 @@ export interface TradeFillInput {
   shares: bigint; // 18 decimals
   collateral: bigint; // 6 decimals
   txHash: string;
+  /// Block number the Trade event was emitted in. Used to pin the post-trade
+  /// price snapshot so concurrent trades don't produce wrong-direction reads.
+  blockNumber?: bigint;
 }
 
 /// Insert the trade, update the market prices + volume, publish the realtime
@@ -142,7 +145,7 @@ export interface TradeFillInput {
 /// second call, which lets the indexer and the trading route both fire
 /// without double-booking anything.
 export async function processTradeFill(input: TradeFillInput): Promise<void> {
-  const { onChainMarketId, trader, isYes, isBuy, shares, collateral, txHash } = input;
+  const { onChainMarketId, trader, isYes, isBuy, shares, collateral, txHash, blockNumber } = input;
 
   const market = await db
     .select()
@@ -172,32 +175,70 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
 
   // Snapshot the AMM's post-trade YES/NO prices so the chart and the market
   // header share a single source of truth (see PriceChart).
+  //
+  // Critical: we pin the read to the trade's blockNumber when available. That
+  // guarantees the snapshot reflects the *same* block as the Trade event we're
+  // indexing, even when another trade lands in the interim. Without this,
+  // concurrent trades race and we can record prices from the wrong block —
+  // which the UI then sees as "price moved in the wrong direction".
+  //
   // One multicall instead of three round-trips keeps us under the RPC rate
-  // limit when trades arrive in bursts. On any RPC failure we fall back to the
-  // market row's last known prices so the trade row is never lost.
+  // limit when trades arrive in bursts. On any RPC failure we retry once,
+  // then fall back to `latest`, then to the market row's last known prices
+  // so the trade row is never lost. Even on total failure we still publish
+  // the realtime event so the UI sees *something* moving.
+  const ammAddress = dbMarket.ammAddress as `0x${string}`;
   let yesPriceNum = dbMarket.yesPrice ?? 0.5;
   let noPriceNum = dbMarket.noPrice ?? 0.5;
   let yesReserve: bigint = 0n;
   let noReserve: bigint = 0n;
   let pricesFetched = false;
-  try {
-    const ammAddress = dbMarket.ammAddress as `0x${string}`;
-    const results = await publicClient.multicall({
+
+  const readReservesAt = async (bn?: bigint) => {
+    return publicClient.multicall({
       allowFailure: false,
+      ...(bn !== undefined ? { blockNumber: bn } : {}),
       contracts: [
         { address: ammAddress, abi: CPMMABI, functionName: "getPrices" },
         { address: ammAddress, abi: CPMMABI, functionName: "yesReserve" },
         { address: ammAddress, abi: CPMMABI, functionName: "noReserve" },
       ],
     });
+  };
+
+  const applyResults = (results: readonly unknown[]) => {
     const [yesPrice, noPrice] = results[0] as readonly [bigint, bigint];
     yesReserve = results[1] as bigint;
     noReserve = results[2] as bigint;
     yesPriceNum = Number(yesPrice) / 1e18;
     noPriceNum = Number(noPrice) / 1e18;
     pricesFetched = true;
+  };
+
+  try {
+    applyResults(await readReservesAt(blockNumber));
   } catch (err) {
-    console.error("[Indexer] Failed to fetch AMM prices, using cached:", err);
+    console.warn(
+      `[Indexer] Block-pinned price read failed (block=${blockNumber}), retrying:`,
+      (err as Error)?.message || err
+    );
+    try {
+      await new Promise((r) => setTimeout(r, 250));
+      applyResults(await readReservesAt(blockNumber));
+    } catch (err2) {
+      console.warn(
+        "[Indexer] Retry failed, falling back to latest block:",
+        (err2 as Error)?.message || err2
+      );
+      try {
+        applyResults(await readReservesAt(undefined));
+      } catch (err3) {
+        console.error(
+          "[Indexer] Failed to fetch AMM prices even from latest, using cached:",
+          err3
+        );
+      }
+    }
   }
 
   await db.insert(trades).values({
@@ -212,41 +253,50 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
     txHash,
   });
 
-  if (pricesFetched) {
-    try {
-      const newVolume = Number(dbMarket.volume) + Number(collateral) / 1e6;
+  // Always bump volume — we know `collateral` from the event itself, no RPC needed.
+  // Only touch the price columns if we actually fetched on-chain prices.
+  const newVolume = Number(dbMarket.volume) + Number(collateral) / 1e6;
+  try {
+    await db
+      .update(markets)
+      .set(
+        pricesFetched
+          ? { yesPrice: yesPriceNum, noPrice: noPriceNum, volume: newVolume.toString() }
+          : { volume: newVolume.toString() }
+      )
+      .where(eq(markets.id, dbMarket.id));
 
-      // Realized fill price from this trade: USDC in per share.
-      const sharesNum = Number(shares) / 1e18;
-      const collateralNum = Number(collateral) / 1e6;
-      const lastTradePrice = sharesNum > 0 ? collateralNum / sharesNum : 0;
-
-      await db
-        .update(markets)
-        .set({
-          yesPrice: yesPriceNum,
-          noPrice: noPriceNum,
-          volume: newVolume.toString(),
-        })
-        .where(eq(markets.id, dbMarket.id));
-
+    if (pricesFetched) {
       await setCache(cacheKeys.marketYesPrice(dbMarket.id), yesPriceNum.toString());
       await setCache(cacheKeys.marketNoPrice(dbMarket.id), noPriceNum.toString());
-
-      await publishEvent("market:price", {
-        marketId: dbMarket.id,
-        yesPrice: yesPriceNum,
-        noPrice: noPriceNum,
-        yesReserve: formatUnits(yesReserve, 18),
-        noReserve: formatUnits(noReserve, 18),
-        lastTradePrice,
-        lastTradeSide: isYes ? "YES" : "NO",
-        lastTradeIsBuy: isBuy,
-        volume: newVolume,
-      });
-    } catch (err) {
-      console.error("[Indexer] Failed to update market prices:", err);
     }
+  } catch (err) {
+    console.error("[Indexer] Failed to update market row:", err);
+  }
+
+  // Always publish the realtime event — the socket is the only fast signal
+  // to the UI, so even when we couldn't fetch fresh prices we still notify
+  // with whatever we have (cached prices from the market row). The reconciler
+  // will follow up and correct the prices within ~15s.
+  try {
+    const sharesNum = Number(shares) / 1e18;
+    const collateralNum = Number(collateral) / 1e6;
+    const lastTradePrice = sharesNum > 0 ? collateralNum / sharesNum : 0;
+
+    await publishEvent("market:price", {
+      marketId: dbMarket.id,
+      yesPrice: yesPriceNum,
+      noPrice: noPriceNum,
+      yesReserve: pricesFetched ? formatUnits(yesReserve, 18) : undefined,
+      noReserve: pricesFetched ? formatUnits(noReserve, 18) : undefined,
+      lastTradePrice,
+      lastTradeSide: isYes ? "YES" : "NO",
+      lastTradeIsBuy: isBuy,
+      volume: newVolume,
+      pricesStale: !pricesFetched,
+    });
+  } catch (err) {
+    console.error("[Indexer] Failed to publish market:price event:", err);
   }
 
   await publishEvent("trade:new", {
@@ -322,6 +372,7 @@ async function handleTrade(log: any) {
     shares: shares as bigint,
     collateral: col as bigint,
     txHash: log.transactionHash as string,
+    blockNumber: log.blockNumber as bigint | undefined,
   });
 }
 
@@ -424,6 +475,11 @@ export async function startIndexer() {
 
   // Start watching Vault events
   startVaultWatcher();
+
+  // Start the price reconciler — heals any market whose DB-cached prices
+  // diverge from the on-chain AMM (e.g. a post-trade RPC failure left the
+  // row stale) and fixes already-stuck markets on boot.
+  startPriceReconciler();
 
   console.log("[Indexer] Event watchers started");
 }
@@ -555,4 +611,121 @@ export function watchTradesForPool(ammAddress: `0x${string}`) {
     eventName: "Trade",
     onLogs: (logs) => logs.forEach(handleTrade),
   });
+}
+
+// ─── Price reconciler ───
+//
+// Safety net that protects against any `processTradeFill` call that failed to
+// update the DB (e.g. RPC hiccup, blockNumber-pinned read into a pruned block,
+// or a pre-fix stuck market). Every RECONCILE_INTERVAL_MS we batch-read
+// `getPrices()` for every unresolved market in a single multicall and fix any
+// row whose DB-cached price has drifted from the chain by more than
+// PRICE_EPSILON.
+const PRICE_EPSILON = 0.005;
+const RECONCILE_INTERVAL_MS = Number(
+  process.env.PRICE_RECONCILE_INTERVAL_MS || 15_000
+);
+
+let reconcilerStarted = false;
+
+async function reconcilePrices(): Promise<void> {
+  let active: typeof markets.$inferSelect[];
+  try {
+    active = await db.select().from(markets);
+  } catch (err) {
+    console.error("[Reconciler] Failed to load markets:", err);
+    return;
+  }
+
+  // Only reconcile markets that can still move. Resolved / locked / cancelled
+  // markets don't receive trades, so their prices are frozen by design.
+  const candidates = active.filter(
+    (m) =>
+      !m.resolved &&
+      m.status !== "locked" &&
+      m.status !== "resolving" &&
+      m.status !== "resolved" &&
+      m.status !== "cancelled" &&
+      !!m.ammAddress
+  );
+  if (candidates.length === 0) return;
+
+  let results: unknown[];
+  try {
+    results = await publicClient.multicall({
+      allowFailure: true,
+      contracts: candidates.map((m) => ({
+        address: m.ammAddress as `0x${string}`,
+        abi: CPMMABI,
+        functionName: "getPrices",
+      })),
+    });
+  } catch (err) {
+    console.error("[Reconciler] Batch getPrices multicall failed:", err);
+    return;
+  }
+
+  for (let i = 0; i < candidates.length; i++) {
+    const m = candidates[i];
+    const r = results[i] as { status: string; result?: readonly [bigint, bigint] };
+    if (!r || r.status !== "success" || !r.result) continue;
+
+    const [yesPriceRaw, noPriceRaw] = r.result;
+    const yesPriceNum = Number(yesPriceRaw) / 1e18;
+    const noPriceNum = Number(noPriceRaw) / 1e18;
+    if (!Number.isFinite(yesPriceNum) || !Number.isFinite(noPriceNum)) continue;
+
+    const dbYes = m.yesPrice ?? 0.5;
+    const dbNo = m.noPrice ?? 0.5;
+    if (
+      Math.abs(yesPriceNum - dbYes) < PRICE_EPSILON &&
+      Math.abs(noPriceNum - dbNo) < PRICE_EPSILON
+    ) {
+      continue;
+    }
+
+    console.log(
+      `[Reconciler] Healing drift on market #${m.id} (onChain=${m.onChainId}): ` +
+        `db=(${dbYes.toFixed(4)}, ${dbNo.toFixed(4)}) → chain=(${yesPriceNum.toFixed(4)}, ${noPriceNum.toFixed(4)})`
+    );
+
+    try {
+      await db
+        .update(markets)
+        .set({ yesPrice: yesPriceNum, noPrice: noPriceNum })
+        .where(eq(markets.id, m.id));
+
+      await setCache(cacheKeys.marketYesPrice(m.id), yesPriceNum.toString());
+      await setCache(cacheKeys.marketNoPrice(m.id), noPriceNum.toString());
+
+      await publishEvent("market:price", {
+        marketId: m.id,
+        yesPrice: yesPriceNum,
+        noPrice: noPriceNum,
+        volume: Number(m.volume),
+        reconciled: true,
+      });
+    } catch (err) {
+      console.error(`[Reconciler] Failed to heal market #${m.id}:`, err);
+    }
+  }
+}
+
+export function startPriceReconciler(): void {
+  if (reconcilerStarted) return;
+  reconcilerStarted = true;
+
+  console.log(
+    `[Reconciler] Starting price reconciler (interval=${RECONCILE_INTERVAL_MS}ms, epsilon=${PRICE_EPSILON})`
+  );
+
+  // Fire once on boot so any already-stuck markets heal immediately without
+  // waiting a full interval.
+  void reconcilePrices();
+
+  setInterval(() => {
+    void reconcilePrices().catch((err) =>
+      console.error("[Reconciler] Uncaught error:", err)
+    );
+  }, RECONCILE_INTERVAL_MS);
 }

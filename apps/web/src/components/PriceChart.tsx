@@ -52,7 +52,7 @@ export function PriceChart({ trades }: PriceChartProps) {
   }
 
   return (
-    <div className="space-x-4 flex">
+    <div className="space-x-4 flex w-full">
       <SideChart
         title="YES Price History"
         data={data}
@@ -81,7 +81,7 @@ interface SideChartProps {
 
 function SideChart({ title, data, dataKey, color, label }: SideChartProps) {
   return (
-    <div className="glass-card p-4">
+    <div className="glass-card p-4 w-full">
       <h3 className="font-semibold mb-2 text-xs uppercase tracking-wide" style={{ color: "#e8e9ed" }}>
         {title}
       </h3>

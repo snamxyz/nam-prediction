@@ -188,7 +188,12 @@ async function verifyTradeIntent(params: {
 async function waitForTradeEvent(
   txHash: `0x${string}`,
   ammAddress: `0x${string}`
-): Promise<{ shares: bigint; collateral: bigint; marketId: bigint } | null> {
+): Promise<{
+  shares: bigint;
+  collateral: bigint;
+  marketId: bigint;
+  blockNumber: bigint;
+} | null> {
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
   if (receipt.status !== "success") {
     throw new Error(`Transaction reverted on-chain (tx=${txHash})`);
@@ -206,6 +211,7 @@ async function waitForTradeEvent(
           shares: decoded.args.shares as bigint,
           collateral: decoded.args.collateral as bigint,
           marketId: decoded.args.marketId as bigint,
+          blockNumber: receipt.blockNumber,
         };
       }
     } catch {
@@ -558,6 +564,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           shares: filled.shares,
           collateral: filled.collateral,
           txHash,
+          blockNumber: filled.blockNumber,
         });
 
         console.log(
@@ -727,6 +734,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           shares: filled.shares,
           collateral: filled.collateral,
           txHash,
+          blockNumber: filled.blockNumber,
         });
 
         console.log(

@@ -228,23 +228,54 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         return { success: false, error: "No Trade event found in tx" };
       }
 
-      // Fetch AMM prices first so the trade row can carry a price snapshot
-      // matching the market header. Fall back to the market's cached prices
-      // if the RPC call fails so the trade still gets recorded.
+      // Fetch AMM prices pinned to the trade's block so the snapshot matches
+      // the Trade event we just decoded (reading "latest" would race with any
+      // concurrent trade and flip the price in the wrong direction).
+      // Retry once, then fall back to "latest", then to the market row's
+      // cached prices so the trade still gets recorded.
       let yesPriceNum = dbMarket.yesPrice ?? 0.5;
       let noPriceNum = dbMarket.noPrice ?? 0.5;
       let pricesFetched = false;
-      try {
-        const [yesPrice, noPrice] = (await rpcClient.readContract({
+      const readPricesAt = async (bn?: bigint) =>
+        (await rpcClient.readContract({
           address: dbMarket.ammAddress as `0x${string}`,
           abi: CPMMABI,
           functionName: "getPrices",
+          ...(bn !== undefined ? { blockNumber: bn } : {}),
         })) as [bigint, bigint];
+      try {
+        const [yesPrice, noPrice] = await readPricesAt(receipt.blockNumber);
         yesPriceNum = Number(yesPrice) / 1e18;
         noPriceNum = Number(noPrice) / 1e18;
         pricesFetched = true;
       } catch (err) {
-        console.error("[record-trade] Failed to fetch AMM prices, using cached:", err);
+        console.warn(
+          `[record-trade] Block-pinned price read failed (block=${receipt.blockNumber}), retrying:`,
+          (err as Error)?.message || err
+        );
+        try {
+          await new Promise((r) => setTimeout(r, 250));
+          const [yesPrice, noPrice] = await readPricesAt(receipt.blockNumber);
+          yesPriceNum = Number(yesPrice) / 1e18;
+          noPriceNum = Number(noPrice) / 1e18;
+          pricesFetched = true;
+        } catch (err2) {
+          console.warn(
+            "[record-trade] Retry failed, falling back to latest block:",
+            (err2 as Error)?.message || err2
+          );
+          try {
+            const [yesPrice, noPrice] = await readPricesAt(undefined);
+            yesPriceNum = Number(yesPrice) / 1e18;
+            noPriceNum = Number(noPrice) / 1e18;
+            pricesFetched = true;
+          } catch (err3) {
+            console.error(
+              "[record-trade] Failed to fetch AMM prices, using cached:",
+              err3
+            );
+          }
+        }
       }
 
       // Insert trade (convert from raw BigInt to human-readable decimals)
