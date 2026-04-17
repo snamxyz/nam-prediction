@@ -208,6 +208,56 @@ export const CPMMABI = [
     stateMutability: "view",
   },
   {
+    type: "function",
+    name: "buyYesFor",
+    inputs: [
+      { name: "usdcIn", type: "uint256" },
+      { name: "recipient", type: "address" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "buyNoFor",
+    inputs: [
+      { name: "usdcIn", type: "uint256" },
+      { name: "recipient", type: "address" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "sellYesFor",
+    inputs: [
+      { name: "sharesIn", type: "uint256" },
+      { name: "seller", type: "address" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "sellNoFor",
+    inputs: [
+      { name: "sharesIn", type: "uint256" },
+      { name: "seller", type: "address" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "redeemFor",
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "yesWins", type: "bool" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
     type: "event",
     name: "Trade",
     inputs: [
@@ -217,6 +267,17 @@ export const CPMMABI = [
       { name: "isBuy", type: "bool", indexed: false },
       { name: "shares", type: "uint256", indexed: false },
       { name: "collateral", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Redemption",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "payoutTo", type: "address", indexed: true },
+      { name: "sharesBurned", type: "uint256", indexed: false },
+      { name: "usdcOut", type: "uint256", indexed: false },
     ],
   },
 ] as const;
@@ -285,5 +346,133 @@ export const ERC20ABI = [
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
     stateMutability: "view",
+  },
+] as const;
+
+export const VaultABI = [
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "balances",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "escrowOf",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isEscrow",
+    inputs: [{ name: "escrow", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "predictEscrow",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "executeBuyYes",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "usdcAmount", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "executeBuyNo",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "usdcAmount", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "executeSellYes",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "executeSellNo",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "event",
+    name: "EscrowCreated",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "escrow", type: "address", indexed: true },
+    ],
+  },
+  {
+    type: "event",
+    name: "Deposit",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Withdraw",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "BalanceUpdated",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "newBalance", type: "uint256", indexed: false },
+    ],
   },
 ] as const;

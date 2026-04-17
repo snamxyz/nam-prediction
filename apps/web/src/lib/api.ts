@@ -24,3 +24,24 @@ export async function postApi<T>(path: string, body: unknown): Promise<T> {
   const json = await res.json();
   return json.data as T;
 }
+
+export async function authedPostApi<T>(path: string, body: unknown, token: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `API error: ${res.status}`);
+  }
+  const json = await res.json();
+  return json.data as T;
+}
+
+export function getApiUrl(): string {
+  return API_URL;
+}

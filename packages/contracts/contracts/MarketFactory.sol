@@ -42,6 +42,12 @@ contract MarketFactory {
     uint256 public marketCount;
     address public admin;
     address public collateral; // USDC
+    address public vault; // Vault contract for delegated trading
+
+    /// @notice Tracks CPMM pool addresses created by this factory.
+    /// @dev Consulted by the Vault router (IMarketFactoryView.isPool) to reject
+    ///      operator-submitted pools that weren't produced by this factory.
+    mapping(address => bool) public isPool;
 
     // Implementation contracts for cloning
     address public outcomeTokenImpl;
@@ -160,6 +166,14 @@ contract MarketFactory {
 
         // Seed liquidity (50/50 split)
         CPMM(pool).seedLiquidity(initialLiquidityUSDC, msg.sender);
+
+        // Set vault on pool if vault is configured
+        if (vault != address(0)) {
+            CPMM(pool).setVault(vault);
+        }
+
+        // Register pool in whitelist so the Vault router can validate operator calls
+        isPool[pool] = true;
 
         // Store market
         markets[marketId] = Market({
@@ -298,25 +312,19 @@ contract MarketFactory {
     // ─── Redemption ───
 
     /// @notice Redeem winning tokens for USDC after market resolution
+    /// @dev Delegates the burn + USDC payout to the CPMM pool, which is both the
+    ///      authorized burner of the outcome tokens AND the collateral custodian.
+    ///      Proceeds are routed to the caller's vault escrow when one exists.
     /// @param marketId ID of the resolved market
     function redeem(uint256 marketId) external {
         Market storage market = markets[marketId];
         require(market.resolved, "Not resolved");
         require(market.result == 1 || market.result == 2, "Invalid result");
 
-        address winningToken = market.result == 1 ? market.yesToken : market.noToken;
-        uint256 balance = IERC20(winningToken).balanceOf(msg.sender);
-        require(balance > 0, "No winning tokens");
-
-        // Burn winning tokens
-        IOutcomeToken(winningToken).burn(msg.sender, balance);
-
-        // Convert from 18 decimals to 6 decimals for USDC payout
-        uint256 usdcAmount = balance / 1e12;
-        require(usdcAmount > 0, "Amount too small");
-
-        // Transfer USDC from pool to user
-        IERC20(collateral).safeTransferFrom(market.liquidityPool, msg.sender, usdcAmount);
+        uint256 usdcAmount = ICPMM(market.liquidityPool).redeemFor(
+            msg.sender,
+            market.result == 1
+        );
 
         emit Redeemed(marketId, msg.sender, usdcAmount);
     }
@@ -340,6 +348,10 @@ contract MarketFactory {
 
     function setUmaLiveness(uint64 liveness_) external onlyAdmin {
         umaLiveness = liveness_;
+    }
+
+    function setVault(address vault_) external onlyAdmin {
+        vault = vault_;
     }
 
     // ─── Helpers ───

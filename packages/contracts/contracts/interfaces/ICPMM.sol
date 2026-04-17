@@ -11,10 +11,20 @@ interface ICPMM {
         address factory_
     ) external;
 
+    function setVault(address vault_) external;
+
     function buyYes(uint256 usdcIn) external returns (uint256 sharesOut);
     function buyNo(uint256 usdcIn) external returns (uint256 sharesOut);
     function sellYes(uint256 sharesIn) external returns (uint256 usdcOut);
     function sellNo(uint256 sharesIn) external returns (uint256 usdcOut);
+
+    function buyYesFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut);
+    function buyNoFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut);
+    function sellYesFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+    function sellNoFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+
+    function redeemFor(address user, bool yesWins) external returns (uint256 usdcOut);
+
     function addLiquidity(uint256 usdcAmount) external returns (uint256 lpShares);
     function removeLiquidity(uint256 lpShares) external;
     function getPrices() external view returns (uint256 yesPrice, uint256 noPrice);

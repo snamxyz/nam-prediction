@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
+import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { TrendingUp, Search, Wallet, User } from "lucide-react";
 
 export function Navbar() {
-  const { login, logout, isAuthenticated, displayName } = useAuth();
+  const { login, logout, isAuthenticated } = useAuth();
+  const { usdcBalance } = useVaultBalance();
 
   return (
     <header className="sticky top-0 z-50 w-full" style={{ background: "rgba(10,11,15,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
@@ -45,11 +47,17 @@ export function Navbar() {
 
           {isAuthenticated ? (
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm rounded-lg"
-                style={{ background: "#1f2028", border: "1px solid rgba(255,255,255,0.08)", color: "#e8e9ed" }}>
-                <Wallet className="w-4 h-4" />
-                <span className="text-xs font-mono">{displayName}</span>
-              </div>
+              <Link
+                href="/portfolio"
+                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-all"
+                style={{ background: "#1f2028", border: "1px solid rgba(255,255,255,0.08)", color: "#e8e9ed" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(1,210,67,0.30)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
+              >
+                <Wallet className="w-4 h-4" style={{ color: "#01d243" }} />
+                <span className="text-xs font-semibold">${parseFloat(usdcBalance).toFixed(2)}</span>
+                <span className="text-[10px]" style={{ color: "#717182" }}>Vault</span>
+              </Link>
               <button onClick={logout} className="px-3 py-2 text-sm rounded-lg transition-colors"
                 style={{ background: "rgba(31,32,40,0.50)", color: "#717182" }}
                 onMouseEnter={e => { e.currentTarget.style.background = "rgba(31,32,40,0.80)"; e.currentTarget.style.color = "#e8e9ed"; }}

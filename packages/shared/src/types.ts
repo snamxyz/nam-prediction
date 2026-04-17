@@ -77,6 +77,8 @@ export interface Trade {
   isBuy: boolean;
   shares: string;
   collateral: string;
+  yesPrice: number;
+  noPrice: number;
   txHash: string;
   timestamp: string;
 }

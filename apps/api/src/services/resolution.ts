@@ -5,7 +5,10 @@ import { db } from "../db/client";
 import { markets } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
-import { resolveDexScreener } from "./resolvers/dexscreener";
+import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
+
+// NOTE: m15 markets are owned by the dedicated BullMQ worker in ./queue/m15-queue.ts.
+// This poller intentionally ignores cadence === "m15" rows.
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -18,25 +21,42 @@ export async function resolveMarketOnChain(
   marketId: number,
   result: number
 ): Promise<string> {
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) throw new Error("PRIVATE_KEY not set");
+  const lockKey = `resolve:market:${marketId}`;
+  const acquired = await acquireLock(lockKey, 120); // 2-minute TTL
+  if (!acquired) {
+    console.log(`[Resolution] Market #${marketId} resolution already in progress — skipping`);
+    return "";
+  }
 
-  const account = privateKeyToAccount(`0x${privateKey}` as `0x${string}`);
-  const walletClient = createWalletClient({
-    account,
-    chain: base,
-    transport: http(RPC_URL),
-  });
+  try {
+    const privateKey = process.env.PRIVATE_KEY;
+    if (!privateKey) throw new Error("PRIVATE_KEY not set");
 
-  const txHash = await walletClient.writeContract({
-    address: FACTORY_ADDRESS,
-    abi: MarketFactoryABI,
-    functionName: "resolveMarket",
-    args: [BigInt(marketId), result],
-  });
+    const account = privateKeyToAccount(`0x${privateKey}` as `0x${string}`);
+    const walletClient = createWalletClient({
+      account,
+      chain: base,
+      transport: http(RPC_URL),
+    });
 
-  console.log(`[Resolution] Resolved market #${marketId} with result=${result}, tx=${txHash}`);
-  return txHash;
+    const txHash = await walletClient.writeContract({
+      address: FACTORY_ADDRESS,
+      abi: MarketFactoryABI,
+      functionName: "resolveMarket",
+      args: [BigInt(marketId), result],
+    });
+
+    console.log(`[Resolution] Resolved market #${marketId} with result=${result}, tx=${txHash}`);
+
+    // Publish locked event before resolution
+    await publishEvent("market:locked", { marketId });
+
+    return txHash;
+  } catch (err) {
+    // Release the lock if we failed so a retry can happen
+    await releaseLock(lockKey);
+    throw err;
+  }
 }
 
 // ─── Resolution polling service ───
@@ -45,39 +65,17 @@ async function pollResolutions() {
   if (!FACTORY_ADDRESS) return;
 
   try {
-    // Find all unresolved markets with "api" resolution source
+    // Find all unresolved markets, excluding m15 (owned by the dedicated m15 worker)
     const unresolvedMarkets = await db
       .select()
       .from(markets)
       .where(eq(markets.resolved, false));
 
-    // Update status to "locked" for m15 markets past their lock time
-    const now = new Date();
     for (const market of unresolvedMarkets) {
-      if (
-        market.cadence === "m15" &&
-        market.status === "open" &&
-        market.lockTime &&
-        now >= new Date(market.lockTime)
-      ) {
-        await db
-          .update(markets)
-          .set({ status: "locked" })
-          .where(eq(markets.id, market.id));
-        market.status = "locked";
-      }
-    }
-
-    for (const market of unresolvedMarkets) {
+      if (market.cadence === "m15") continue; // handled by m15-queue worker
       if (market.resolutionSource === "admin") continue; // admin markets resolved manually
 
       try {
-        // m15 dexscreener markets: resolve via DexScreener resolver
-        if (market.resolutionSource === "dexscreener" && market.cadence === "m15") {
-          await resolveDexScreener(market);
-          continue;
-        }
-
         // daily dexscreener markets: handled by BullMQ cron — skip here
         if (market.resolutionSource === "dexscreener") continue;
 

@@ -20,6 +20,7 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
       return {
         data: positions.map((p) => ({
           ...p.position,
+          onChainId: p.market.onChainId,
           question: p.market.question,
           resolved: p.market.resolved,
           result: p.market.result,

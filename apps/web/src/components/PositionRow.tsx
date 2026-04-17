@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
 
 interface PositionRowProps {
   marketId: number;
+  onChainId: number;
   question: string;
   yesBalance: string;
   noBalance: string;
@@ -18,6 +21,7 @@ interface PositionRowProps {
 
 export function PositionRow({
   marketId,
+  onChainId,
   question,
   yesBalance,
   noBalance,
@@ -28,8 +32,17 @@ export function PositionRow({
   pnl,
 }: PositionRowProps) {
   const { address } = useAccount();
+  const queryClient = useQueryClient();
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading } = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // Refresh portfolio + vault balance once the redemption tx confirms so the
+  // payout that landed in the user's escrow is reflected immediately.
+  useEffect(() => {
+    if (!isSuccess) return;
+    queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
+    queryClient.invalidateQueries({ queryKey: ["vault-balance", address] });
+  }, [isSuccess, address, queryClient]);
 
   const yBal = Number(yesBalance);
   const nBal = Number(noBalance);
@@ -46,7 +59,7 @@ export function PositionRow({
       address: MARKET_FACTORY_ADDRESS,
       abi: MarketFactoryABI,
       functionName: "redeem",
-      args: [BigInt(marketId)],
+      args: [BigInt(onChainId)],
     });
   };
 

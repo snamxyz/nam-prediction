@@ -15,6 +15,13 @@
       "when": 1776250851597,
       "tag": "0001_workable_iceman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1808524800000,
+      "tag": "0002_trade_price_snapshot",
+      "breakpoints": true
     }
   ]
 }

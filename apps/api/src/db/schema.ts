@@ -57,6 +57,10 @@ export const trades = pgTable(
     isBuy: boolean("is_buy").notNull(),
     shares: numeric("shares", { precision: 30, scale: 18 }).notNull(),
     collateral: numeric("collateral", { precision: 30, scale: 6 }).notNull(),
+    // AMM-implied YES/NO probabilities captured right after the trade,
+    // so the price chart and the market header share one source of truth.
+    yesPrice: real("yes_price").notNull().default(0.5),
+    noPrice: real("no_price").notNull().default(0.5),
     txHash: text("tx_hash").notNull(),
     timestamp: timestamp("timestamp", { withTimezone: true }).defaultNow().notNull(),
   },

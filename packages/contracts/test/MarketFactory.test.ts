@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import type { MarketFactory, MockUSDC, CPMM, OutcomeToken } from "../typechain-types";
+import type { MarketFactory, MockUSDC, CPMM, OutcomeToken, Vault, UserEscrow } from "../typechain-types";
 
 describe("Prediction Market — Full Lifecycle", function () {
   let factory: MarketFactory;
@@ -386,6 +386,380 @@ describe("Prediction Market — Full Lifecycle", function () {
 
     it("should reject redemption before resolution", async function () {
       await expect(factory.connect(alice).redeem(0)).to.be.revertedWith("Not resolved");
+    });
+  });
+
+  describe("Vault — Deposit, Trade, Withdraw", function () {
+    let vault: Vault;
+    let escrowImpl: UserEscrow;
+    let pool: CPMM;
+    let yesToken: OutcomeToken;
+    let noToken: OutcomeToken;
+
+    beforeEach(async function () {
+      // Deploy UserEscrow implementation (cloned per user by Vault)
+      const UserEscrowFactory = await ethers.getContractFactory("UserEscrow");
+      escrowImpl = await UserEscrowFactory.deploy();
+
+      // Deploy Vault (router) with admin as operator
+      const VaultFactory = await ethers.getContractFactory("Vault");
+      vault = await VaultFactory.deploy(
+        await usdc.getAddress(),
+        admin.address,
+        await escrowImpl.getAddress()
+      );
+
+      // Wire Vault <-> MarketFactory (pool whitelist + vault registered on future pools)
+      await vault.setMarketFactory(await factory.getAddress());
+      await factory.setVault(await vault.getAddress());
+
+      // Create market (vault will be set on pool via factory)
+      await createAdminMarket();
+
+      const market = await factory.getMarket(0);
+      pool = await ethers.getContractAt("CPMM", market.liquidityPool);
+      yesToken = await ethers.getContractAt("OutcomeToken", market.yesToken);
+      noToken = await ethers.getContractAt("OutcomeToken", market.noToken);
+    });
+
+    it("should allow users to deposit USDC", async function () {
+      const amount = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+      await vault.connect(alice).deposit(amount);
+
+      expect(await vault.balances(alice.address)).to.equal(amount);
+    });
+
+    it("should allow users to withdraw USDC", async function () {
+      const amount = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+      await vault.connect(alice).deposit(amount);
+
+      const balanceBefore = await usdc.balanceOf(alice.address);
+      await vault.connect(alice).withdraw(200n * ONE_USDC);
+
+      expect(await vault.balances(alice.address)).to.equal(300n * ONE_USDC);
+      expect(await usdc.balanceOf(alice.address)).to.equal(balanceBefore + 200n * ONE_USDC);
+    });
+
+    it("should reject withdrawal exceeding balance", async function () {
+      const amount = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+      await vault.connect(alice).deposit(amount);
+
+      // Withdraw > escrow balance bubbles up from ERC20 transfer in UserEscrow
+      await expect(
+        vault.connect(alice).withdraw(200n * ONE_USDC)
+      ).to.be.reverted;
+    });
+
+    it("should allow operator to execute buy YES", async function () {
+      // Alice deposits
+      const depositAmount = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+
+      // Operator (admin) executes buy on behalf of alice
+      const buyAmount = 100n * ONE_USDC;
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, alice.address);
+
+      // Alice should have YES tokens in her wallet
+      const yesBalance = await yesToken.balanceOf(alice.address);
+      expect(yesBalance).to.be.gt(0n);
+
+      // Vault balance should be reduced
+      expect(await vault.balances(alice.address)).to.equal(400n * ONE_USDC);
+    });
+
+    it("should allow operator to execute buy NO", async function () {
+      const depositAmount = 500n * ONE_USDC;
+      await usdc.connect(bob).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(bob).deposit(depositAmount);
+
+      const buyAmount = 100n * ONE_USDC;
+      await vault.connect(admin).executeBuyNo(await pool.getAddress(), buyAmount, bob.address);
+
+      const noBalance = await noToken.balanceOf(bob.address);
+      expect(noBalance).to.be.gt(0n);
+      expect(await vault.balances(bob.address)).to.equal(400n * ONE_USDC);
+    });
+
+    it("should allow operator to execute sell YES", async function () {
+      // Alice deposits and buys YES
+      const depositAmount = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, alice.address);
+
+      const yesBalance = await yesToken.balanceOf(alice.address);
+      const vaultBalanceBefore = await vault.balances(alice.address);
+
+      // Sell half the YES tokens
+      const sellAmount = yesBalance / 2n;
+      await vault.connect(admin).executeSellYes(await pool.getAddress(), sellAmount, alice.address);
+
+      // Vault balance should increase (USDC credited)
+      expect(await vault.balances(alice.address)).to.be.gt(vaultBalanceBefore);
+      // YES token balance should decrease
+      expect(await yesToken.balanceOf(alice.address)).to.equal(yesBalance - sellAmount);
+    });
+
+    it("should allow operator to execute sell NO", async function () {
+      const depositAmount = 500n * ONE_USDC;
+      await usdc.connect(bob).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(bob).deposit(depositAmount);
+      await vault.connect(admin).executeBuyNo(await pool.getAddress(), 100n * ONE_USDC, bob.address);
+
+      const noBalance = await noToken.balanceOf(bob.address);
+      const vaultBalanceBefore = await vault.balances(bob.address);
+
+      const sellAmount = noBalance / 2n;
+      await vault.connect(admin).executeSellNo(await pool.getAddress(), sellAmount, bob.address);
+
+      expect(await vault.balances(bob.address)).to.be.gt(vaultBalanceBefore);
+      expect(await noToken.balanceOf(bob.address)).to.equal(noBalance - sellAmount);
+    });
+
+    it("should reject non-operator buy execution", async function () {
+      const depositAmount = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+
+      await expect(
+        vault.connect(alice).executeBuyYes(await pool.getAddress(), 50n * ONE_USDC, alice.address)
+      ).to.be.revertedWith("Only operator");
+    });
+
+    it("should reject buy exceeding deposited balance", async function () {
+      const depositAmount = 50n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+
+      // Escrow only holds 50 USDC; CPMM safeTransferFrom will revert when it tries to pull 100.
+      await expect(
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, alice.address)
+      ).to.be.reverted;
+    });
+
+    it("should emit Deposit and BalanceUpdated events", async function () {
+      const amount = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+
+      await expect(vault.connect(alice).deposit(amount))
+        .to.emit(vault, "Deposit")
+        .withArgs(alice.address, amount)
+        .and.to.emit(vault, "BalanceUpdated")
+        .withArgs(alice.address, amount);
+    });
+
+    it("should emit Withdraw and BalanceUpdated events", async function () {
+      const amount = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+      await vault.connect(alice).deposit(amount);
+
+      await expect(vault.connect(alice).withdraw(50n * ONE_USDC))
+        .to.emit(vault, "Withdraw")
+        .withArgs(alice.address, 50n * ONE_USDC)
+        .and.to.emit(vault, "BalanceUpdated")
+        .withArgs(alice.address, 50n * ONE_USDC);
+    });
+
+    it("full lifecycle: deposit → buy → sell → withdraw", async function () {
+      const depositAmount = 1000n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+
+      // Buy YES
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 200n * ONE_USDC, alice.address);
+      const yesBalance = await yesToken.balanceOf(alice.address);
+      expect(yesBalance).to.be.gt(0n);
+
+      // Sell YES
+      await vault.connect(admin).executeSellYes(await pool.getAddress(), yesBalance, alice.address);
+      expect(await yesToken.balanceOf(alice.address)).to.equal(0n);
+
+      // Withdraw everything
+      const remaining = await vault.balances(alice.address);
+      expect(remaining).to.be.gt(0n);
+      await vault.connect(alice).withdraw(remaining);
+      expect(await vault.balances(alice.address)).to.equal(0n);
+    });
+  });
+
+  describe("Per-User Escrow Segregation", function () {
+    let vault: Vault;
+    let escrowImpl: UserEscrow;
+    let pool: CPMM;
+    let yesToken: OutcomeToken;
+
+    beforeEach(async function () {
+      const UserEscrowFactory = await ethers.getContractFactory("UserEscrow");
+      escrowImpl = await UserEscrowFactory.deploy();
+
+      const VaultFactory = await ethers.getContractFactory("Vault");
+      vault = await VaultFactory.deploy(
+        await usdc.getAddress(),
+        admin.address,
+        await escrowImpl.getAddress()
+      );
+
+      await vault.setMarketFactory(await factory.getAddress());
+      await factory.setVault(await vault.getAddress());
+      await createAdminMarket();
+
+      const market = await factory.getMarket(0);
+      pool = await ethers.getContractAt("CPMM", market.liquidityPool);
+      yesToken = await ethers.getContractAt("OutcomeToken", market.yesToken);
+    });
+
+    it("deploys a distinct escrow on first deposit and reuses it on subsequent deposits", async function () {
+      const predicted = await vault.predictEscrow(alice.address);
+      expect(await vault.escrowOf(alice.address)).to.equal(ethers.ZeroAddress);
+
+      const amount = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+      await expect(vault.connect(alice).deposit(amount))
+        .to.emit(vault, "EscrowCreated")
+        .withArgs(alice.address, predicted);
+
+      expect(await vault.escrowOf(alice.address)).to.equal(predicted);
+      expect(await vault.isEscrow(predicted)).to.equal(true);
+      expect(await usdc.balanceOf(predicted)).to.equal(amount);
+      expect(await vault.balanceOf(alice.address)).to.equal(amount);
+
+      // Second deposit reuses existing escrow — no EscrowCreated emitted
+      await usdc.connect(alice).approve(await vault.getAddress(), amount);
+      await expect(vault.connect(alice).deposit(amount))
+        .to.not.emit(vault, "EscrowCreated");
+      expect(await usdc.balanceOf(predicted)).to.equal(amount * 2n);
+    });
+
+    it("each user gets a distinct escrow at a deterministic address", async function () {
+      const amt = 50n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+      await usdc.connect(bob).approve(await vault.getAddress(), amt);
+      await vault.connect(bob).deposit(amt);
+
+      const aliceEscrow = await vault.escrowOf(alice.address);
+      const bobEscrow = await vault.escrowOf(bob.address);
+      expect(aliceEscrow).to.not.equal(bobEscrow);
+      expect(aliceEscrow).to.equal(await vault.predictEscrow(alice.address));
+      expect(bobEscrow).to.equal(await vault.predictEscrow(bob.address));
+    });
+
+    it("router never holds collateral — deposits land directly in the escrow", async function () {
+      const amt = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+
+      expect(await usdc.balanceOf(await vault.getAddress())).to.equal(0n);
+      expect(await usdc.balanceOf(await vault.escrowOf(alice.address))).to.equal(amt);
+    });
+
+    it("operator cannot drain user B's escrow when executing a trade for user A", async function () {
+      const amt = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+      await usdc.connect(bob).approve(await vault.getAddress(), amt);
+      await vault.connect(bob).deposit(amt);
+
+      const bobEscrowBefore = await usdc.balanceOf(await vault.escrowOf(bob.address));
+
+      // Operator trades 300 for alice. Alice's escrow has 500, so this only pulls from alice.
+      await vault.connect(admin).executeBuyYes(
+        await pool.getAddress(),
+        300n * ONE_USDC,
+        alice.address
+      );
+
+      const aliceEscrowAfter = await usdc.balanceOf(await vault.escrowOf(alice.address));
+      const bobEscrowAfter = await usdc.balanceOf(await vault.escrowOf(bob.address));
+
+      expect(aliceEscrowAfter).to.equal(amt - 300n * ONE_USDC);
+      // Bob's escrow must be untouched.
+      expect(bobEscrowAfter).to.equal(bobEscrowBefore);
+    });
+
+    it("escrow rejects trade calls from anyone but the router", async function () {
+      const amt = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+
+      const escrowAddr = await vault.escrowOf(alice.address);
+      const escrow = await ethers.getContractAt("UserEscrow", escrowAddr);
+
+      // Admin (who is also the vault operator) is NOT the router, so it must revert.
+      await expect(
+        escrow.connect(admin).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, alice.address)
+      ).to.be.revertedWith("Only router");
+      await expect(
+        escrow.connect(alice).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, alice.address)
+      ).to.be.revertedWith("Only router");
+    });
+
+    it("escrow withdraw routes collateral to owner even if the router calls it", async function () {
+      const amt = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+
+      const escrowAddr = await vault.escrowOf(alice.address);
+      const escrow = await ethers.getContractAt("UserEscrow", escrowAddr);
+
+      // Even though withdraw has no recipient arg, alice (the owner) can call directly.
+      const before = await usdc.balanceOf(alice.address);
+      await escrow.connect(alice).withdraw(30n * ONE_USDC);
+      expect(await usdc.balanceOf(alice.address)).to.equal(before + 30n * ONE_USDC);
+
+      // Non-owner / non-router EOAs cannot withdraw.
+      await expect(
+        escrow.connect(bob).withdraw(10n * ONE_USDC)
+      ).to.be.revertedWith("Not authorized");
+    });
+
+    it("rejects operator trades routed through an unregistered pool", async function () {
+      const amt = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+
+      // bob.address is clearly not a pool created by the factory.
+      await expect(
+        vault.connect(admin).executeBuyYes(bob.address, 10n * ONE_USDC, alice.address)
+      ).to.be.revertedWith("Pool not whitelisted");
+    });
+
+    it("rejects operator trades for a user who never deposited (no escrow)", async function () {
+      await expect(
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), 10n * ONE_USDC, bob.address)
+      ).to.be.revertedWith("No escrow");
+    });
+
+    it("CPMM rejects direct *For calls from non-escrow addresses", async function () {
+      // Admin is the vault admin but is NOT a registered escrow — call must revert.
+      await expect(
+        pool.connect(admin).buyYesFor(10n * ONE_USDC, alice.address)
+      ).to.be.revertedWith("Only user escrow");
+    });
+
+    it("balances() alias returns the same value as balanceOf()", async function () {
+      const amt = 77n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+      expect(await vault.balances(alice.address)).to.equal(await vault.balanceOf(alice.address));
+      expect(await vault.balances(alice.address)).to.equal(amt);
+    });
+
+    it("escrow implementation cannot be initialized twice", async function () {
+      const amt = 10n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), amt);
+      await vault.connect(alice).deposit(amt);
+
+      const escrowAddr = await vault.escrowOf(alice.address);
+      const escrow = await ethers.getContractAt("UserEscrow", escrowAddr);
+
+      await expect(
+        escrow.connect(alice).initialize(bob.address, await vault.getAddress(), await usdc.getAddress())
+      ).to.be.revertedWith("Already initialized");
     });
   });
 });

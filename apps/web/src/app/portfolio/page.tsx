@@ -3,9 +3,10 @@
 import dynamic from "next/dynamic";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { PositionRow } from "@/components/PositionRow";
+import { DepositWithdrawPanel } from "@/components/DepositWithdrawPanel";
 import { useAccount } from "wagmi";
 import { usePrivy } from "@privy-io/react-auth";
-import { User, DollarSign, BarChart3, TrendingUp, Award } from "lucide-react";
+import { User, DollarSign, BarChart3, TrendingUp, Award, Wallet, Shield, Zap } from "lucide-react";
 
 export default function PortfolioPage() {
   const { isConnected, address } = useAccount();
@@ -75,6 +76,54 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      {/* Vault: deposit/withdraw + info */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <DepositWithdrawPanel />
+        <div className="glass-card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Wallet className="w-5 h-5" style={{ color: "#01d243" }} />
+            <h2 className="text-base font-semibold" style={{ color: "#e8e9ed" }}>
+              About Your Vault
+            </h2>
+          </div>
+          <p className="text-xs mb-4" style={{ color: "#717182" }}>
+            Your vault is a per-user escrow contract that holds USDC on your behalf and enables
+            gasless, one-click trading across all markets.
+          </p>
+          <ul className="space-y-3">
+            <li className="flex items-start gap-3">
+              <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />
+              <div>
+                <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>Gasless trading</p>
+                <p className="text-[11px]" style={{ color: "#717182" }}>
+                  Trades are signed off-chain and settled in batches — you never pay gas.
+                </p>
+              </div>
+            </li>
+            <li className="flex items-start gap-3">
+              <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />
+              <div>
+                <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>
+                  Isolated escrow
+                </p>
+                <p className="text-[11px]" style={{ color: "#717182" }}>
+                  Funds live in your own escrow clone, isolated from every other user.
+                </p>
+              </div>
+            </li>
+            <li className="flex items-start gap-3">
+              <DollarSign className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />
+              <div>
+                <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>Withdraw anytime</p>
+                <p className="text-[11px]" style={{ color: "#717182" }}>
+                  Available balance can be pulled back to your wallet at any time.
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+
       {/* Positions card */}
       <div className="glass-card p-8">
         <div className="flex items-center justify-between mb-6">
@@ -103,6 +152,7 @@ export default function PortfolioPage() {
               <PositionRow
                 key={pos.id}
                 marketId={pos.marketId}
+                onChainId={pos.onChainId}
                 question={pos.question}
                 yesBalance={pos.yesBalance}
                 noBalance={pos.noBalance}

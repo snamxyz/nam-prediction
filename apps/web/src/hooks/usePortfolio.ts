@@ -7,6 +7,7 @@ import { fetchApi } from "@/lib/api";
 interface PositionWithMarket {
   id: number;
   marketId: number;
+  onChainId: number;
   userAddress: string;
   yesBalance: string;
   noBalance: string;

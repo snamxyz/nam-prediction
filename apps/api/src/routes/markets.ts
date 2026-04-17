@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { db } from "../db/client";
 import { markets, trades, userPositions, dailyMarkets } from "../db/schema";
 import { eq, desc, and } from "drizzle-orm";
-import { createPublicClient, http, decodeEventLog, formatUnits } from "viem";
+import { createPublicClient, http, decodeEventLog, formatUnits, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
 import { featureFlags } from "../config/feature-flags";
@@ -13,13 +13,25 @@ const rpcClient = createPublicClient({
   transport: http(RPC_URL),
 });
 
+// Positions are stored as numeric(30,18) decimal strings. Scale to wei
+// before doing BigInt arithmetic, then format back to decimal.
+function toWei(decimalStr: string | null | undefined): bigint {
+  const s = (decimalStr ?? "0").trim();
+  if (!s) return 0n;
+  try {
+    return parseUnits(s, 18);
+  } catch {
+    return 0n;
+  }
+}
+
 function addBigIntStrings(a: string, b: string): string {
-  return (BigInt(a || "0") + BigInt(b || "0")).toString();
+  return formatUnits(toWei(a) + toWei(b), 18);
 }
 
 function subBigIntStrings(a: string, b: string): string {
-  const result = BigInt(a || "0") - BigInt(b || "0");
-  return result < 0n ? "0" : result.toString();
+  const r = toWei(a) - toWei(b);
+  return formatUnits(r < 0n ? 0n : r, 18);
 }
 
 export const marketRoutes = new Elysia({ prefix: "/markets" })
@@ -216,6 +228,25 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         return { success: false, error: "No Trade event found in tx" };
       }
 
+      // Fetch AMM prices first so the trade row can carry a price snapshot
+      // matching the market header. Fall back to the market's cached prices
+      // if the RPC call fails so the trade still gets recorded.
+      let yesPriceNum = dbMarket.yesPrice ?? 0.5;
+      let noPriceNum = dbMarket.noPrice ?? 0.5;
+      let pricesFetched = false;
+      try {
+        const [yesPrice, noPrice] = (await rpcClient.readContract({
+          address: dbMarket.ammAddress as `0x${string}`,
+          abi: CPMMABI,
+          functionName: "getPrices",
+        })) as [bigint, bigint];
+        yesPriceNum = Number(yesPrice) / 1e18;
+        noPriceNum = Number(noPrice) / 1e18;
+        pricesFetched = true;
+      } catch (err) {
+        console.error("[record-trade] Failed to fetch AMM prices, using cached:", err);
+      }
+
       // Insert trade (convert from raw BigInt to human-readable decimals)
       const [inserted] = await db
         .insert(trades)
@@ -226,35 +257,29 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
           isBuy: tradeEvent.isBuy,
           shares: formatUnits(tradeEvent.shares, 18),
           collateral: formatUnits(tradeEvent.collateral, 6),
+          yesPrice: yesPriceNum,
+          noPrice: noPriceNum,
           txHash,
         })
         .onConflictDoNothing()
         .returning();
 
-      // Update market prices from AMM
-      try {
-        const [yesPrice, noPrice] = (await rpcClient.readContract({
-          address: dbMarket.ammAddress as `0x${string}`,
-          abi: CPMMABI,
-          functionName: "getPrices",
-        })) as [bigint, bigint];
-
-        const yesPriceNum = Number(yesPrice) / 1e18;
-        const noPriceNum = Number(noPrice) / 1e18;
-
-        await db
-          .update(markets)
-          .set({
-            yesPrice: yesPriceNum,
-            noPrice: noPriceNum,
-            volume: (
-              Number(dbMarket.volume) +
-              Number(tradeEvent.collateral) / 1e6
-            ).toString(),
-          })
-          .where(eq(markets.id, dbMarket.id));
-      } catch (err) {
-        console.error("[record-trade] Failed to update prices:", err);
+      if (pricesFetched) {
+        try {
+          await db
+            .update(markets)
+            .set({
+              yesPrice: yesPriceNum,
+              noPrice: noPriceNum,
+              volume: (
+                Number(dbMarket.volume) +
+                Number(tradeEvent.collateral) / 1e6
+              ).toString(),
+            })
+            .where(eq(markets.id, dbMarket.id));
+        } catch (err) {
+          console.error("[record-trade] Failed to update market prices:", err);
+        }
       }
 
       // Update user position

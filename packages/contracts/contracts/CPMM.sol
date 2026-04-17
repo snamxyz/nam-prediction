@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IOutcomeToken.sol";
+import "./interfaces/IVaultRouter.sol";
 
 /// @title CPMM — Constant Product Market Maker for binary prediction markets
 /// @dev Deployed as an EIP-1167 minimal proxy per market.
@@ -19,6 +20,7 @@ contract CPMM {
     address public noToken;
     address public collateral; // USDC
     address public factory;
+    address public vault; // Vault contract for delegated trading
     uint256 public feeBps; // trading fee in basis points
 
     uint256 public yesReserve;
@@ -46,6 +48,13 @@ contract CPMM {
     );
     event LiquidityAdded(address indexed provider, uint256 usdcAmount, uint256 lpShares);
     event LiquidityRemoved(address indexed provider, uint256 lpShares, uint256 usdcAmount);
+    event Redemption(
+        uint256 indexed marketId,
+        address indexed user,
+        address indexed payoutTo,
+        uint256 sharesBurned,
+        uint256 usdcOut
+    );
 
     // ─── Initialize (replaces constructor for clones) ───
     function initialize(
@@ -213,6 +222,186 @@ contract CPMM {
         IERC20(collateral).safeTransfer(msg.sender, usdcOut);
 
         emit Trade(marketId, msg.sender, false, false, sharesIn, usdcOut);
+    }
+
+    // ─── Vault Management ───
+
+    /// @notice Set the vault router address. Only callable by factory.
+    /// @dev The router maintains a registry of per-user escrows; delegated-trade
+    ///      entrypoints (`*For`) consult it to authorize callers.
+    function setVault(address vault_) external {
+        require(msg.sender == factory, "Only factory");
+        require(vault_ != address(0), "Zero vault");
+        vault = vault_;
+    }
+
+    /// @dev Returns true iff `caller` is a user escrow registered by the configured vault router.
+    function _isAuthorizedEscrow(address caller) internal view returns (bool) {
+        address v = vault;
+        if (v == address(0)) return false;
+        return IVaultRouter(v).isEscrow(caller);
+    }
+
+    // ─── Delegated Trading (Vault only) ───
+
+    /// @notice Buy YES tokens on behalf of a user. Called by Vault.
+    /// @param usdcIn Amount of USDC to spend (6 decimals), transferred from msg.sender (Vault)
+    /// @param recipient Address to mint YES tokens to
+    /// @return sharesOut Number of YES tokens minted (18 decimals)
+    function buyYesFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut) {
+        require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
+        require(usdcIn > 0, "Zero input");
+        require(recipient != address(0), "Zero recipient");
+
+        IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
+
+        uint256 fee = (usdcIn * feeBps) / BPS;
+        uint256 usdcAfterFee = usdcIn - fee;
+        uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
+
+        uint256 k = yesReserve * noReserve;
+        uint256 newNoReserve = noReserve + scaledIn;
+        uint256 newYesReserve = k / newNoReserve;
+
+        sharesOut = yesReserve - newYesReserve;
+        require(sharesOut > 0, "Insufficient output");
+
+        yesReserve = newYesReserve;
+        noReserve = newNoReserve;
+
+        IOutcomeToken(yesToken).mint(recipient, sharesOut);
+
+        emit Trade(marketId, recipient, true, true, sharesOut, usdcIn);
+    }
+
+    /// @notice Buy NO tokens on behalf of a user. Called by Vault.
+    /// @param usdcIn Amount of USDC to spend (6 decimals), transferred from msg.sender (Vault)
+    /// @param recipient Address to mint NO tokens to
+    /// @return sharesOut Number of NO tokens minted (18 decimals)
+    function buyNoFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut) {
+        require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
+        require(usdcIn > 0, "Zero input");
+        require(recipient != address(0), "Zero recipient");
+
+        IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
+
+        uint256 fee = (usdcIn * feeBps) / BPS;
+        uint256 usdcAfterFee = usdcIn - fee;
+        uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
+
+        uint256 k = yesReserve * noReserve;
+        uint256 newYesReserve = yesReserve + scaledIn;
+        uint256 newNoReserve = k / newYesReserve;
+
+        sharesOut = noReserve - newNoReserve;
+        require(sharesOut > 0, "Insufficient output");
+
+        yesReserve = newYesReserve;
+        noReserve = newNoReserve;
+
+        IOutcomeToken(noToken).mint(recipient, sharesOut);
+
+        emit Trade(marketId, recipient, false, true, sharesOut, usdcIn);
+    }
+
+    /// @notice Sell YES tokens on behalf of a user. Called by Vault.
+    /// @param sharesIn Number of YES tokens to sell (18 decimals)
+    /// @param seller Address whose YES tokens are burned
+    /// @return usdcOut Amount of USDC sent to msg.sender (Vault) (6 decimals)
+    function sellYesFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut) {
+        require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
+        require(sharesIn > 0, "Zero input");
+        require(seller != address(0), "Zero seller");
+
+        IOutcomeToken(yesToken).burn(seller, sharesIn);
+
+        uint256 k = yesReserve * noReserve;
+        uint256 newYesReserve = yesReserve + sharesIn;
+        uint256 newNoReserve = k / newYesReserve;
+
+        uint256 scaledOut = noReserve - newNoReserve;
+        usdcOut = scaledOut / DECIMAL_SCALE;
+
+        uint256 fee = (usdcOut * feeBps) / BPS;
+        usdcOut = usdcOut - fee;
+        require(usdcOut > 0, "Insufficient output");
+
+        yesReserve = newYesReserve;
+        noReserve = newNoReserve;
+
+        // Send USDC to Vault (msg.sender), which credits user balance
+        IERC20(collateral).safeTransfer(msg.sender, usdcOut);
+
+        emit Trade(marketId, seller, true, false, sharesIn, usdcOut);
+    }
+
+    /// @notice Sell NO tokens on behalf of a user. Called by Vault.
+    /// @param sharesIn Number of NO tokens to sell (18 decimals)
+    /// @param seller Address whose NO tokens are burned
+    /// @return usdcOut Amount of USDC sent to msg.sender (Vault) (6 decimals)
+    function sellNoFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut) {
+        require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
+        require(sharesIn > 0, "Zero input");
+        require(seller != address(0), "Zero seller");
+
+        IOutcomeToken(noToken).burn(seller, sharesIn);
+
+        uint256 k = yesReserve * noReserve;
+        uint256 newNoReserve = noReserve + sharesIn;
+        uint256 newYesReserve = k / newNoReserve;
+
+        uint256 scaledOut = yesReserve - newYesReserve;
+        usdcOut = scaledOut / DECIMAL_SCALE;
+
+        uint256 fee = (usdcOut * feeBps) / BPS;
+        usdcOut = usdcOut - fee;
+        require(usdcOut > 0, "Insufficient output");
+
+        yesReserve = newYesReserve;
+        noReserve = newNoReserve;
+
+        IERC20(collateral).safeTransfer(msg.sender, usdcOut);
+
+        emit Trade(marketId, seller, false, false, sharesIn, usdcOut);
+    }
+
+    // ─── Redemption (factory only) ───
+
+    /// @notice Burn all of `user`'s winning outcome tokens and pay out 1 USDC per share.
+    /// @dev Called by the MarketFactory after a market is resolved. Payout is routed to the
+    ///      user's registered vault escrow when one exists, otherwise to the user's EOA.
+    ///      The pool is the authorized burner for both outcome tokens (see OutcomeToken.factory).
+    /// @param user Address whose winning tokens are being burned.
+    /// @param yesWins True if YES resolved truthfully; false if NO.
+    /// @return usdcOut Amount of USDC (6 decimals) paid out.
+    function redeemFor(address user, bool yesWins) external returns (uint256 usdcOut) {
+        require(msg.sender == factory, "Only factory");
+        require(user != address(0), "Zero user");
+
+        address winningToken = yesWins ? yesToken : noToken;
+        uint256 balance = IOutcomeToken(winningToken).balanceOf(user);
+        require(balance > 0, "No winning tokens");
+
+        IOutcomeToken(winningToken).burn(user, balance);
+
+        // 1 winning share (18 dec) = 1 USDC (6 dec).
+        usdcOut = balance / DECIMAL_SCALE;
+        require(usdcOut > 0, "Amount too small");
+
+        // Route payout to the user's escrow when available so redeemed USDC is
+        // immediately tradable again without a separate deposit tx.
+        address to = user;
+        address v = vault;
+        if (v != address(0)) {
+            address esc = IVaultRouter(v).escrowOf(user);
+            if (esc != address(0)) {
+                to = esc;
+            }
+        }
+
+        IERC20(collateral).safeTransfer(to, usdcOut);
+
+        emit Redemption(marketId, user, to, balance, usdcOut);
     }
 
     // ─── Liquidity ───
