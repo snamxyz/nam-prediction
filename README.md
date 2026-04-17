@@ -1,0 +1,182 @@
+# nam-prediction
+
+A prediction market platform for the NAM token on Base, built as a Turbo monorepo. Users trade YES/NO outcome tokens on short-cycle (15-minute) and daily markets, with on-chain settlement via a Constant Product Market Maker (CPMM) and a parallel CLOB engine for limit-order markets.
+
+## Architecture
+
+```
+nam-prediction/
+├── apps/
+│   ├── api/                 # ElysiaJS backend — markets, trades, resolution, REST + Socket.IO
+│   ├── web/                 # Next.js 15 frontend — trading UI, portfolio, market pages
+│   ├── matching-engine/     # In-memory CLOB with price-time priority matching
+│   ├── blockchain-service/  # Chain indexer & on-chain event watcher
+│   ├── price-service/       # NAM/USDC price fetcher (DexScreener)
+│   ├── websocket/           # Realtime fan-out
+│   └── worker/              # BullMQ workers (resolution, daily cron)
+└── packages/
+    ├── contracts/           # Solidity contracts (MarketFactory, CPMM, OutcomeToken) + Hardhat
+    ├── shared/              # Shared TS types & utilities
+    ├── db/                  # Drizzle schema & migrations (PostgreSQL)
+    ├── redis/               # Redis client
+    ├── queue/               # BullMQ queue definitions
+    ├── kafka/               # Kafka producers/consumers
+    ├── clickhouse-client/   # Analytics DB client
+    ├── dexscreener-client/  # DexScreener API wrapper
+    ├── routing/             # Order routing helpers
+    └── config/              # Shared config
+```
+
+### Tech stack
+
+- **Runtime:** Bun 1.2
+- **Monorepo:** Turborepo + Bun workspaces
+- **Frontend:** Next.js 15, React 19, Tailwind, wagmi/viem, Privy (embedded wallets), Recharts
+- **Backend:** ElysiaJS, Socket.IO, Drizzle ORM, PostgreSQL (Neon), Redis, BullMQ
+- **Smart contracts:** Solidity, Hardhat, OpenZeppelin, deployed on **Base** (chain id 8453)
+- **Price feed:** DexScreener NAM/USDC pair
+
+## How it works
+
+Two market types run side-by-side:
+
+1. **15-minute AMM markets** (`executionMode: "amm"`) — Auto-rolling. Each market asks *"Will NAM be >= $X at T+15min?"*. Trading happens fully on-chain through `CPMM.sol` with a configurable fee (default 2%). When one resolves, the next one is created immediately using the current price as threshold.
+2. **CLOB markets** (`executionMode: "clob"`) — Off-chain matching via `apps/matching-engine` with price-time priority, partial fills, self-trade prevention, and mirrored YES/NO depth.
+
+Resolution polls DexScreener every 60s and settles via `MarketFactory.resolveMarket()` on Base. Winners redeem 1:1 USDC per outcome token through `MarketFactory.redeem()`.
+
+See [`prediction-market-rundown.txt`](./prediction-market-rundown.txt) for the full step-by-step flow (market creation → trade → indexer → resolution → redemption).
+
+## Getting started
+
+### Prerequisites
+
+- [Bun](https://bun.sh) >= 1.2
+- PostgreSQL database (local or Neon)
+- Redis (local or Railway/Upstash)
+- A Base RPC endpoint
+- A Privy app (for embedded wallets)
+
+### Install
+
+```bash
+bun install
+```
+
+### Environment
+
+Copy `.env` at the repo root and fill in the values. Key variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `RPC_URL` | Base RPC endpoint |
+| `PRIVATE_KEY` | Deployer / admin wallet (with `0x` prefix) |
+| `USDC_ADDRESS` | USDC token on Base (`0x8335...2913`) |
+| `MARKET_FACTORY_ADDRESS` | Deployed `MarketFactory` address |
+| `DATABASE_URL` | Postgres connection string |
+| `REDIS_URL` | Redis connection string |
+| `API_PORT` | Backend port (default `3001`) |
+| `ADMIN_ADDRESSES` | Comma-separated admin wallets |
+| `DEXSCREENER_PAIR_ADDRESS` | NAM/USDC pair on Base |
+| `RESOLUTION_POLL_INTERVAL` | Resolution poll interval in ms (default `60000`) |
+| `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Privy server auth |
+| `NEXT_PUBLIC_*` | Frontend-exposed public vars |
+
+Feature flags:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `ENABLE_M15_MARKETS` | `false` | Auto-create rolling 15-min markets |
+| `M15_MARKET_DURATION_MINUTES` | `15` | Market duration |
+| `MARKET_LOCK_WINDOW_SECONDS` | `10` | Lock window before end |
+| `DEFAULT_FEE_BPS` | `200` | CPMM trading fee (2%) |
+| `M15_MARKET_LIQUIDITY` | `1` | Seed USDC per 15-min market |
+| `DAILY_MARKET_LIQUIDITY` | `100` | Seed USDC per daily market |
+
+> **Never commit real secrets.** The committed `.env` is for local development only — rotate any shared keys before going to production.
+
+### Database
+
+```bash
+cd apps/api
+bun run db:push        # push the Drizzle schema
+bun run db:studio      # optional: open Drizzle Studio
+```
+
+### Run everything (dev)
+
+From the repo root:
+
+```bash
+bun run dev
+```
+
+Turbo will start all apps in parallel. Or run a single app:
+
+```bash
+bun --filter @nam-prediction/api dev
+bun --filter @nam-prediction/web dev
+bun --filter @nam-prediction/matching-engine dev
+```
+
+Default ports:
+
+- Web: http://localhost:3000
+- API: http://localhost:3001
+
+### Smart contracts
+
+```bash
+cd packages/contracts
+bun run build                 # hardhat compile
+bun run test                  # hardhat test
+bun run deploy:base           # deploy to Base mainnet
+```
+
+After deployment, update `MARKET_FACTORY_ADDRESS` and `NEXT_PUBLIC_MARKET_FACTORY_ADDRESS` in `.env`.
+
+### Create a 15-minute market manually
+
+```bash
+cd apps/api
+bun run market:create:15m
+```
+
+## Scripts
+
+Run from the repo root with Turbo:
+
+| Command | Description |
+| --- | --- |
+| `bun run dev` | Start all apps in watch mode |
+| `bun run build` | Build all apps and packages |
+| `bun run test` | Run tests across the monorepo |
+| `bun run lint` | Lint all workspaces |
+| `bun run clean` | Remove build artifacts |
+
+## Data flow (quick reference)
+
+```
+User clicks "Buy YES $10"
+   └─ Frontend (TradePanel)
+         ├─ USDC.approve(CPMM, amount)
+         ├─ CPMM.buyYes(amount)               ─── on-chain ──► Base
+         └─ POST /markets/:id/record-trade
+                │                                      │
+                ▼                                      ▼
+         API record-trade                      CPMM.buyYes
+         - decode Trade event                  - 2% fee, x*y=k swap
+         - insert trade row                    - mint YES tokens
+         - update prices + positions           - emit Trade
+                                                       │
+                                                       ▼
+                                              Indexer (watchContractEvent)
+                                              - dedup + insert trade
+                                              - refresh prices/positions
+```
+
+Every 60s, the resolution service polls DexScreener, compares to each market's threshold, and calls `MarketFactory.resolveMarket()` on-chain. The indexer picks up `MarketResolved`; users redeem via `MarketFactory.redeem()`.
+
+## License
+
+Private — all rights reserved.
