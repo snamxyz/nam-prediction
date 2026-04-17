@@ -1,30 +1,17 @@
 # nam-prediction
 
-A prediction market platform for the NAM token on Base, built as a Turbo monorepo. Users trade YES/NO outcome tokens on short-cycle (15-minute) and daily markets, with on-chain settlement via a Constant Product Market Maker (CPMM) and a parallel CLOB engine for limit-order markets.
+A prediction market platform for the NAM token on Base, built as a Turbo monorepo. Users trade YES/NO outcome tokens on rolling 15-minute and daily markets, with fully on-chain settlement via a Constant Product Market Maker (CPMM).
 
 ## Architecture
 
 ```
 nam-prediction/
 ├── apps/
-│   ├── api/                 # ElysiaJS backend — markets, trades, resolution, REST + Socket.IO
-│   ├── web/                 # Next.js 15 frontend — trading UI, portfolio, market pages
-│   ├── matching-engine/     # In-memory CLOB with price-time priority matching
-│   ├── blockchain-service/  # Chain indexer & on-chain event watcher
-│   ├── price-service/       # NAM/USDC price fetcher (DexScreener)
-│   ├── websocket/           # Realtime fan-out
-│   └── worker/              # BullMQ workers (resolution, daily cron)
+│   ├── api/        # ElysiaJS backend — markets, trades, resolution, indexer, REST + Socket.IO
+│   └── web/        # Next.js 15 frontend — trading UI, portfolio, market pages
 └── packages/
-    ├── contracts/           # Solidity contracts (MarketFactory, CPMM, OutcomeToken) + Hardhat
-    ├── shared/              # Shared TS types & utilities
-    ├── db/                  # Drizzle schema & migrations (PostgreSQL)
-    ├── redis/               # Redis client
-    ├── queue/               # BullMQ queue definitions
-    ├── kafka/               # Kafka producers/consumers
-    ├── clickhouse-client/   # Analytics DB client
-    ├── dexscreener-client/  # DexScreener API wrapper
-    ├── routing/             # Order routing helpers
-    └── config/              # Shared config
+    ├── contracts/  # Solidity contracts (MarketFactory, CPMM, OutcomeToken) + Hardhat
+    └── shared/     # Shared TypeScript types & utilities
 ```
 
 ### Tech stack
@@ -38,10 +25,7 @@ nam-prediction/
 
 ## How it works
 
-Two market types run side-by-side:
-
-1. **15-minute AMM markets** (`executionMode: "amm"`) — Auto-rolling. Each market asks *"Will NAM be >= $X at T+15min?"*. Trading happens fully on-chain through `CPMM.sol` with a configurable fee (default 2%). When one resolves, the next one is created immediately using the current price as threshold.
-2. **CLOB markets** (`executionMode: "clob"`) — Off-chain matching via `apps/matching-engine` with price-time priority, partial fills, self-trade prevention, and mirrored YES/NO depth.
+The platform runs rolling **15-minute AMM markets**. Each market asks *"Will NAM be >= $X at T+15min?"*. Trading happens fully on-chain through `CPMM.sol` with a configurable fee (default 2%). When one market resolves, the next is created automatically using the current price as threshold.
 
 Resolution polls DexScreener every 60s and settles via `MarketFactory.resolveMarket()` on Base. Winners redeem 1:1 USDC per outcome token through `MarketFactory.redeem()`.
 
@@ -116,7 +100,6 @@ Turbo will start all apps in parallel. Or run a single app:
 ```bash
 bun --filter @nam-prediction/api dev
 bun --filter @nam-prediction/web dev
-bun --filter @nam-prediction/matching-engine dev
 ```
 
 Default ports:
