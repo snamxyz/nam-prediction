@@ -213,14 +213,17 @@ export class NonceManager {
 
         // Verify Redis state against on-chain and fix any drift.
         // If our nextNonce is ahead of on-chain pending AND we have no real
-        // pending txs for those nonces, we have ghost nonces → reset.
+        // pending txs (i.e. actually broadcast, with a txHash) for those
+        // nonces, we have ghost nonces → reset.
         if (existing.nextNonce > onChainPending) {
-          // Check if any pending entries actually exist for nonces between
-          // onChainPending and our nextNonce
           let hasRealPending = false;
           for (const nonceStr of Object.keys(existing.pending)) {
             const n = Number(nonceStr);
-            if (n >= onChainPending && n < existing.nextNonce) {
+            if (
+              n >= onChainPending &&
+              n < existing.nextNonce &&
+              existing.pending[nonceStr].txHash !== ""
+            ) {
               hasRealPending = true;
               break;
             }
@@ -229,9 +232,15 @@ export class NonceManager {
           if (!hasRealPending) {
             console.warn(
               `[NonceManager] Redis nextNonce (${existing.nextNonce}) is ahead of ` +
-                `on-chain pending (${onChainPending}) with no real pending txs. ` +
+                `on-chain pending (${onChainPending}) with no broadcast pending txs. ` +
                 `Resetting nextNonce to ${onChainPending}.`
             );
+            // Remove ghost entries
+            for (const nonceStr of Object.keys(existing.pending)) {
+              if (existing.pending[nonceStr].txHash === "") {
+                delete existing.pending[nonceStr];
+              }
+            }
             existing.nextNonce = onChainPending;
           }
         }
@@ -405,7 +414,8 @@ export class NonceManager {
 
   /**
    * Mark a nonce as failed. Does NOT decrement nextNonce — the nonce stays reserved.
-   * Retry the transaction with the same nonce and higher gas, or cancel it.
+   * Use this only for transactions that WERE broadcast but failed on-chain.
+   * For transactions never broadcast (RPC rejection), use reclaimNonce() instead.
    */
   async markNonceFailed(nonce: number): Promise<void> {
     this.ensureInitialized();
@@ -421,6 +431,46 @@ export class NonceManager {
       } else {
         console.warn(`[NonceManager] markNonceFailed: nonce=${nonce} not found in pending map`);
       }
+    });
+  }
+
+  /**
+   * Reclaim a nonce that was assigned but never successfully broadcast.
+   * Removes it from the pending map and walks nextNonce backwards to reuse
+   * any consecutive unbroadcast nonces.
+   *
+   * Only reclaims if txHash is empty (never broadcast). Nonces with a real
+   * txHash are left for markNonceFailed / manual recovery.
+   */
+  private async reclaimNonce(nonce: number): Promise<void> {
+    await this.withLock(async (state) => {
+      const entry = state.pending[String(nonce)];
+      if (!entry) return;
+
+      // Safety: only reclaim nonces that were never broadcast
+      if (entry.txHash && entry.txHash !== "") {
+        console.warn(
+          `[NonceManager] Cannot reclaim nonce=${nonce} — tx was broadcast ` +
+            `(txHash=${entry.txHash}). Use markNonceFailed instead.`
+        );
+        return;
+      }
+
+      delete state.pending[String(nonce)];
+
+      // Walk nextNonce backwards, reclaiming consecutive unbroadcast nonces.
+      // This handles the case where multiple concurrent nonces all fail.
+      while (
+        state.nextNonce > state.lastConfirmedNonce + 1 &&
+        !state.pending[String(state.nextNonce - 1)]
+      ) {
+        state.nextNonce--;
+      }
+
+      console.log(
+        `[NonceManager] Reclaimed nonce=${nonce} — nextNonce now ${state.nextNonce}, ` +
+          `pending=${Object.keys(state.pending).length}`
+      );
     });
   }
 
@@ -684,7 +734,7 @@ export class NonceManager {
    * 1. Acquires a nonce
    * 2. Calls `fn(nonce)` which should broadcast the transaction
    * 3. On success: marks nonce as used with the returned txHash
-   * 4. On failure: marks nonce as failed (reserved for retry)
+   * 4. On failure: reclaims the nonce (RPC rejection = tx never broadcast)
    *
    * @param fn Function that sends a transaction using the assigned nonce and returns the tx hash
    * @returns The transaction hash
@@ -697,22 +747,32 @@ export class NonceManager {
       await this.markNonceUsed(nonce, txHash);
       return txHash;
     } catch (err) {
-      await this.markNonceFailed(nonce);
+      // If fn(nonce) throws, the tx was rejected by the RPC and never broadcast
+      // to the mempool. Reclaim the nonce so it can be reused immediately.
+      await this.reclaimNonce(nonce);
 
-      // If the error is a gapped-nonce or nonce-too-high error, our state is
-      // fundamentally out of sync with on-chain. Trigger an immediate resync
-      // so the next call gets the correct nonce.
       const errMsg = String(err);
+
+      // In-flight limit: the RPC won't accept ANY new txs right now.
+      // Log clearly so callers know to back off.
+      if (errMsg.includes("in-flight transaction limit")) {
+        console.warn(
+          `[NonceManager] In-flight transaction limit reached — reclaimed nonce=${nonce}. ` +
+            `Wait for pending txs to confirm before retrying.`
+        );
+      }
+
+      // Gapped-nonce / nonce-too-high: our state is fundamentally wrong.
       if (
         errMsg.includes("gapped-nonce") ||
         errMsg.includes("nonce too high") ||
         errMsg.includes("nonce gap")
       ) {
         console.warn(
-          `[NonceManager] Gapped-nonce error detected — triggering immediate resync`
+          `[NonceManager] Nonce mismatch detected — triggering immediate resync`
         );
         await this.resyncNonce().catch((e) =>
-          console.error("[NonceManager] Resync after gapped-nonce failed:", e)
+          console.error("[NonceManager] Resync after nonce mismatch failed:", e)
         );
       }
 
@@ -740,23 +800,18 @@ export class NonceManager {
     fn: (nonces: number[]) => Promise<T>
   ): Promise<T> {
     const nonces = await this.reserveNonces(count);
-    const usedNonces = new Set<number>();
 
     try {
-      // Provide a helper to mark individual nonces as used within the callback
       const result = await fn(nonces);
-
-      // After successful execution, mark any nonces that weren't explicitly
-      // marked by the callback as used (defensive)
       return result;
     } catch (err) {
-      // Mark all nonces that weren't used as failed
+      // Reclaim all nonces that were never broadcast (txHash still "").
+      // Nonces that had markNonceUsed() called inside fn will have a real
+      // txHash and won't be reclaimed — those are left for manual recovery.
       for (const nonce of nonces) {
-        if (!usedNonces.has(nonce)) {
-          await this.markNonceFailed(nonce).catch((e) =>
-            console.error(`[NonceManager] Failed to mark nonce=${nonce} as failed:`, e)
-          );
-        }
+        await this.reclaimNonce(nonce).catch((e) =>
+          console.error(`[NonceManager] Failed to reclaim nonce=${nonce}:`, e)
+        );
       }
       throw err;
     }
