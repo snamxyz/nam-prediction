@@ -185,35 +185,95 @@ export class NonceManager {
   /**
    * Initialize the nonce manager. Must be called once on startup.
    *
-   * - If Redis has existing state, loads it.
-   * - If Redis is empty, fetches on-chain pending nonce count and initializes.
+   * Always verifies Redis state against on-chain nonce counts to prevent
+   * stale Redis state from causing gapped-nonce errors after restarts.
    */
   async init(): Promise<void> {
     const requestId = await this.acquireLock();
     try {
       const existing = await this.loadStateFromRedis();
 
+      // Always fetch on-chain counts to verify state
+      const [onChainLatest, onChainPending] = await Promise.all([
+        this.publicClient.getTransactionCount({
+          address: this.address,
+          blockTag: "latest",
+        }),
+        this.publicClient.getTransactionCount({
+          address: this.address,
+          blockTag: "pending",
+        }),
+      ]);
+
       if (existing) {
-        this.state = existing;
         console.log(
           `[NonceManager] Loaded state from Redis — nextNonce=${existing.nextNonce}, ` +
             `lastConfirmed=${existing.lastConfirmedNonce}, pending=${Object.keys(existing.pending).length}`
         );
-      } else {
-        const onChainNonce = await this.publicClient.getTransactionCount({
-          address: this.address,
-          blockTag: "pending",
-        });
 
+        // Verify Redis state against on-chain and fix any drift.
+        // If our nextNonce is ahead of on-chain pending AND we have no real
+        // pending txs for those nonces, we have ghost nonces → reset.
+        if (existing.nextNonce > onChainPending) {
+          // Check if any pending entries actually exist for nonces between
+          // onChainPending and our nextNonce
+          let hasRealPending = false;
+          for (const nonceStr of Object.keys(existing.pending)) {
+            const n = Number(nonceStr);
+            if (n >= onChainPending && n < existing.nextNonce) {
+              hasRealPending = true;
+              break;
+            }
+          }
+
+          if (!hasRealPending) {
+            console.warn(
+              `[NonceManager] Redis nextNonce (${existing.nextNonce}) is ahead of ` +
+                `on-chain pending (${onChainPending}) with no real pending txs. ` +
+                `Resetting nextNonce to ${onChainPending}.`
+            );
+            existing.nextNonce = onChainPending;
+          }
+        }
+
+        // If on-chain pending is ahead of us, advance
+        if (onChainPending > existing.nextNonce) {
+          console.warn(
+            `[NonceManager] On-chain pending (${onChainPending}) > Redis nextNonce ` +
+              `(${existing.nextNonce}). Advancing.`
+          );
+          existing.nextNonce = onChainPending;
+        }
+
+        // Clean up confirmed nonces from pending map
+        for (const nonceStr of Object.keys(existing.pending)) {
+          if (Number(nonceStr) < onChainLatest) {
+            delete existing.pending[nonceStr];
+          }
+        }
+
+        if (onChainLatest - 1 > existing.lastConfirmedNonce) {
+          existing.lastConfirmedNonce = onChainLatest - 1;
+        }
+
+        this.state = existing;
+        await this.saveStateToRedis(this.state);
+
+        console.log(
+          `[NonceManager] Verified against on-chain — nextNonce=${this.state.nextNonce}, ` +
+            `onChainLatest=${onChainLatest}, onChainPending=${onChainPending}`
+        );
+      } else {
         this.state = {
-          nextNonce: onChainNonce,
-          lastConfirmedNonce: onChainNonce > 0 ? onChainNonce - 1 : -1,
+          nextNonce: onChainPending,
+          lastConfirmedNonce: onChainLatest > 0 ? onChainLatest - 1 : -1,
           pending: {},
         };
 
         await this.saveStateToRedis(this.state);
         console.log(
-          `[NonceManager] Initialized from on-chain — nextNonce=${onChainNonce}`
+          `[NonceManager] Initialized from on-chain — nextNonce=${onChainPending}, ` +
+            `onChainLatest=${onChainLatest}`
         );
       }
 
@@ -251,8 +311,15 @@ export class NonceManager {
       const nonce = state.nextNonce;
       state.nextNonce = nonce + 1;
 
+      // Immediately track in pending map so markNonceFailed can find it
+      state.pending[String(nonce)] = {
+        txHash: "", // not yet broadcast
+        status: "pending",
+        createdAt: Date.now(),
+      };
+
       console.log(
-        `[NonceManager] Assigned nonce=${nonce} (nextNonce now ${state.nextNonce}, pending=${pendingCount + 1})`
+        `[NonceManager] Assigned nonce=${nonce} (nextNonce now ${state.nextNonce}, pending=${Object.keys(state.pending).length})`
       );
 
       return nonce;
@@ -278,12 +345,20 @@ export class NonceManager {
 
       const nonces: number[] = [];
       for (let i = 0; i < count; i++) {
-        nonces.push(state.nextNonce);
+        const n = state.nextNonce;
+        nonces.push(n);
         state.nextNonce++;
+
+        // Immediately track in pending map so markNonceFailed can find them
+        state.pending[String(n)] = {
+          txHash: "", // not yet broadcast
+          status: "pending",
+          createdAt: Date.now(),
+        };
       }
 
       console.log(
-        `[NonceManager] Reserved nonces=[${nonces.join(",")}] (nextNonce now ${state.nextNonce})`
+        `[NonceManager] Reserved nonces=[${nonces.join(",")}] (nextNonce now ${state.nextNonce}, pending=${Object.keys(state.pending).length})`
       );
 
       return nonces;
@@ -408,6 +483,38 @@ export class NonceManager {
         );
         state.nextNonce = onChainPending;
         nonceAdvanced = true;
+      }
+
+      // If our nextNonce is ahead of on-chain pending AND no real pending txs
+      // exist for those nonces, we have ghost nonces → clamp downward.
+      // This prevents persistent gapped-nonce errors.
+      if (state.nextNonce > onChainPending) {
+        let hasRealPending = false;
+        for (const nonceStr of Object.keys(state.pending)) {
+          const n = Number(nonceStr);
+          if (n >= onChainPending && state.pending[nonceStr].txHash !== "") {
+            hasRealPending = true;
+            break;
+          }
+        }
+
+        if (!hasRealPending) {
+          console.warn(
+            `[NonceManager] Reconciliation: nextNonce (${state.nextNonce}) ahead of ` +
+              `on-chain pending (${onChainPending}) with no real pending txs. ` +
+              `Clamping nextNonce down to ${onChainPending}.`
+          );
+          // Remove ghost pending entries
+          for (const nonceStr of Object.keys(state.pending)) {
+            const n = Number(nonceStr);
+            if (n >= onChainPending && state.pending[nonceStr].txHash === "") {
+              delete state.pending[nonceStr];
+              staleRemoved++;
+            }
+          }
+          state.nextNonce = onChainPending;
+          nonceAdvanced = true;
+        }
       }
 
       console.log(
@@ -591,6 +698,24 @@ export class NonceManager {
       return txHash;
     } catch (err) {
       await this.markNonceFailed(nonce);
+
+      // If the error is a gapped-nonce or nonce-too-high error, our state is
+      // fundamentally out of sync with on-chain. Trigger an immediate resync
+      // so the next call gets the correct nonce.
+      const errMsg = String(err);
+      if (
+        errMsg.includes("gapped-nonce") ||
+        errMsg.includes("nonce too high") ||
+        errMsg.includes("nonce gap")
+      ) {
+        console.warn(
+          `[NonceManager] Gapped-nonce error detected — triggering immediate resync`
+        );
+        await this.resyncNonce().catch((e) =>
+          console.error("[NonceManager] Resync after gapped-nonce failed:", e)
+        );
+      }
+
       throw err;
     }
   }
