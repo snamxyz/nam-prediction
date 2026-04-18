@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@nam-prediction/shared": "workspace:*",
+    "@nam-prediction/shared": "*",
     "@privy-io/react-auth": "^2.5.0",
     "@privy-io/wagmi": "^1.0.0",
     "@tanstack/react-query": "^5.62.0",

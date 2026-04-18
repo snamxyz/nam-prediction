@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
-    "@nam-prediction/shared": "workspace:*",
+    "@nam-prediction/shared": "*",
     "@privy-io/server-auth": "^1.32.5",
     "bullmq": "^5.73.3",
     "drizzle-orm": "^0.39.0",
