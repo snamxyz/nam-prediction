@@ -1,4 +1,4 @@
-import { createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, http } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { db } from "../db/client";
@@ -6,6 +6,7 @@ import { markets } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
+import { withTxMutex } from "../lib/tx-mutex";
 
 // NOTE: m15 markets are owned by the dedicated BullMQ worker in ./queue/m15-queue.ts.
 // This poller intentionally ignores cadence === "m15" rows.
@@ -38,13 +39,22 @@ export async function resolveMarketOnChain(
       chain: base,
       transport: http(RPC_URL),
     });
-
-    const txHash = await walletClient.writeContract({
-      address: FACTORY_ADDRESS,
-      abi: MarketFactoryABI,
-      functionName: "resolveMarket",
-      args: [BigInt(marketId), result],
+    const publicClient = createPublicClient({
+      chain: base,
+      transport: http(RPC_URL),
     });
+
+    const txHash = await withTxMutex(() =>
+      walletClient.writeContract({
+        address: FACTORY_ADDRESS,
+        abi: MarketFactoryABI,
+        functionName: "resolveMarket",
+        args: [BigInt(marketId), result],
+      })
+    );
+
+    // Wait for receipt so subsequent transactions don't overlap
+    await publicClient.waitForTransactionReceipt({ hash: txHash });
 
     console.log(`[Resolution] Resolved market #${marketId} with result=${result}, tx=${txHash}`);
 

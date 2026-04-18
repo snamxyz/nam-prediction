@@ -21,6 +21,7 @@ import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
 import { db } from "../db/client";
 import { markets } from "../db/schema";
 import { fetchNamPrice } from "./daily-market";
+import { withTxMutex } from "../lib/tx-mutex";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -131,40 +132,43 @@ export async function createNextM15Market(
   console.log(`[M15] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
   console.log(`[M15] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
 
-  // Approve + Create with sequential nonces
-  const approveNonce = await publicClient.getTransactionCount({
-    address: sender,
-    blockTag: "pending",
-  });
-  const createNonce = approveNonce + 1;
+  // Approve + Create with sequential nonces, serialised by the tx mutex to
+  // prevent in-flight limit errors when overlapping with resolution or trading.
+  const receipt = await withTxMutex(async () => {
+    const approveNonce = await publicClient.getTransactionCount({
+      address: sender,
+      blockTag: "pending",
+    });
+    const createNonce = approveNonce + 1;
 
-  const approveHash = await walletClient.writeContract({
-    address: USDC_ADDRESS,
-    abi: ERC20ABI,
-    functionName: "approve",
-    args: [FACTORY_ADDRESS, approvalAmount],
-    nonce: approveNonce,
-  });
-  console.log(`[M15] Approve tx: ${approveHash}`);
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    const approveHash = await walletClient.writeContract({
+      address: USDC_ADDRESS,
+      abi: ERC20ABI,
+      functionName: "approve",
+      args: [FACTORY_ADDRESS, approvalAmount],
+      nonce: approveNonce,
+    });
+    console.log(`[M15] Approve tx: ${approveHash}`);
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-  const createHash = await walletClient.writeContract({
-    address: FACTORY_ADDRESS,
-    abi: MarketFactoryABI,
-    functionName: "createMarket",
-    args: [
-      question,
-      endTimeUnix,
-      liquidityUsdc,
-      BigInt(DEFAULT_FEE_BPS),
-      2, // dexscreener
-      resolutionData,
-    ],
-    nonce: createNonce,
-  });
-  console.log(`[M15] Create tx: ${createHash}`);
+    const createHash = await walletClient.writeContract({
+      address: FACTORY_ADDRESS,
+      abi: MarketFactoryABI,
+      functionName: "createMarket",
+      args: [
+        question,
+        endTimeUnix,
+        liquidityUsdc,
+        BigInt(DEFAULT_FEE_BPS),
+        2, // dexscreener
+        resolutionData,
+      ],
+      nonce: createNonce,
+    });
+    console.log(`[M15] Create tx: ${createHash}`);
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+    return publicClient.waitForTransactionReceipt({ hash: createHash });
+  });
 
   let onChainId: number | null = null;
   let yesToken = "";

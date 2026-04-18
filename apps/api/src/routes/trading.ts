@@ -23,6 +23,7 @@ import {
 } from "@nam-prediction/shared";
 import { verifyPrivyToken, privyClient } from "../middleware/auth";
 import { getCache, cacheKeys, redis } from "../lib/redis";
+import { withTxMutex } from "../lib/tx-mutex";
 import {
   processTradeFill,
   watchTradesForPool,
@@ -536,12 +537,14 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
 
         const walletClient = getWalletClient();
         const fnName = isYes ? "executeBuyYes" : "executeBuyNo";
-        const txHash = await walletClient.writeContract({
-          address: VAULT_ADDRESS,
-          abi: VaultABI,
-          functionName: fnName,
-          args: [ammAddress, usdcParsed, walletAddress],
-        });
+        const txHash = await withTxMutex(() =>
+          walletClient.writeContract({
+            address: VAULT_ADDRESS,
+            abi: VaultABI,
+            functionName: fnName,
+            args: [ammAddress, usdcParsed, walletAddress],
+          })
+        );
 
         console.log(`[Trading] Buy ${side} on market #${marketId} for ${walletAddress}: tx=${txHash}`);
 
@@ -709,12 +712,14 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
 
         const walletClient = getWalletClient();
         const fnName = isYes ? "executeSellYes" : "executeSellNo";
-        const txHash = await walletClient.writeContract({
-          address: VAULT_ADDRESS,
-          abi: VaultABI,
-          functionName: fnName,
-          args: [ammAddress, sharesParsed, walletAddress],
-        });
+        const txHash = await withTxMutex(() =>
+          walletClient.writeContract({
+            address: VAULT_ADDRESS,
+            abi: VaultABI,
+            functionName: fnName,
+            args: [ammAddress, sharesParsed, walletAddress],
+          })
+        );
 
         console.log(`[Trading] Sell ${side} on market #${marketId} for ${walletAddress}: tx=${txHash}`);
 

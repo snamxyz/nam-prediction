@@ -5,6 +5,7 @@ import { db } from "../db/client";
 import { dailyMarkets, markets } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
 import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
+import { withTxMutex } from "../lib/tx-mutex";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -121,37 +122,33 @@ export async function createDailyMarket(threshold: number): Promise<void> {
   });
 
   try {
-    // Approve USDC for the factory
-    const approveHash = await walletClient.writeContract({
-      address: USDC_ADDRESS,
-      abi: ERC20ABI,
-      functionName: "approve",
-      args: [FACTORY_ADDRESS, liquidityUsdc],
+    // Approve + Create serialised by the tx mutex to prevent in-flight limit errors.
+    await withTxMutex(async () => {
+      const approveHash = await walletClient.writeContract({
+        address: USDC_ADDRESS,
+        abi: ERC20ABI,
+        functionName: "approve",
+        args: [FACTORY_ADDRESS, liquidityUsdc],
+      });
+      console.log(`[DailyMarket] USDC approval tx: ${approveHash}`);
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+
+      const createHash = await walletClient.writeContract({
+        address: FACTORY_ADDRESS,
+        abi: MarketFactoryABI,
+        functionName: "createMarket",
+        args: [
+          question,
+          endTimeUnix,
+          liquidityUsdc,
+          BigInt(DEFAULT_FEE_BPS),
+          2, // SOURCE_DEXSCREENER
+          resolutionData as `0x${string}`,
+        ],
+      });
+      console.log(`[DailyMarket] Market creation tx: ${createHash}`);
+      await publicClient.waitForTransactionReceipt({ hash: createHash });
     });
-    console.log(`[DailyMarket] USDC approval tx: ${approveHash}`);
-
-    // Wait for approval
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
-
-    // Create market on-chain
-    const createHash = await walletClient.writeContract({
-      address: FACTORY_ADDRESS,
-      abi: MarketFactoryABI,
-      functionName: "createMarket",
-      args: [
-        question,
-        endTimeUnix,
-        liquidityUsdc,
-        BigInt(DEFAULT_FEE_BPS),
-        2, // SOURCE_DEXSCREENER
-        resolutionData as `0x${string}`,
-      ],
-    });
-    console.log(`[DailyMarket] Market creation tx: ${createHash}`);
-
-    // Wait for the tx to be mined — the indexer will pick up the MarketCreated event
-    // and create the row in the markets table
-    await publicClient.waitForTransactionReceipt({ hash: createHash });
     console.log(`[DailyMarket] Market created for ${dateStr} with threshold $${threshold}`);
 
     // Give the indexer a few seconds to process the MarketCreated event
