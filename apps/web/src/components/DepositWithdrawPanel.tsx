@@ -67,6 +67,7 @@ export function DepositWithdrawPanel() {
       }
 
       const wallet = wallets[0];
+      await wallet.switchChain(8453);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: address,
@@ -121,6 +122,7 @@ export function DepositWithdrawPanel() {
       }
 
       const wallet = wallets[0];
+      await wallet.switchChain(8453);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
         account: address,
