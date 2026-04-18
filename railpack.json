@@ -2,7 +2,10 @@
   "$schema": "https://schema.railpack.com",
   "steps": {
     "build": {
-      "commands": ["...", "cd apps/api && bun run build"]
+      "commands": [
+        "cd packages/shared && bun run build",
+        "cd apps/api && bun run build"
+      ]
     }
   },
   "deploy": {
