@@ -1,20 +1,23 @@
 /**
  * Production-safe nonce manager for a backend-controlled EOA on Base chain.
  *
- * Features:
- * - Redis-backed shared nonce state (works across multiple backend instances)
- * - Distributed locking via SET NX PX with safe Lua-script release
- * - Single queue per wallet — only one nonce assignment at a time
- * - In-memory cache for fast access, always refreshed from Redis inside lock
- * - Pending transaction tracking with stuck detection
- * - Transaction replacement (gas bump) and cancellation flows
- * - Periodic reconciliation against on-chain state
- * - Structured logging for full observability
+ * CRITICAL CONSTRAINT (April 2026):
+ * Base / Alchemy treats this EOA as a "delegated account" and limits it to a
+ * single in-flight (pending) transaction at a time. Sending a second transaction
+ * while the first is still unconfirmed triggers:
+ *   "in-flight transaction limit reached for delegated accounts"
+ *
+ * This manager enforces:
+ * - Exactly ONE pending transaction at a time (maxPendingTxs = 1)
+ * - A serialized FIFO queue so concurrent callers wait rather than fail
+ * - An `active_tx` Redis key that persists across restarts for crash recovery
+ * - On-chain pendingNonce vs latestNonce verification before every send
+ * - Automatic stuck-transaction detection and cancellation
  *
  * Redis key structure:
  *   wallet:base:{address}:nonce_state   — JSON blob of NonceState
+ *   wallet:base:{address}:active_tx     — JSON blob of the single in-flight tx
  *   wallet:base:{address}:lock          — distributed lock
- *   wallet:base:{address}:pending_txs   — (reserved for future use)
  */
 
 import type IORedis from "ioredis";
@@ -31,6 +34,13 @@ export interface PendingTxInfo {
   maxPriorityFeePerGas?: string;
 }
 
+export interface ActiveTxInfo {
+  nonce: number;
+  txHash: string;
+  status: "pending" | "replacing";
+  createdAt: number; // unix ms
+}
+
 export interface NonceState {
   nextNonce: number;
   lastConfirmedNonce: number;
@@ -42,7 +52,7 @@ export interface NonceManagerConfig {
   publicClient: any; // viem PublicClient — typed as any for cross-version compat
   walletClient: any; // viem WalletClient — typed as any for cross-version compat
   redis: IORedis;
-  /** Max pending transactions before getNextNonce() rejects. Default: 10 */
+  /** Max pending transactions before getNextNonce() rejects. Default: 1 */
   maxPendingTxs?: number;
   /** Lock TTL in milliseconds. Default: 5000 */
   lockTtlMs?: number;
@@ -54,6 +64,10 @@ export interface NonceManagerConfig {
   gasBumpNumerator?: number;
   /** Gas bump multiplier denominator. Default: 1000 */
   gasBumpDenominator?: number;
+  /** Max time (ms) a caller waits in the serialized queue before giving up. Default: 120000 */
+  queueTimeoutMs?: number;
+  /** Interval (ms) to poll on-chain when waiting for in-flight tx to clear. Default: 2000 */
+  inflightPollIntervalMs?: number;
 }
 
 // Lua script: only delete the lock key if the stored value matches our requestId.
@@ -79,22 +93,35 @@ export class NonceManager {
   private readonly stuckThresholdSecs: number;
   private readonly gasBumpNumerator: number;
   private readonly gasBumpDenominator: number;
+  private readonly queueTimeoutMs: number;
+  private readonly inflightPollIntervalMs: number;
 
   /** In-memory cache — always refreshed from Redis inside lock. */
   private state: NonceState | null = null;
   private initialized = false;
+
+  /**
+   * Serialized transaction queue — promise chain.
+   * Each `withNonce()` caller appends to this chain so only one transaction
+   * is in-flight at a time, even across concurrent callers within this process.
+   * Cross-process serialization is handled by the `active_tx` Redis key +
+   * on-chain pending/latest nonce comparison.
+   */
+  private txQueue: Promise<void> = Promise.resolve();
 
   constructor(config: NonceManagerConfig) {
     this.address = config.address.toLowerCase() as `0x${string}`;
     this.publicClient = config.publicClient;
     this.walletClient = config.walletClient;
     this.redis = config.redis;
-    this.maxPendingTxs = config.maxPendingTxs ?? 10;
+    this.maxPendingTxs = config.maxPendingTxs ?? 1;
     this.lockTtlMs = config.lockTtlMs ?? 5000;
     this.lockAcquireTimeoutMs = config.lockAcquireTimeoutMs ?? 10000;
     this.stuckThresholdSecs = config.stuckThresholdSecs ?? 120;
     this.gasBumpNumerator = config.gasBumpNumerator ?? 1125;
     this.gasBumpDenominator = config.gasBumpDenominator ?? 1000;
+    this.queueTimeoutMs = config.queueTimeoutMs ?? 120_000;
+    this.inflightPollIntervalMs = config.inflightPollIntervalMs ?? 2000;
   }
 
   // ─── Redis key helpers ───
@@ -105,6 +132,26 @@ export class NonceManager {
 
   private lockKey(): string {
     return `wallet:base:${this.address}:lock`;
+  }
+
+  private activeTxKey(): string {
+    return `wallet:base:${this.address}:active_tx`;
+  }
+
+  // ─── Active TX helpers ───
+
+  async getActiveTx(): Promise<ActiveTxInfo | null> {
+    const raw = await this.redis.get(this.activeTxKey());
+    if (!raw) return null;
+    return JSON.parse(raw) as ActiveTxInfo;
+  }
+
+  private async setActiveTx(info: ActiveTxInfo): Promise<void> {
+    await this.redis.set(this.activeTxKey(), JSON.stringify(info));
+  }
+
+  async clearActiveTx(): Promise<void> {
+    await this.redis.del(this.activeTxKey());
   }
 
   // ─── Lock helpers ───
@@ -180,6 +227,86 @@ export class NonceManager {
     }
   }
 
+  // ─── On-chain in-flight check ───
+
+  /**
+   * Check on-chain whether there is an in-flight transaction for this EOA.
+   * Returns true if pendingNonce > latestNonce (i.e. a tx is in the mempool).
+   */
+  async hasInFlightTransaction(): Promise<{
+    inFlight: boolean;
+    latestNonce: number;
+    pendingNonce: number;
+  }> {
+    const [latestNonce, pendingNonce] = await Promise.all([
+      this.publicClient.getTransactionCount({
+        address: this.address,
+        blockTag: "latest",
+      }),
+      this.publicClient.getTransactionCount({
+        address: this.address,
+        blockTag: "pending",
+      }),
+    ]);
+
+    return {
+      inFlight: pendingNonce > latestNonce,
+      latestNonce,
+      pendingNonce,
+    };
+  }
+
+  /**
+   * Wait until there are no in-flight transactions on-chain.
+   * Polls every `inflightPollIntervalMs` until pendingNonce === latestNonce.
+   * Throws if the timeout is exceeded.
+   */
+  private async waitForNoInFlight(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const { inFlight, latestNonce, pendingNonce } =
+        await this.hasInFlightTransaction();
+
+      if (!inFlight) {
+        // Also verify active_tx Redis key is cleared
+        const activeTx = await this.getActiveTx();
+        if (activeTx) {
+          // The on-chain says no in-flight tx, but Redis still has active_tx.
+          // This means the tx confirmed while we were waiting. Clean it up.
+          console.log(
+            `[NonceManager] In-flight cleared on-chain but active_tx still in Redis ` +
+              `(nonce=${activeTx.nonce}). Cleaning up.`
+          );
+          await this.clearActiveTx();
+          // Also clean up the pending map entry
+          await this.withLock(async (state) => {
+            const entry = state.pending[String(activeTx.nonce)];
+            if (entry) {
+              delete state.pending[String(activeTx.nonce)];
+              if (activeTx.nonce > state.lastConfirmedNonce) {
+                state.lastConfirmedNonce = activeTx.nonce;
+              }
+            }
+          });
+        }
+        return;
+      }
+
+      console.log(
+        `[NonceManager] Waiting for in-flight tx to clear — ` +
+          `latestNonce=${latestNonce}, pendingNonce=${pendingNonce}`
+      );
+
+      await new Promise((r) => setTimeout(r, this.inflightPollIntervalMs));
+    }
+
+    throw new Error(
+      `[NonceManager] Timed out waiting for in-flight transaction to confirm ` +
+        `(waited ${timeoutMs}ms)`
+    );
+  }
+
   // ─── Initialization ───
 
   /**
@@ -187,6 +314,9 @@ export class NonceManager {
    *
    * Always verifies Redis state against on-chain nonce counts to prevent
    * stale Redis state from causing gapped-nonce errors after restarts.
+   *
+   * Also checks for a surviving `active_tx` from a previous run and
+   * reconciles it against on-chain state.
    */
   async init(): Promise<void> {
     const requestId = await this.acquireLock();
@@ -204,6 +334,31 @@ export class NonceManager {
           blockTag: "pending",
         }),
       ]);
+
+      // ── Recover active_tx from previous run ──
+      const activeTx = await this.getActiveTx();
+      if (activeTx) {
+        console.log(
+          `[NonceManager] Found surviving active_tx from previous run — ` +
+            `nonce=${activeTx.nonce}, txHash=${activeTx.txHash}, status=${activeTx.status}`
+        );
+
+        if (onChainPending > onChainLatest) {
+          // There is still an in-flight tx — keep active_tx, don't send new txs
+          console.warn(
+            `[NonceManager] In-flight tx still pending on-chain ` +
+              `(latest=${onChainLatest}, pending=${onChainPending}). ` +
+              `Will wait for it to confirm before sending new transactions.`
+          );
+        } else {
+          // The tx confirmed (or was dropped) while backend was down
+          console.log(
+            `[NonceManager] Previous active_tx (nonce=${activeTx.nonce}) has been confirmed ` +
+              `or dropped on-chain (latest=${onChainLatest}, pending=${onChainPending}). Clearing.`
+          );
+          await this.clearActiveTx();
+        }
+      }
 
       if (existing) {
         console.log(
@@ -304,6 +459,8 @@ export class NonceManager {
    * Atomically assign the next available nonce.
    * Acquires lock → reads state → assigns nonce → increments → saves → releases.
    * Throws if max pending transactions limit is reached.
+   *
+   * Also verifies on-chain that there is no in-flight transaction before assigning.
    */
   async getNextNonce(): Promise<number> {
     this.ensureInitialized();
@@ -314,6 +471,26 @@ export class NonceManager {
         throw new Error(
           `[NonceManager] Max pending transactions reached (${pendingCount}/${this.maxPendingTxs}). ` +
             `Wait for confirmations or resolve stuck transactions.`
+        );
+      }
+
+      // Verify no in-flight tx on-chain (defense-in-depth alongside the queue)
+      const { inFlight, latestNonce, pendingNonce } =
+        await this.hasInFlightTransaction();
+      if (inFlight) {
+        throw new Error(
+          `[NonceManager] Cannot assign nonce — in-flight transaction detected on-chain ` +
+            `(latest=${latestNonce}, pending=${pendingNonce}). Wait for confirmation.`
+        );
+      }
+
+      // Verify no active_tx in Redis
+      const activeTx = await this.getActiveTx();
+      if (activeTx) {
+        throw new Error(
+          `[NonceManager] Cannot assign nonce — active_tx exists in Redis ` +
+            `(nonce=${activeTx.nonce}, txHash=${activeTx.txHash}). ` +
+            `Wait for confirmation or clear stale active_tx.`
         );
       }
 
@@ -336,47 +513,9 @@ export class NonceManager {
   }
 
   /**
-   * Reserve multiple nonces atomically in a single lock acquisition.
-   * Used for multi-transaction flows like approve + create.
-   */
-  async reserveNonces(count: number): Promise<number[]> {
-    this.ensureInitialized();
-    if (count < 1) throw new Error("[NonceManager] reserveNonces count must be >= 1");
-
-    return this.withLock(async (state) => {
-      const pendingCount = Object.keys(state.pending).length;
-      if (pendingCount + count > this.maxPendingTxs) {
-        throw new Error(
-          `[NonceManager] Cannot reserve ${count} nonces — would exceed max pending ` +
-            `(${pendingCount} + ${count} > ${this.maxPendingTxs})`
-        );
-      }
-
-      const nonces: number[] = [];
-      for (let i = 0; i < count; i++) {
-        const n = state.nextNonce;
-        nonces.push(n);
-        state.nextNonce++;
-
-        // Immediately track in pending map so markNonceFailed can find them
-        state.pending[String(n)] = {
-          txHash: "", // not yet broadcast
-          status: "pending",
-          createdAt: Date.now(),
-        };
-      }
-
-      console.log(
-        `[NonceManager] Reserved nonces=[${nonces.join(",")}] (nextNonce now ${state.nextNonce}, pending=${Object.keys(state.pending).length})`
-      );
-
-      return nonces;
-    });
-  }
-
-  /**
    * Mark a nonce as used with its transaction hash.
    * Called after successfully broadcasting a transaction.
+   * Also sets the `active_tx` Redis key.
    */
   async markNonceUsed(nonce: number, txHash: string): Promise<void> {
     this.ensureInitialized();
@@ -390,10 +529,19 @@ export class NonceManager {
 
       console.log(`[NonceManager] Marked nonce=${nonce} used — txHash=${txHash}`);
     });
+
+    // Set active_tx outside the nonce lock (it's an independent key)
+    await this.setActiveTx({
+      nonce,
+      txHash,
+      status: "pending",
+      createdAt: Date.now(),
+    });
   }
 
   /**
-   * Mark a nonce as confirmed. Removes it from pending and updates lastConfirmedNonce.
+   * Mark a nonce as confirmed. Removes it from pending, updates lastConfirmedNonce,
+   * and clears the `active_tx` Redis key.
    */
   async markNonceConfirmed(nonce: number): Promise<void> {
     this.ensureInitialized();
@@ -410,6 +558,9 @@ export class NonceManager {
           `pending=${Object.keys(state.pending).length})`
       );
     });
+
+    // Clear active_tx — this nonce is done, next queued tx can proceed
+    await this.clearActiveTx();
   }
 
   /**
@@ -441,6 +592,8 @@ export class NonceManager {
    *
    * Only reclaims if txHash is empty (never broadcast). Nonces with a real
    * txHash are left for markNonceFailed / manual recovery.
+   *
+   * Also clears `active_tx` if it matches this nonce.
    */
   private async reclaimNonce(nonce: number): Promise<void> {
     await this.withLock(async (state) => {
@@ -459,7 +612,6 @@ export class NonceManager {
       delete state.pending[String(nonce)];
 
       // Walk nextNonce backwards, reclaiming consecutive unbroadcast nonces.
-      // This handles the case where multiple concurrent nonces all fail.
       while (
         state.nextNonce > state.lastConfirmedNonce + 1 &&
         !state.pending[String(state.nextNonce - 1)]
@@ -472,15 +624,19 @@ export class NonceManager {
           `pending=${Object.keys(state.pending).length}`
       );
     });
+
+    // Clear active_tx if it was set for this nonce (tx never broadcast)
+    const activeTx = await this.getActiveTx();
+    if (activeTx && activeTx.nonce === nonce) {
+      await this.clearActiveTx();
+    }
   }
 
   /**
    * Reconcile Redis nonce state against on-chain transaction counts.
    *
-   * - Compares against provider.getTransactionCount(address, "latest") and "pending"
-   * - Detects confirmed nonces still in pending map and removes them
-   * - Detects if on-chain nonce has advanced past our tracking and resyncs
-   * - Returns a summary of actions taken
+   * Also reconciles the `active_tx` key: if the on-chain state shows no
+   * in-flight transaction, clears `active_tx`.
    */
   async resyncNonce(): Promise<{
     onChainLatest: number;
@@ -564,6 +720,19 @@ export class NonceManager {
           }
           state.nextNonce = onChainPending;
           nonceAdvanced = true;
+        }
+      }
+
+      // ── Reconcile active_tx ──
+      // If on-chain shows no in-flight tx, clear active_tx
+      if (onChainPending <= onChainLatest) {
+        const activeTx = await this.getActiveTx();
+        if (activeTx) {
+          console.log(
+            `[NonceManager] Reconciliation: no in-flight tx on-chain but active_tx exists ` +
+              `(nonce=${activeTx.nonce}). Clearing.`
+          );
+          await this.clearActiveTx();
         }
       }
 
@@ -675,6 +844,14 @@ export class NonceManager {
       };
     });
 
+    // Update active_tx with replacement hash
+    await this.setActiveTx({
+      nonce,
+      txHash: newTxHash,
+      status: "replacing",
+      createdAt: entry?.createdAt ?? Date.now(),
+    });
+
     console.log(`[NonceManager] Replacement sent — nonce=${nonce}, newTxHash=${newTxHash}`);
     return newTxHash;
   }
@@ -682,9 +859,6 @@ export class NonceManager {
   /**
    * Cancel a stuck transaction by sending a 0-value self-transfer with the same nonce
    * and higher gas. This effectively "uses up" the nonce without doing anything.
-   *
-   * @param nonce The nonce to cancel
-   * @returns The cancel transaction hash
    */
   async cancelTransaction(nonce: number): Promise<string> {
     this.ensureInitialized();
@@ -721,6 +895,14 @@ export class NonceManager {
       };
     });
 
+    // Update active_tx with cancel hash
+    await this.setActiveTx({
+      nonce,
+      txHash: cancelTxHash,
+      status: "replacing",
+      createdAt: entry?.createdAt ?? Date.now(),
+    });
+
     console.log(`[NonceManager] Cancel tx sent — nonce=${nonce}, txHash=${cancelTxHash}`);
     return cancelTxHash;
   }
@@ -728,93 +910,101 @@ export class NonceManager {
   // ─── High-level wrappers ───
 
   /**
-   * Execute a single transaction with automatic nonce management.
-   * Replaces the old `withTxMutex()` pattern.
+   * Execute a single transaction through the serialized queue.
    *
-   * 1. Acquires a nonce
-   * 2. Calls `fn(nonce)` which should broadcast the transaction
-   * 3. On success: marks nonce as used with the returned txHash
-   * 4. On failure: reclaims the nonce (RPC rejection = tx never broadcast)
+   * All transaction submissions for this EOA are funneled through this method.
+   * Callers are queued in FIFO order — only one transaction is in-flight at a time.
    *
-   * @param fn Function that sends a transaction using the assigned nonce and returns the tx hash
-   * @returns The transaction hash
+   * Flow:
+   * 1. Enqueue in the serialized promise chain (wait for previous tx to finish)
+   * 2. Wait for any on-chain in-flight tx to clear (poll pendingNonce vs latestNonce)
+   * 3. Acquire Redis lock → assign nonce → set active_tx → release lock
+   * 4. Call fn(nonce) to broadcast the transaction
+   * 5. Mark nonce used
+   * 6. On failure: reclaim nonce + clear active_tx
+   *
+   * NOTE: This method does NOT wait for the tx receipt. The caller should call
+   * `waitForReceipt()` + `markNonceConfirmed()` after this returns.
+   * However, the queue slot is held until this method returns, preventing the
+   * next queued caller from starting until the current tx is at least broadcast.
+   *
+   * For full serialization (wait for confirmation before next tx), use
+   * `withNonceAndConfirm()`.
    */
   async withNonce(fn: (nonce: number) => Promise<Hex>): Promise<Hex> {
-    const nonce = await this.getNextNonce();
+    return this.enqueue(async () => {
+      // Wait for any existing in-flight tx (from this instance or another) to clear
+      await this.waitForNoInFlight(this.queueTimeoutMs);
 
-    try {
-      const txHash = await fn(nonce);
-      await this.markNonceUsed(nonce, txHash);
-      return txHash;
-    } catch (err) {
-      // If fn(nonce) throws, the tx was rejected by the RPC and never broadcast
-      // to the mempool. Reclaim the nonce so it can be reused immediately.
-      await this.reclaimNonce(nonce);
+      const nonce = await this.getNextNonce();
 
-      const errMsg = String(err);
+      try {
+        const txHash = await fn(nonce);
+        await this.markNonceUsed(nonce, txHash);
+        return txHash;
+      } catch (err) {
+        await this.reclaimNonce(nonce);
 
-      // In-flight limit: the RPC won't accept ANY new txs right now.
-      // Log clearly so callers know to back off.
-      if (errMsg.includes("in-flight transaction limit")) {
-        console.warn(
-          `[NonceManager] In-flight transaction limit reached — reclaimed nonce=${nonce}. ` +
-            `Wait for pending txs to confirm before retrying.`
-        );
+        const errMsg = String(err);
+
+        if (errMsg.includes("in-flight transaction limit")) {
+          console.warn(
+            `[NonceManager] In-flight transaction limit reached — reclaimed nonce=${nonce}. ` +
+              `Wait for pending txs to confirm before retrying.`
+          );
+        }
+
+        if (
+          errMsg.includes("gapped-nonce") ||
+          errMsg.includes("nonce too high") ||
+          errMsg.includes("nonce gap")
+        ) {
+          console.warn(
+            `[NonceManager] Nonce mismatch detected — triggering immediate resync`
+          );
+          await this.resyncNonce().catch((e) =>
+            console.error("[NonceManager] Resync after nonce mismatch failed:", e)
+          );
+        }
+
+        throw err;
       }
-
-      // Gapped-nonce / nonce-too-high: our state is fundamentally wrong.
-      if (
-        errMsg.includes("gapped-nonce") ||
-        errMsg.includes("nonce too high") ||
-        errMsg.includes("nonce gap")
-      ) {
-        console.warn(
-          `[NonceManager] Nonce mismatch detected — triggering immediate resync`
-        );
-        await this.resyncNonce().catch((e) =>
-          console.error("[NonceManager] Resync after nonce mismatch failed:", e)
-        );
-      }
-
-      throw err;
-    }
+    });
   }
 
   /**
-   * Execute a multi-transaction flow with atomic nonce reservation.
-   * Used for approve + create patterns that need sequential nonces.
-   *
-   * 1. Reserves `count` nonces atomically
-   * 2. Calls `fn(nonces)` with the array of reserved nonces
-   * 3. The caller is responsible for calling markNonceUsed/markNonceConfirmed
-   *    for each nonce within the `fn` callback
-   *
-   * On failure, all unused nonces are marked as failed.
-   *
-   * @param count Number of nonces to reserve
-   * @param fn Function that uses the reserved nonces and returns per-nonce tx hashes
-   * @returns The result of fn
+   * Enqueue an async operation into the serialized transaction queue.
+   * Each operation runs only after the previous one completes (or fails).
+   * This guarantees only one transaction is in-flight at a time within this process.
    */
-  async withMultiNonce<T>(
-    count: number,
-    fn: (nonces: number[]) => Promise<T>
-  ): Promise<T> {
-    const nonces = await this.reserveNonces(count);
-
-    try {
-      const result = await fn(nonces);
-      return result;
-    } catch (err) {
-      // Reclaim all nonces that were never broadcast (txHash still "").
-      // Nonces that had markNonceUsed() called inside fn will have a real
-      // txHash and won't be reclaimed — those are left for manual recovery.
-      for (const nonce of nonces) {
-        await this.reclaimNonce(nonce).catch((e) =>
-          console.error(`[NonceManager] Failed to reclaim nonce=${nonce}:`, e)
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      // Create a timeout that rejects if we wait too long in the queue
+      let timedOut = false;
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        reject(
+          new Error(
+            `[NonceManager] Transaction queue timeout — waited ${this.queueTimeoutMs}ms`
+          )
         );
-      }
-      throw err;
-    }
+      }, this.queueTimeoutMs);
+
+      this.txQueue = this.txQueue
+        .then(async () => {
+          if (timedOut) return; // already rejected
+          clearTimeout(timeoutHandle);
+          try {
+            const result = await operation();
+            resolve(result);
+          } catch (err) {
+            reject(err);
+          }
+        })
+        .catch(() => {
+          // Ensure the queue chain never breaks — errors are forwarded via reject()
+        });
+    });
   }
 
   // ─── Stuck transaction detection ───

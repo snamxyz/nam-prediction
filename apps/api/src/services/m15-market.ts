@@ -132,23 +132,29 @@ export async function createNextM15Market(
   console.log(`[M15] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
   console.log(`[M15] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
 
-  // Approve + Create with sequential nonces, serialised by the nonce manager
-  // to prevent nonce collisions across multiple backend instances.
+  // Approve + Create as two sequential transactions, each going through the
+  // serialized nonce manager queue. Only one in-flight tx at a time is allowed
+  // because Alchemy treats this EOA as a delegated account.
   const nm = getNonceManager();
-  const receipt = await nm.withMultiNonce(2, async ([approveNonce, createNonce]) => {
-    const approveHash = await walletClient.writeContract({
+
+  // Step 1: USDC Approval — withNonce handles nonce assignment + active_tx tracking
+  const approveHash = await nm.withNonce((nonce) =>
+    walletClient.writeContract({
       address: USDC_ADDRESS,
       abi: ERC20ABI,
       functionName: "approve",
       args: [FACTORY_ADDRESS, approvalAmount],
-      nonce: approveNonce,
-    });
-    console.log(`[M15] Approve tx: ${approveHash}`);
-    await nm.markNonceUsed(approveNonce, approveHash);
-    await publicClient.waitForTransactionReceipt({ hash: approveHash });
-    await nm.markNonceConfirmed(approveNonce);
+      nonce,
+    })
+  );
+  console.log(`[M15] Approve tx: ${approveHash}`);
+  // Wait for on-chain confirmation before sending the next tx
+  await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-    const createHash = await walletClient.writeContract({
+  // Step 2: Market Creation — the queue's waitForNoInFlight() will verify
+  // the approve tx is confirmed on-chain before assigning the next nonce.
+  const createHash = await nm.withNonce((nonce) =>
+    walletClient.writeContract({
       address: FACTORY_ADDRESS,
       abi: MarketFactoryABI,
       functionName: "createMarket",
@@ -160,15 +166,11 @@ export async function createNextM15Market(
         2, // dexscreener
         resolutionData,
       ],
-      nonce: createNonce,
-    });
-    console.log(`[M15] Create tx: ${createHash}`);
-    await nm.markNonceUsed(createNonce, createHash);
-
-    const txReceipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
-    await nm.markNonceConfirmed(createNonce);
-    return txReceipt;
-  });
+      nonce,
+    })
+  );
+  console.log(`[M15] Create tx: ${createHash}`);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
 
   let onChainId: number | null = null;
   let yesToken = "";

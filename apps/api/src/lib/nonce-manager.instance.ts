@@ -44,10 +44,12 @@ function createInstance(): NonceManager {
     publicClient,
     walletClient,
     redis,
-    maxPendingTxs: 10,
+    maxPendingTxs: 1,
     lockTtlMs: 5_000,
     lockAcquireTimeoutMs: 10_000,
     stuckThresholdSecs: 120,
+    queueTimeoutMs: 120_000,
+    inflightPollIntervalMs: 2_000,
   });
 }
 

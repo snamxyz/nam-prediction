@@ -85,7 +85,7 @@ export function startNonceReconciliationWorker() {
 async function processNonceReconciliation() {
   const nm = getNonceManager();
 
-  // Step 1: Reconcile state against on-chain
+  // Step 1: Reconcile state against on-chain (also clears stale active_tx)
   const result = await nm.resyncNonce();
 
   if (result.staleRemoved > 0 || result.nonceAdvanced) {
@@ -96,7 +96,17 @@ async function processNonceReconciliation() {
     );
   }
 
-  // Step 2: Detect and handle stuck transactions
+  // Step 2: Verify active_tx consistency (defense-in-depth)
+  const activeTx = await nm.getActiveTx();
+  if (activeTx && result.onChainPending <= result.onChainLatest) {
+    console.log(
+      `[NonceReconciliation] Clearing stale active_tx (nonce=${activeTx.nonce}) — ` +
+        `no in-flight tx on-chain`
+    );
+    await nm.clearActiveTx();
+  }
+
+  // Step 3: Detect and handle stuck transactions
   const stuck = await nm.getStuckTransactions();
 
   if (stuck.length === 0) return;

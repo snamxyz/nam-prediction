@@ -122,23 +122,28 @@ export async function createDailyMarket(threshold: number): Promise<void> {
   });
 
   try {
-    // Approve + Create serialised by the nonce manager to prevent nonce
-    // collisions across multiple backend instances.
+    // Approve + Create as two sequential transactions, each going through the
+    // serialized nonce manager queue. Only one in-flight tx at a time is allowed
+    // because Alchemy treats this EOA as a delegated account.
     const nm = getNonceManager();
-    await nm.withMultiNonce(2, async ([approveNonce, createNonce]) => {
-      const approveHash = await walletClient.writeContract({
+
+    // Step 1: USDC Approval
+    const approveHash = await nm.withNonce((nonce) =>
+      walletClient.writeContract({
         address: USDC_ADDRESS,
         abi: ERC20ABI,
         functionName: "approve",
         args: [FACTORY_ADDRESS, liquidityUsdc],
-        nonce: approveNonce,
-      });
-      console.log(`[DailyMarket] USDC approval tx: ${approveHash}`);
-      await nm.markNonceUsed(approveNonce, approveHash);
-      await publicClient.waitForTransactionReceipt({ hash: approveHash });
-      await nm.markNonceConfirmed(approveNonce);
+        nonce,
+      })
+    );
+    console.log(`[DailyMarket] USDC approval tx: ${approveHash}`);
+    await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
-      const createHash = await walletClient.writeContract({
+    // Step 2: Market Creation — the queue's waitForNoInFlight() will verify
+    // the approve tx is confirmed on-chain before assigning the next nonce.
+    const createHash = await nm.withNonce((nonce) =>
+      walletClient.writeContract({
         address: FACTORY_ADDRESS,
         abi: MarketFactoryABI,
         functionName: "createMarket",
@@ -150,13 +155,11 @@ export async function createDailyMarket(threshold: number): Promise<void> {
           2, // SOURCE_DEXSCREENER
           resolutionData as `0x${string}`,
         ],
-        nonce: createNonce,
-      });
-      console.log(`[DailyMarket] Market creation tx: ${createHash}`);
-      await nm.markNonceUsed(createNonce, createHash);
-      await publicClient.waitForTransactionReceipt({ hash: createHash });
-      await nm.markNonceConfirmed(createNonce);
-    });
+        nonce,
+      })
+    );
+    console.log(`[DailyMarket] Market creation tx: ${createHash}`);
+    await publicClient.waitForTransactionReceipt({ hash: createHash });
     console.log(`[DailyMarket] Market created for ${dateStr} with threshold $${threshold}`);
 
     // Give the indexer a few seconds to process the MarketCreated event
