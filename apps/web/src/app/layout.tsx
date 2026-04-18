@@ -5,8 +5,6 @@ import { Navbar } from "@/components/Navbar";
 import { LiveTicker } from "@/components/LiveTicker";
 import Background from "@/components/UI/Background";
 
-export const dynamic = "force-dynamic";
-
 export const metadata: Metadata = {
   title: "NAM Prediction Market",
   description: "Decentralized prediction market on Base",

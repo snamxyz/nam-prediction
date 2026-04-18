@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "prebuild": "bun scripts/clean-dist.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun --external bullmq --external ioredis",
     "start": "bun run dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -28,6 +29,6 @@
   "devDependencies": {
     "drizzle-kit": "^0.30.0",
     "typescript": "^5.7.0",
-    "@types/bun": "latest"
+    "@types/bun": "^1.2.19"
   }
 }

@@ -79,3 +79,16 @@ body {
   border-right: none;
   border-bottom: none;
 }
+
+/* NProgress — above sticky Navbar (z-50) */
+#nprogress {
+  pointer-events: none;
+}
+#nprogress .bar {
+  height: 2px;
+  background: var(--accent);
+  z-index: 99999;
+}
+#nprogress .peg {
+  box-shadow: 0 0 10px var(--accent), 0 0 5px var(--accent);
+}

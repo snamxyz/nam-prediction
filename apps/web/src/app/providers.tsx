@@ -7,9 +7,20 @@ import { wagmiConfig } from "@/lib/wagmi";
 import { useState, type ReactNode } from "react";
 import { base } from "viem/chains";
 import { Toaster } from "sonner";
+import { NavigationProgress } from "@/components/NavigationProgress";
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 45_000,
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
+  );
 
   const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
 
@@ -31,6 +42,7 @@ export function Providers({ children }: { children: ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>
+          <NavigationProgress />
           {children}
           <Toaster
             theme="dark"

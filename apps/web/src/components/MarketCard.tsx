@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { TrendingUp, TrendingDown, DollarSign, Clock, Users } from "lucide-react";
-import type { Market } from "@nam-prediction/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import { DollarSign, Clock } from "lucide-react";
+import type { Market, Trade } from "@nam-prediction/shared";
+import { fetchApi } from "@/lib/api";
 
 function formatTimeRemaining(endTime: string): string {
   const now = Date.now();
@@ -30,11 +32,28 @@ const SOURCE_ICONS: Record<string, string> = {
 };
 
 export function MarketCard({ market }: { market: Market }) {
+  const queryClient = useQueryClient();
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
 
+  const prefetchMarket = () => {
+    const id = market.id;
+    void queryClient.prefetchQuery({
+      queryKey: ["market", id],
+      queryFn: () => fetchApi<Market>(`/markets/${id}`),
+    });
+    void queryClient.prefetchQuery({
+      queryKey: ["market-trades", id],
+      queryFn: () => fetchApi<Trade[]>(`/markets/${id}/trades`),
+    });
+  };
+
   return (
-    <Link href={`/market/${market.id}`}>
+    <Link
+      href={`/market/${market.id}`}
+      onMouseEnter={prefetchMarket}
+      onFocus={prefetchMarket}
+    >
       <div className="glass-card p-5 transition-all cursor-pointer hover:scale-[1.01]"
         style={{ overflow: "hidden" }}>
         {/* Question + source badge */}
