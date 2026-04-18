@@ -34,7 +34,7 @@ export function Providers({ children }: { children: ReactNode }) {
           {children}
           <Toaster
             theme="dark"
-            position="top-right"
+            position="bottom-right"
             richColors
             closeButton
           />

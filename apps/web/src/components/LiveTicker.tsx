@@ -1,45 +1,68 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { Zap } from "lucide-react";
+import { useRecentTrades, type RecentTrade } from "@/hooks/useRecentTrades";
 
-const T_AVATARS = ["#7c3aed","#2563eb","#db2777","#d97706","#0891b2","#059669","#dc2626","#4f46e5","#b45309","#0e7490","#7c3aed","#be185d"];
-const T_USERS = [
-  {u:"0x4f2a…8c1e",i:"4F"},{u:"alex.eth",i:"AE"},{u:"0x9b3d…2f4a",i:"9B"},
-  {u:"trader_99",i:"T9"},{u:"moon_whale",i:"MW"},{u:"0x1c8f…5e2b",i:"1C"},
-  {u:"defi_king",i:"DK"},{u:"0x7a4e…9d3c",i:"7A"},{u:"satoshi99",i:"S9"},
-  {u:"0xf3b1…4a8d",i:"F3"},{u:"ape_trader",i:"AT"},{u:"0x2e9c…7b3f",i:"2E"},
-  {u:"vitalik.eth",i:"VE"},{u:"0x8d5a…c3f1",i:"8D"},{u:"alpha_call",i:"AC"},{u:"0x3c7b…1e9a",i:"3C"},
-];
-const T_MARKETS = ["BTC $100K 2026","GPT-5 in 2026","SpaceX Mars <2030","S&P 500 above 7000","Quantum PC by 2028","AI replaces 30% devs","Fed rate cut Q2","ETH flips BTC","Gold above $4K","US recession 2026","Apple hits $4T","Nuclear fusion by 2027"];
-const T_AMOUNTS = [25,50,75,100,125,150,200,250,300,500,750,1000,1200,1500,2000];
-const T_YES = [55,58,61,64,67,70,72,74,76,80,84,88];
-const T_NO = [44,41,38,35,32,29,26,24,20,18,14];
-const T_TIMES = ["just now","3s ago","8s ago","14s ago","21s ago","30s ago","42s ago","55s ago","1m ago","2m ago","3m ago","5m ago","7m ago","10m ago","15m ago","20m ago"];
+const AVATAR_COLORS = ["#7c3aed","#2563eb","#db2777","#d97706","#0891b2","#059669","#dc2626","#4f46e5","#b45309","#0e7490","#be185d","#065f46"];
 
-const TRADES = Array.from({ length: 24 }, (_, i) => {
-  const u = T_USERS[i % T_USERS.length];
-  const side = ([1,1,0,1,0,1,1,0,1,1,0,1,1,0,1,1][i % 16] ? "YES" : "NO") as "YES"|"NO";
+function hashColor(addr: string): string {
+  let h = 0;
+  for (let i = 0; i < addr.length; i++) h = ((h << 5) - h + addr.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+
+function truncateAddress(addr: string): string {
+  if (addr.length <= 10) return addr;
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function initials(addr: string): string {
+  return addr.slice(0, 2).toUpperCase();
+}
+
+function timeAgo(ts: string): string {
+  const sec = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}
+
+function formatTrade(t: RecentTrade) {
+  const side = t.isYes ? "YES" as const : "NO" as const;
+  const amount = Math.round(Number(t.collateral));
+  const price = Math.round((t.isYes ? t.yesPrice : t.noPrice) * 100);
   return {
-    id: `t${i}`,
-    user: u.u,
-    initials: u.i,
-    avatarColor: T_AVATARS[i % T_AVATARS.length],
-    market: T_MARKETS[i % T_MARKETS.length],
+    id: t.id,
+    user: truncateAddress(t.trader),
+    initials: initials(t.trader),
+    avatarColor: hashColor(t.trader),
+    market: t.marketQuestion,
     side,
-    amount: T_AMOUNTS[i % T_AMOUNTS.length],
-    price: side === "YES" ? T_YES[i % T_YES.length] : T_NO[i % T_NO.length],
-    timeAgo: T_TIMES[i % T_TIMES.length],
+    amount,
+    price,
+    timeAgo: timeAgo(t.timestamp),
   };
-});
-const DOUBLED_TRADES = [...TRADES, ...TRADES];
+}
 
 export function LiveTicker() {
+  const { data: trades } = useRecentTrades(50);
   const trackRef = useRef<HTMLDivElement>(null);
   const posRef = useRef(0);
   const rafRef = useRef<number>(0);
   const pausedRef = useRef(false);
-  const [newCount, setNewCount] = useState(0);
+
+  const formatted = useMemo(() => {
+    if (!trades || trades.length === 0) return [];
+    return trades.map(formatTrade);
+  }, [trades]);
+
+  // Double the list for seamless looping
+  const doubled = useMemo(() => [...formatted, ...formatted], [formatted]);
 
   useEffect(() => {
     let prev = 0;
@@ -60,10 +83,7 @@ export function LiveTicker() {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  useEffect(() => {
-    const id = setInterval(() => setNewCount(n => n + 1), 3800);
-    return () => clearInterval(id);
-  }, []);
+  if (formatted.length === 0) return null;
 
   return (
     <div className="sticky z-40 w-full overflow-hidden"
@@ -80,17 +100,13 @@ export function LiveTicker() {
           </span>
           <Zap className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#01d243" }} />
           <span className="text-[10px] font-semibold tracking-[0.15em] uppercase" style={{ color: "#01d243" }}>Live</span>
-          {newCount > 0 && (
-            <span key={newCount} className="anim-pop text-[9px] px-1.5 py-[2px] rounded-full"
-              style={{ background: "rgba(1,210,67,0.15)", color: "#01d243" }}>+{newCount}</span>
-          )}
         </div>
 
         {/* Scroll viewport */}
         <div className="flex-1 overflow-hidden relative">
           <div ref={trackRef} className="flex items-center h-full" style={{ willChange: "transform" }}>
-            {DOUBLED_TRADES.map((t, i) => (
-              <div key={t.id + i} className="flex items-center gap-2 px-5 h-full flex-shrink-0 whitespace-nowrap"
+            {doubled.map((t, i) => (
+              <div key={`${t.id}-${i}`} className="flex items-center gap-2 px-5 h-full flex-shrink-0 whitespace-nowrap"
                 style={{ borderRight: "1px solid rgba(255,255,255,0.04)" }}>
                 <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{ background: t.avatarColor, fontSize: "8px", fontWeight: 700, color: "#fff" }}>

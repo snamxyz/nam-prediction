@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
 import { markets, trades, userPositions, dailyMarkets } from "../db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gte } from "drizzle-orm";
 import { createPublicClient, http, decodeEventLog, formatUnits, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
@@ -108,6 +108,62 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         defaultMarketExecutionMode: featureFlags.defaultMarketExecutionMode,
       },
     };
+  })
+
+  // GET /markets/m15/latest — Get the latest 15-min market
+  .get("/m15/latest", async () => {
+    const result = await db
+      .select()
+      .from(markets)
+      .where(eq(markets.cadence, "m15"))
+      .orderBy(desc(markets.createdAt))
+      .limit(1);
+
+    return { data: result.length > 0 ? result[0] : null, success: true };
+  })
+
+  // GET /markets/m15/history — Last 24h of 15-min markets
+  .get("/m15/history", async () => {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const result = await db
+      .select()
+      .from(markets)
+      .where(
+        and(
+          eq(markets.cadence, "m15"),
+          gte(markets.createdAt, oneDayAgo)
+        )
+      )
+      .orderBy(desc(markets.createdAt));
+
+    return { data: result, success: true };
+  })
+
+  // GET /markets/recent-trades — Latest trades across all markets
+  .get("/recent-trades", async ({ query }) => {
+    const limit = Math.min(Number(query?.limit) || 50, 100);
+    const recentTrades = await db
+      .select({
+        id: trades.id,
+        marketId: trades.marketId,
+        trader: trades.trader,
+        isYes: trades.isYes,
+        isBuy: trades.isBuy,
+        shares: trades.shares,
+        collateral: trades.collateral,
+        yesPrice: trades.yesPrice,
+        noPrice: trades.noPrice,
+        txHash: trades.txHash,
+        timestamp: trades.timestamp,
+        marketQuestion: markets.question,
+      })
+      .from(trades)
+      .innerJoin(markets, eq(trades.marketId, markets.id))
+      .orderBy(desc(trades.timestamp))
+      .limit(limit);
+    return { data: recentTrades, success: true };
+  }, {
+    query: t.Optional(t.Object({ limit: t.Optional(t.String()) })),
   })
 
   // GET /markets/:id — Single market detail

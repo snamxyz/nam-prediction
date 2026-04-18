@@ -23,8 +23,7 @@
     "outDir": "./dist",
     "noEmit": true,
     "allowJs": true,
-    "incremental": true,
-    "types": []
+    "incremental": true
   },
   "include": [
     "next-env.d.ts",

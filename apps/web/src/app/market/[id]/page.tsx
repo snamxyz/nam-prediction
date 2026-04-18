@@ -10,6 +10,7 @@ import { useMarket, useMarketTrades } from "@/hooks/useMarkets";
 import { useMarketSocket } from "@/hooks/useMarketSocket";
 import { TradePanel } from "@/components/TradePanel";
 import { PriceChart } from "@/components/PriceChart";
+import { M15TimestampBar } from "@/components/M15TimestampBar";
 import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS, USDC_ADDRESS } from "@/lib/contracts";
 
@@ -106,6 +107,9 @@ export default function MarketPage() {
       >
         <ArrowLeft className="w-4 h-4" /> Back to Markets
       </Link>
+
+      {/* 15-min market timestamp navigation */}
+      {market.cadence === "m15" && <M15TimestampBar currentMarketId={market.id} />}
 
       {/* Main content grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
