@@ -6,7 +6,7 @@ import { markets } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
-import { withTxMutex } from "../lib/tx-mutex";
+import { getNonceManager } from "../lib/nonce-manager.instance";
 
 // NOTE: m15 markets are owned by the dedicated BullMQ worker in ./queue/m15-queue.ts.
 // This poller intentionally ignores cadence === "m15" rows.
@@ -44,12 +44,13 @@ export async function resolveMarketOnChain(
       transport: http(RPC_URL),
     });
 
-    const txHash = await withTxMutex(() =>
+    const txHash = await getNonceManager().withNonce((nonce) =>
       walletClient.writeContract({
         address: FACTORY_ADDRESS,
         abi: MarketFactoryABI,
         functionName: "resolveMarket",
         args: [BigInt(marketId), result],
+        nonce,
       })
     );
 

@@ -21,7 +21,7 @@ import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
 import { db } from "../db/client";
 import { markets } from "../db/schema";
 import { fetchNamPrice } from "./daily-market";
-import { withTxMutex } from "../lib/tx-mutex";
+import { getNonceManager } from "../lib/nonce-manager.instance";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -132,15 +132,10 @@ export async function createNextM15Market(
   console.log(`[M15] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
   console.log(`[M15] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
 
-  // Approve + Create with sequential nonces, serialised by the tx mutex to
-  // prevent in-flight limit errors when overlapping with resolution or trading.
-  const receipt = await withTxMutex(async () => {
-    const approveNonce = await publicClient.getTransactionCount({
-      address: sender,
-      blockTag: "pending",
-    });
-    const createNonce = approveNonce + 1;
-
+  // Approve + Create with sequential nonces, serialised by the nonce manager
+  // to prevent nonce collisions across multiple backend instances.
+  const nm = getNonceManager();
+  const receipt = await nm.withMultiNonce(2, async ([approveNonce, createNonce]) => {
     const approveHash = await walletClient.writeContract({
       address: USDC_ADDRESS,
       abi: ERC20ABI,
@@ -149,7 +144,9 @@ export async function createNextM15Market(
       nonce: approveNonce,
     });
     console.log(`[M15] Approve tx: ${approveHash}`);
+    await nm.markNonceUsed(approveNonce, approveHash);
     await publicClient.waitForTransactionReceipt({ hash: approveHash });
+    await nm.markNonceConfirmed(approveNonce);
 
     const createHash = await walletClient.writeContract({
       address: FACTORY_ADDRESS,
@@ -166,8 +163,11 @@ export async function createNextM15Market(
       nonce: createNonce,
     });
     console.log(`[M15] Create tx: ${createHash}`);
+    await nm.markNonceUsed(createNonce, createHash);
 
-    return publicClient.waitForTransactionReceipt({ hash: createHash });
+    const txReceipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+    await nm.markNonceConfirmed(createNonce);
+    return txReceipt;
   });
 
   let onChainId: number | null = null;

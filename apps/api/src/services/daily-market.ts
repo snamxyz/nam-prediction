@@ -5,7 +5,7 @@ import { db } from "../db/client";
 import { dailyMarkets, markets } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
 import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
-import { withTxMutex } from "../lib/tx-mutex";
+import { getNonceManager } from "../lib/nonce-manager.instance";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -122,16 +122,21 @@ export async function createDailyMarket(threshold: number): Promise<void> {
   });
 
   try {
-    // Approve + Create serialised by the tx mutex to prevent in-flight limit errors.
-    await withTxMutex(async () => {
+    // Approve + Create serialised by the nonce manager to prevent nonce
+    // collisions across multiple backend instances.
+    const nm = getNonceManager();
+    await nm.withMultiNonce(2, async ([approveNonce, createNonce]) => {
       const approveHash = await walletClient.writeContract({
         address: USDC_ADDRESS,
         abi: ERC20ABI,
         functionName: "approve",
         args: [FACTORY_ADDRESS, liquidityUsdc],
+        nonce: approveNonce,
       });
       console.log(`[DailyMarket] USDC approval tx: ${approveHash}`);
+      await nm.markNonceUsed(approveNonce, approveHash);
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      await nm.markNonceConfirmed(approveNonce);
 
       const createHash = await walletClient.writeContract({
         address: FACTORY_ADDRESS,
@@ -145,9 +150,12 @@ export async function createDailyMarket(threshold: number): Promise<void> {
           2, // SOURCE_DEXSCREENER
           resolutionData as `0x${string}`,
         ],
+        nonce: createNonce,
       });
       console.log(`[DailyMarket] Market creation tx: ${createHash}`);
+      await nm.markNonceUsed(createNonce, createHash);
       await publicClient.waitForTransactionReceipt({ hash: createHash });
+      await nm.markNonceConfirmed(createNonce);
     });
     console.log(`[DailyMarket] Market created for ${dateStr} with threshold $${threshold}`);
 

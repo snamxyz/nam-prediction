@@ -8,6 +8,8 @@ import { startIndexer } from "./services/indexer";
 import { startResolutionService } from "./services/resolution";
 import { setupResolutionSchedule, startResolutionWorker } from "./services/queue/resolution-queue";
 import { setupM15Schedule, startM15Worker } from "./services/queue/m15-queue";
+import { setupNonceReconciliation, startNonceReconciliationWorker } from "./services/queue/nonce-reconciliation-queue";
+import { initNonceManager } from "./lib/nonce-manager.instance";
 import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
 import { createServer } from "http";
@@ -89,12 +91,19 @@ httpServer.listen(PORT, () => {
 });
 
 // Start background services
+initNonceManager()
+  .then(() => console.log("[NonceManager] Initialized successfully"))
+  .catch((err) => console.error("[NonceManager] Init error:", err));
 startIndexer().catch((err) => console.error("[Indexer] Startup error:", err));
 startResolutionService();
 
 // Start BullMQ resolution worker + schedule
 setupResolutionSchedule().catch((err) => console.error("[BullMQ] Schedule setup error:", err));
 startResolutionWorker();
+
+// Start nonce reconciliation (every 30s)
+setupNonceReconciliation().catch((err) => console.error("[BullMQ] Nonce reconciliation setup error:", err));
+startNonceReconciliationWorker();
 
 // Start dedicated BullMQ m15 market lifecycle worker (lock + resolve + create)
 if (ENABLE_M15_MARKETS) {

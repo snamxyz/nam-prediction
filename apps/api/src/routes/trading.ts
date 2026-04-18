@@ -23,7 +23,7 @@ import {
 } from "@nam-prediction/shared";
 import { verifyPrivyToken, privyClient } from "../middleware/auth";
 import { getCache, cacheKeys, redis } from "../lib/redis";
-import { withTxMutex } from "../lib/tx-mutex";
+import { getNonceManager } from "../lib/nonce-manager.instance";
 import {
   processTradeFill,
   watchTradesForPool,
@@ -537,12 +537,13 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
 
         const walletClient = getWalletClient();
         const fnName = isYes ? "executeBuyYes" : "executeBuyNo";
-        const txHash = await withTxMutex(() =>
+        const txHash = await getNonceManager().withNonce((nonce) =>
           walletClient.writeContract({
             address: VAULT_ADDRESS,
             abi: VaultABI,
             functionName: fnName,
             args: [ammAddress, usdcParsed, walletAddress],
+            nonce,
           })
         );
 
@@ -712,12 +713,13 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
 
         const walletClient = getWalletClient();
         const fnName = isYes ? "executeSellYes" : "executeSellNo";
-        const txHash = await withTxMutex(() =>
+        const txHash = await getNonceManager().withNonce((nonce) =>
           walletClient.writeContract({
             address: VAULT_ADDRESS,
             abi: VaultABI,
             functionName: fnName,
             args: [ammAddress, sharesParsed, walletAddress],
+            nonce,
           })
         );
 
