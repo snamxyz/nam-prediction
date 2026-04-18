@@ -13,7 +13,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.1",
-        "@nam-prediction/shared": "*",
+        "@nam-prediction/shared": "workspace:*",
         "@privy-io/server-auth": "^1.32.5",
         "bullmq": "^5.73.3",
         "drizzle-orm": "^0.39.0",
@@ -33,7 +33,7 @@
       "name": "@nam-prediction/web",
       "version": "0.1.0",
       "dependencies": {
-        "@nam-prediction/shared": "*",
+        "@nam-prediction/shared": "workspace:*",
         "@privy-io/react-auth": "^2.5.0",
         "@privy-io/wagmi": "^1.0.0",
         "@tanstack/react-query": "^5.62.0",
