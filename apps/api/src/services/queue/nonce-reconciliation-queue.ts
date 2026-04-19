@@ -37,7 +37,7 @@ export async function setupNonceReconciliation() {
     {},
     {
       repeat: {
-        every: 30_000, // every 30 seconds
+        every: 60_000, // every 60 seconds (halves eth_getTransactionCount calls vs 30 s)
       },
       removeOnComplete: 50,
       removeOnFail: 20,

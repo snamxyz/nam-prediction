@@ -49,7 +49,7 @@ function createInstance(): NonceManager {
     lockAcquireTimeoutMs: 10_000,
     stuckThresholdSecs: 120,
     queueTimeoutMs: 120_000,
-    inflightPollIntervalMs: 2_000,
+    inflightPollIntervalMs: 4_000,
   });
 }
 

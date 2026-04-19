@@ -1,4 +1,4 @@
-import { createPublicClient, http, formatUnits, parseUnits } from "viem";
+import { createPublicClient, http, formatUnits, parseUnits, parseEventLogs } from "viem";
 import { base } from "viem/chains";
 import { db } from "../db/client";
 import { markets, trades, userPositions, vaultTransactions } from "../db/schema";
@@ -19,7 +19,10 @@ const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
 // sets a dedicated endpoint.
 const IS_PUBLIC_RPC = /mainnet\.base\.org$/.test(new URL(RPC_URL).host);
 const POLLING_INTERVAL_MS = Number(
-  process.env.INDEXER_POLLING_MS || (IS_PUBLIC_RPC ? 12_000 : 4_000)
+  // Public RPC: 12 s (heavily rate-limited). Dedicated (Alchemy etc.): 12 s by
+  // default — each watchContractEvent creates one filter poller, so even with a
+  // paid endpoint we conserve compute units. Override via INDEXER_POLLING_MS.
+  process.env.INDEXER_POLLING_MS || 12_000
 );
 
 if (IS_PUBLIC_RPC) {
@@ -44,9 +47,37 @@ export const publicClient = createPublicClient({
   }),
 });
 
-// Track which pools we're already watching so we don't double-subscribe.
-// Values are the viem `unwatch` functions so we can stop polling when a market resolves.
-const watchedPools = new Map<string, () => void>();
+// Track which pool addresses we're watching. A single global watchContractEvent
+// covers ALL pools — restarted whenever the set changes. This cuts
+// eth_getFilterChanges calls from O(N pools) down to O(1).
+const watchedPools = new Set<string>();
+let globalTradeUnwatch: (() => void) | null = null;
+
+function restartGlobalTradeWatcher(): void {
+  const addresses = [...watchedPools] as `0x${string}`[];
+
+  // Start the new watcher BEFORE stopping the old one so there is no gap
+  // where events could be missed. Duplicate trades are harmless — the UNIQUE
+  // (marketId, txHash) index in the trades table drops any re-inserts.
+  const newUnwatch =
+    addresses.length === 0
+      ? null
+      : publicClient.watchContractEvent({
+          address: addresses,
+          abi: CPMMABI,
+          eventName: "Trade",
+          onLogs: (logs) => logs.forEach(handleTrade),
+        });
+
+  if (globalTradeUnwatch) globalTradeUnwatch();
+  globalTradeUnwatch = newUnwatch;
+
+  if (addresses.length > 0) {
+    console.log(
+      `[Indexer] Global Trade watcher active for ${addresses.length} pool(s)`
+    );
+  }
+}
 
 // ─── Balance math (decimal-string safe) ───
 //
@@ -540,27 +571,23 @@ export async function startIndexer() {
   }
 
   if (FACTORY_ADDRESS) {
+    // ONE filter covers all three factory events — cuts eth_getFilterChanges
+    // calls from 3× to 1× the polling interval.
     console.log(`[Indexer] Watching events on factory: ${FACTORY_ADDRESS}`);
-
-    publicClient.watchContractEvent({
+    publicClient.watchEvent({
       address: FACTORY_ADDRESS,
-      abi: MarketFactoryABI,
-      eventName: "MarketCreated",
-      onLogs: (logs) => logs.forEach(handleMarketCreated),
-    });
-
-    publicClient.watchContractEvent({
-      address: FACTORY_ADDRESS,
-      abi: MarketFactoryABI,
-      eventName: "MarketResolved",
-      onLogs: (logs) => logs.forEach(handleMarketResolved),
-    });
-
-    publicClient.watchContractEvent({
-      address: FACTORY_ADDRESS,
-      abi: MarketFactoryABI,
-      eventName: "Redeemed",
-      onLogs: (logs) => logs.forEach(handleRedeemed),
+      onLogs: (logs) => {
+        const parsed = parseEventLogs({
+          abi: MarketFactoryABI,
+          logs,
+          strict: false,
+        });
+        for (const log of parsed) {
+          if (log.eventName === "MarketCreated") handleMarketCreated(log);
+          else if (log.eventName === "MarketResolved") handleMarketResolved(log);
+          else if (log.eventName === "Redeemed") handleRedeemed(log);
+        }
+      },
     });
   } else {
     console.warn("[Indexer] No MARKET_FACTORY_ADDRESS set — factory event watching disabled");
@@ -695,64 +722,44 @@ function startVaultWatcher() {
     return;
   }
 
+  // ONE filter covers all four Vault events — cuts eth_getFilterChanges
+  // calls from 4× to 1× the polling interval.
   console.log(`[Indexer] Watching Vault events on: ${VAULT_ADDRESS}`);
-
-  publicClient.watchContractEvent({
+  publicClient.watchEvent({
     address: VAULT_ADDRESS,
-    abi: VaultABI,
-    eventName: "Deposit",
-    onLogs: (logs) => logs.forEach(handleVaultDeposit),
-  });
-
-  publicClient.watchContractEvent({
-    address: VAULT_ADDRESS,
-    abi: VaultABI,
-    eventName: "Withdraw",
-    onLogs: (logs) => logs.forEach(handleVaultWithdraw),
-  });
-
-  publicClient.watchContractEvent({
-    address: VAULT_ADDRESS,
-    abi: VaultABI,
-    eventName: "BalanceUpdated",
-    onLogs: (logs) => logs.forEach(handleVaultBalanceUpdated),
-  });
-
-  publicClient.watchContractEvent({
-    address: VAULT_ADDRESS,
-    abi: VaultABI,
-    eventName: "EscrowCreated",
-    onLogs: (logs) => logs.forEach(handleEscrowCreated),
+    onLogs: (logs) => {
+      const parsed = parseEventLogs({ abi: VaultABI, logs, strict: false });
+      for (const log of parsed) {
+        if (log.eventName === "Deposit") handleVaultDeposit(log);
+        else if (log.eventName === "Withdraw") handleVaultWithdraw(log);
+        else if (log.eventName === "BalanceUpdated") handleVaultBalanceUpdated(log);
+        else if (log.eventName === "EscrowCreated") handleEscrowCreated(log);
+      }
+    },
   });
 }
 
-/// Watch Trade events for a specific CPMM pool (idempotent — safe to call multiple times).
-/// Returns the viem unwatch function in case the caller wants to stop watching.
+/// Add a CPMM pool to the global Trade watcher (idempotent).
+/// Returns a function that removes it from the watcher when called.
 export function watchTradesForPool(ammAddress: `0x${string}`): () => void {
   const key = ammAddress.toLowerCase();
-  const existing = watchedPools.get(key);
-  if (existing) return existing;
+  if (watchedPools.has(key)) {
+    return () => unwatchPool(ammAddress);
+  }
 
-  console.log(`[Indexer] Watching trades on pool: ${ammAddress}`);
-  const unwatch = publicClient.watchContractEvent({
-    address: ammAddress,
-    abi: CPMMABI,
-    eventName: "Trade",
-    onLogs: (logs) => logs.forEach(handleTrade),
-  });
-  watchedPools.set(key, unwatch);
-  return unwatch;
+  console.log(`[Indexer] Adding pool to global Trade watcher: ${ammAddress}`);
+  watchedPools.add(key);
+  restartGlobalTradeWatcher();
+  return () => unwatchPool(ammAddress);
 }
 
-/// Stop watching Trade events for a pool (called when its market resolves).
-function unwatchPool(ammAddress: string) {
+/// Remove a pool from the global Trade watcher (called when its market resolves).
+function unwatchPool(ammAddress: string): void {
   const key = ammAddress.toLowerCase();
-  const unwatch = watchedPools.get(key);
-  if (unwatch) {
-    unwatch();
-    watchedPools.delete(key);
-    console.log(`[Indexer] Stopped watching resolved pool: ${ammAddress}`);
-  }
+  if (!watchedPools.has(key)) return;
+  watchedPools.delete(key);
+  restartGlobalTradeWatcher();
+  console.log(`[Indexer] Removed resolved pool from Trade watcher: ${ammAddress}`);
 }
 
 // ─── Price reconciler ───
