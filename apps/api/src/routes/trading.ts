@@ -11,8 +11,8 @@ import {
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { db } from "../db/client";
-import { markets } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { markets, vaultTransactions } from "../db/schema";
+import { eq, desc, lt } from "drizzle-orm";
 import {
   CPMMABI,
   VaultABI,
@@ -29,6 +29,7 @@ import {
   watchTradesForPool,
   publicClient,
 } from "../services/indexer";
+import { reconcilePositionsForWallet } from "../services/position-reconciler";
 
 // Writes can optionally be broadcast through a separate endpoint (e.g. the
 // free public RPC, since writes are cheap and infrequent) while reads go
@@ -772,6 +773,74 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         nonce: t.String(),
         deadline: t.String(),
         signature: t.String(),
+      }),
+    }
+  )
+
+  // ─── On-demand position reconcile ───
+  //
+  // Called by the frontend usePortfolio hook on mount + every 15 s so that
+  // any DB ↔ chain drift is healed before the user sees stale balances.
+  // Returns the number of positions checked and how many were healed.
+  .post(
+    "/reconcile/:wallet",
+    async ({ params, headers, set }) => {
+      const claims = await verifyPrivyToken(headers.authorization);
+      if (!claims) {
+        set.status = 401;
+        return { success: false, error: "Unauthorized" };
+      }
+
+      const wallet = params.wallet.toLowerCase();
+      try {
+        const result = await reconcilePositionsForWallet(wallet);
+        return { success: true, data: result };
+      } catch (err: any) {
+        set.status = 500;
+        return { success: false, error: err.message || "Reconcile failed" };
+      }
+    }
+  )
+
+  // ─── Vault deposit/withdraw transaction history ───
+  //
+  // Returns up to `limit` (default 50) vault transactions for a wallet,
+  // ordered newest first. Supports cursor-based pagination via the `cursor`
+  // query param (pass the last `id` seen to get the next page).
+  .get(
+    "/transactions/:wallet",
+    async ({ params, query }) => {
+      const wallet = params.wallet.toLowerCase();
+      const limit = Math.min(Number(query?.limit ?? 50), 200);
+      const cursor = query?.cursor ? Number(query.cursor) : undefined;
+
+      const rows = await db
+        .select()
+        .from(vaultTransactions)
+        .where(
+          cursor
+            ? eq(vaultTransactions.userAddress, wallet)
+            : eq(vaultTransactions.userAddress, wallet)
+        )
+        .orderBy(desc(vaultTransactions.timestamp))
+        .limit(limit);
+
+      // Apply cursor after the fact (simple id-based pagination).
+      const filtered = cursor
+        ? rows.filter((r) => r.id < cursor)
+        : rows;
+      const page = filtered.slice(0, limit);
+
+      return {
+        success: true,
+        data: page,
+        nextCursor: page.length === limit ? page[page.length - 1]?.id : null,
+      };
+    },
+    {
+      query: t.Object({
+        limit: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
       }),
     }
   );

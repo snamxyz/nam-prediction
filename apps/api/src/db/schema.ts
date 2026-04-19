@@ -66,6 +66,11 @@ export const trades = pgTable(
   },
   (table) => [
     index("trades_market_timestamp_idx").on(table.marketId, table.timestamp),
+    // Unique per (market, txHash) — guards the SELECT-then-INSERT race in
+    // processTradeFill that used to let concurrent fills double-credit a
+    // user's position.
+    uniqueIndex("trades_market_tx_hash_idx").on(table.marketId, table.txHash),
+    index("trades_trader_timestamp_idx").on(table.trader, table.timestamp),
   ]
 );
 
@@ -80,8 +85,16 @@ export const userPositions = pgTable(
     userAddress: text("user_address").notNull(),
     yesBalance: numeric("yes_balance", { precision: 30, scale: 18 }).notNull().default("0"),
     noBalance: numeric("no_balance", { precision: 30, scale: 18 }).notNull().default("0"),
+    // Kept for backward compat; new code uses yes/noAvgPrice + cost bases.
     avgEntryPrice: real("avg_entry_price").notNull().default(0),
     pnl: numeric("pnl", { precision: 30, scale: 6 }).notNull().default("0"),
+    // Per-side tracking so the portfolio can show an accurate avg price and
+    // PnL for users who hold BOTH YES and NO on the same market.
+    yesAvgPrice: real("yes_avg_price").notNull().default(0),
+    noAvgPrice: real("no_avg_price").notNull().default(0),
+    yesCostBasis: numeric("yes_cost_basis", { precision: 30, scale: 6 }).notNull().default("0"),
+    noCostBasis: numeric("no_cost_basis", { precision: 30, scale: 6 }).notNull().default("0"),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("user_market_idx").on(table.marketId, table.userAddress),
@@ -237,6 +250,25 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Vault Transactions (deposit / withdraw history) ───
+export const vaultTransactions = pgTable(
+  "vault_transactions",
+  {
+    id: serial("id").primaryKey(),
+    userAddress: text("user_address").notNull(),
+    type: text("type").notNull(), // deposit | withdraw
+    amount: numeric("amount", { precision: 30, scale: 6 }).notNull(),
+    txHash: text("tx_hash").notNull(),
+    blockNumber: numeric("block_number", { precision: 30, scale: 0 }),
+    timestamp: timestamp("timestamp", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_tx_hash_idx").on(table.txHash),
+    index("vault_tx_user_timestamp_idx").on(table.userAddress, table.timestamp),
+    index("vault_tx_type_timestamp_idx").on(table.type, table.timestamp),
+  ]
+);
+
 // ─── Daily Markets (rolling NAM price markets) ───
 export const dailyMarkets = pgTable("daily_markets", {
   id: serial("id").primaryKey(),
@@ -365,3 +397,4 @@ export type PriceSnapshotRow = typeof priceSnapshots.$inferSelect;
 export type LiquiditySnapshotRow = typeof liquiditySnapshots.$inferSelect;
 export type ResolutionLogRow = typeof resolutionLogs.$inferSelect;
 export type RiskEventRow = typeof riskEvents.$inferSelect;
+export type VaultTransactionRow = typeof vaultTransactions.$inferSelect;

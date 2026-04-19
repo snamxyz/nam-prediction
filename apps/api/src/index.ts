@@ -5,6 +5,7 @@ import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { tradingRoutes } from "./routes/trading";
 import { startIndexer } from "./services/indexer";
+import { startPositionReconciler } from "./services/position-reconciler";
 import { startResolutionService } from "./services/resolution";
 import { setupResolutionSchedule, startResolutionWorker } from "./services/queue/resolution-queue";
 import { setupM15Schedule, startM15Worker } from "./services/queue/m15-queue";
@@ -95,6 +96,10 @@ initNonceManager()
   .then(() => console.log("[NonceManager] Initialized successfully"))
   .catch((err) => console.error("[NonceManager] Init error:", err));
 startIndexer().catch((err) => console.error("[Indexer] Startup error:", err));
+// Defense-in-depth for the share-balance double-count bug (see
+// services/position-reconciler.ts). Runs every 30s and heals any DB row
+// whose share balance has drifted from the on-chain OutcomeToken.balanceOf.
+startPositionReconciler();
 startResolutionService();
 
 // Start BullMQ resolution worker + schedule

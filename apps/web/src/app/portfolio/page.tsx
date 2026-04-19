@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import dynamic from "next/dynamic";
 import { usePortfolio } from "@/hooks/usePortfolio";
@@ -6,12 +6,32 @@ import { PositionRow } from "@/components/PositionRow";
 import { DepositWithdrawPanel } from "@/components/DepositWithdrawPanel";
 import { useAccount } from "wagmi";
 import { usePrivy } from "@privy-io/react-auth";
-import { User, DollarSign, BarChart3, TrendingUp, Award, Wallet, Shield, Zap } from "lucide-react";
+import { User, DollarSign, BarChart3, TrendingUp, Award, Wallet, Shield, Zap, Copy, CheckCheck } from "lucide-react";
+import { useState, useCallback } from "react";
+import { toast } from "sonner";
+
+const PrivyWalletCard = dynamic(() => import("@/components/PrivyWalletCard").then(m => ({ default: m.PrivyWalletCard })), { ssr: false });
+const VaultTransactionHistory = dynamic(() => import("@/components/VaultTransactionHistory").then(m => ({ default: m.VaultTransactionHistory })), { ssr: false });
+
+const DUST = 1e-6;
 
 export default function PortfolioPage() {
   const { isConnected, address } = useAccount();
-  const { login, user } = usePrivy();
+  const { login } = usePrivy();
   const { data: positions, isLoading } = usePortfolio();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyAddress = useCallback(async () => {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      toast.success("Address copied");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  }, [address]);
 
   if (!isConnected) {
     return (
@@ -31,17 +51,32 @@ export default function PortfolioPage() {
     );
   }
 
-  const totalValue = positions
-    ? positions.reduce((s, p) => s + (Number(p.yesBalance) * p.yesPrice + Number(p.noBalance) * p.noPrice), 0)
-    : 0;
-  const totalPnl = positions
-    ? positions.reduce((s, p) => s + Number(p.pnl), 0)
-    : 0;
-  const winRate = positions && positions.length > 0
-    ? Math.round((positions.filter(p => Number(p.pnl) > 0).length / positions.length) * 100)
+  // Split into active (unresolved) and resolved
+  const activePositions = positions?.filter(p => !p.resolved) ?? [];
+  const resolvedPositions = positions?.filter(p => p.resolved) ?? [];
+
+  // Only positions that actually have shares matter for stats
+  const activeWithShares = activePositions.filter(
+    p => Number(p.yesBalance || "0") >= DUST || Number(p.noBalance || "0") >= DUST
+  );
+
+  const totalActiveValue = activeWithShares.reduce(
+    (s, p) => s + Number(p.yesCurrentValue || "0") + Number(p.noCurrentValue || "0"),
+    0
+  );
+  const totalPnl = activeWithShares.reduce((s, p) => s + Number(p.pnl || "0"), 0);
+
+  // Win rate: resolved positions where result matches the side user held
+  const resolvedWithResult = resolvedPositions.filter(p => p.result === 1 || p.result === 2);
+  const wins = resolvedWithResult.filter(p =>
+    (p.result === 1 && Number(p.yesBalance || "0") >= DUST) ||
+    (p.result === 2 && Number(p.noBalance || "0") >= DUST)
+  ).length;
+  const winRate = resolvedWithResult.length > 0
+    ? Math.round((wins / resolvedWithResult.length) * 100)
     : 0;
 
-  const displayAddress = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
+  const displayAddress = address ? `${address.slice(0, 6)}â€¦${address.slice(-4)}` : "";
 
   return (
     <div>
@@ -55,7 +90,17 @@ export default function PortfolioPage() {
             </div>
             <div>
               <h1 className="text-2xl font-semibold mb-1" style={{ color: "#e8e9ed" }}>Your Portfolio</h1>
-              <p className="text-sm" style={{ color: "#717182" }}>{displayAddress}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-mono" style={{ color: "#717182" }}>{displayAddress}</p>
+                <button
+                  onClick={handleCopyAddress}
+                  className="p-1 rounded transition-all"
+                  style={{ color: copied ? "#01d243" : "#717182" }}
+                  title="Copy address"
+                >
+                  {copied ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -63,10 +108,10 @@ export default function PortfolioPage() {
         {/* Stat cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { icon: <DollarSign className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Portfolio Value", value: `$${totalValue.toFixed(2)}`, color: "#e8e9ed" },
-            { icon: <BarChart3 className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Positions", value: String(positions?.length || 0), color: "#e8e9ed" },
-            { icon: <TrendingUp className="w-4 h-4" style={{ color: "#00e676" }} />, label: "Total P&L", value: `${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`, color: totalPnl >= 0 ? "#00e676" : "#ff4757" },
-            { icon: <Award className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Win Rate", value: `${winRate}%`, color: "#e8e9ed" },
+            { icon: <DollarSign className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Active Value", value: `$${totalActiveValue.toFixed(2)}`, color: "#e8e9ed" },
+            { icon: <BarChart3 className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Active Positions", value: String(activeWithShares.length), color: "#e8e9ed" },
+            { icon: <TrendingUp className="w-4 h-4" style={{ color: "#00e676" }} />, label: "Unrealised P&L", value: `${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`, color: totalPnl >= 0 ? "#00e676" : "#ff4757" },
+            { icon: <Award className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Win Rate", value: resolvedWithResult.length > 0 ? `${winRate}%` : "â€”", color: "#e8e9ed" },
           ].map(s => (
             <div key={s.label} className="glass-card-inner p-4">
               <div className="flex items-center gap-2 mb-2">{s.icon}<span className="text-xs" style={{ color: "#717182" }}>{s.label}</span></div>
@@ -76,59 +121,51 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      {/* Privy wallet balance card */}
+      <div className="mb-8">
+        <PrivyWalletCard />
+      </div>
+
       {/* Vault: deposit/withdraw + info */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <DepositWithdrawPanel />
         <div className="glass-card p-6">
           <div className="flex items-center gap-2 mb-4">
             <Wallet className="w-5 h-5" style={{ color: "#01d243" }} />
-            <h2 className="text-base font-semibold" style={{ color: "#e8e9ed" }}>
-              About Your Vault
-            </h2>
+            <h2 className="text-base font-semibold" style={{ color: "#e8e9ed" }}>About Your Vault</h2>
           </div>
           <p className="text-xs mb-4" style={{ color: "#717182" }}>
             Your vault is a per-user escrow contract that holds USDC on your behalf and enables
             gasless, one-click trading across all markets.
           </p>
           <ul className="space-y-3">
-            <li className="flex items-start gap-3">
-              <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />
-              <div>
-                <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>Gasless trading</p>
-                <p className="text-[11px]" style={{ color: "#717182" }}>
-                  Trades are signed off-chain and settled in batches — you never pay gas.
-                </p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />
-              <div>
-                <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>
-                  Isolated escrow
-                </p>
-                <p className="text-[11px]" style={{ color: "#717182" }}>
-                  Funds live in your own escrow clone, isolated from every other user.
-                </p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <DollarSign className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />
-              <div>
-                <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>Withdraw anytime</p>
-                <p className="text-[11px]" style={{ color: "#717182" }}>
-                  Available balance can be pulled back to your wallet at any time.
-                </p>
-              </div>
-            </li>
+            {[
+              { icon: <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />, title: "Gasless trading", body: "Trades are signed off-chain and settled in batches â€” you never pay gas." },
+              { icon: <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />, title: "Isolated escrow", body: "Funds live in your own escrow clone, isolated from every other user." },
+              { icon: <DollarSign className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />, title: "Withdraw anytime", body: "Available balance can be pulled back to your wallet at any time." },
+            ].map(item => (
+              <li key={item.title} className="flex items-start gap-3">
+                {item.icon}
+                <div>
+                  <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>{item.title}</p>
+                  <p className="text-[11px]" style={{ color: "#717182" }}>{item.body}</p>
+                </div>
+              </li>
+            ))}
           </ul>
         </div>
       </div>
 
-      {/* Positions card */}
-      <div className="glass-card p-8">
+      {/* Transaction history */}
+      <div className="mb-8">
+        <VaultTransactionHistory />
+      </div>
+
+      {/* Active Positions */}
+      <div className="glass-card p-8 mb-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-semibold" style={{ color: "#e8e9ed" }}>Active Positions</h2>
-          <span className="text-sm" style={{ color: "#717182" }}>{positions?.length || 0} positions</span>
+          <span className="text-sm" style={{ color: "#717182" }}>{activeWithShares.length} positions</span>
         </div>
 
         {isLoading && (
@@ -139,33 +176,36 @@ export default function PortfolioPage() {
           </div>
         )}
 
-        {positions && positions.length === 0 && (
+        {!isLoading && activeWithShares.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-sm mb-2" style={{ color: "rgba(232,233,237,0.80)" }}>No positions yet</p>
+            <p className="text-sm mb-2" style={{ color: "rgba(232,233,237,0.80)" }}>No active positions</p>
             <p className="text-xs" style={{ color: "#717182" }}>Start trading to build your portfolio</p>
           </div>
         )}
 
-        {positions && positions.length > 0 && (
+        {activeWithShares.length > 0 && (
           <div className="space-y-4">
-            {positions.map((pos) => (
-              <PositionRow
-                key={pos.id}
-                marketId={pos.marketId}
-                onChainId={pos.onChainId}
-                question={pos.question}
-                yesBalance={pos.yesBalance}
-                noBalance={pos.noBalance}
-                yesPrice={pos.yesPrice}
-                noPrice={pos.noPrice}
-                resolved={pos.resolved}
-                result={pos.result}
-                pnl={pos.pnl}
-              />
+            {activeWithShares.map((pos) => (
+              <PositionRow key={pos.id} {...pos} />
             ))}
           </div>
         )}
       </div>
+
+      {/* Resolved Positions */}
+      {resolvedPositions.length > 0 && (
+        <div className="glass-card p-8">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold" style={{ color: "#e8e9ed" }}>Resolved Positions</h2>
+            <span className="text-sm" style={{ color: "#717182" }}>{resolvedPositions.length} positions</span>
+          </div>
+          <div className="space-y-4">
+            {resolvedPositions.map((pos) => (
+              <PositionRow key={pos.id} {...pos} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,33 +6,40 @@ import { useQueryClient } from "@tanstack/react-query";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
 import { toast } from "sonner";
+import type { PositionWithMarket } from "@/hooks/usePortfolio";
 
-interface PositionRowProps {
-  marketId: number;
-  onChainId: number;
-  question: string;
-  yesBalance: string;
-  noBalance: string;
-  yesPrice: number;
-  noPrice: number;
-  resolved: boolean;
-  result: number;
-  pnl: string;
-}
+const DUST = 1e-6;
 
-export function PositionRow({
-  marketId,
-  onChainId,
-  question,
-  yesBalance,
-  noBalance,
-  yesPrice,
-  noPrice,
+/** One leg (YES or NO) of a position. */
+function PositionLeg({
+  side,
+  balance,
+  avgPrice,
+  currentPrice,
+  currentValue,
+  pnl,
+  pnlPct,
   resolved,
   result,
-  pnl,
-}: PositionRowProps) {
-  const { address } = useAccount();
+  question,
+  onChainId,
+  marketId,
+  address,
+}: {
+  side: "YES" | "NO";
+  balance: number;
+  avgPrice: number;
+  currentPrice: number;
+  currentValue: number;
+  pnl: number;
+  pnlPct: number;
+  resolved: boolean;
+  result: number;
+  question: string;
+  onChainId: number;
+  marketId: number;
+  address: `0x${string}` | undefined;
+}) {
   const queryClient = useQueryClient();
   const toastIdRef = useRef<string | null>(null);
   const { writeContract, data: txHash } = useWriteContract({
@@ -41,39 +48,22 @@ export function PositionRow({
         const msg = err?.shortMessage || err?.message || "Redeem failed";
         const isRejection = /user (rejected|denied)|rejected the request/i.test(msg);
         const display = isRejection ? "Redeem cancelled" : msg;
-        if (toastIdRef.current) {
-          toast.error(display, { id: toastIdRef.current });
-          toastIdRef.current = null;
-        } else {
-          toast.error(display);
-        }
+        if (toastIdRef.current) { toast.error(display, { id: toastIdRef.current }); toastIdRef.current = null; }
+        else toast.error(display);
       },
     },
   });
   const { isLoading, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
 
-  // Once the tx is in-flight, let the user know.
   useEffect(() => {
     if (!isLoading || !toastIdRef.current) return;
-    toast.loading("Redeeming\u2026", { id: toastIdRef.current });
+    toast.loading("Redeeming…", { id: toastIdRef.current });
   }, [isLoading]);
 
-  // Refresh portfolio + vault balance once the redemption tx confirms so the
-  // payout that landed in the user's escrow is reflected immediately. The
-  // backend indexer has a brief delay before it processes the Redeemed event,
-  // so we re-invalidate on a short backoff to pick up the new USDC balance.
   useEffect(() => {
     if (!isSuccess) return;
-
-    if (toastIdRef.current) {
-      toast.success("Redeemed. Payout added to your vault.", {
-        id: toastIdRef.current,
-      });
-      toastIdRef.current = null;
-    } else {
-      toast.success("Redeemed. Payout added to your vault.");
-    }
-
+    if (toastIdRef.current) { toast.success("Redeemed. Payout added to your vault.", { id: toastIdRef.current }); toastIdRef.current = null; }
+    else toast.success("Redeemed. Payout added to your vault.");
     const kick = () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
       queryClient.invalidateQueries({ queryKey: ["vault-balance", address] });
@@ -81,26 +71,14 @@ export function PositionRow({
     kick();
     const t1 = setTimeout(kick, 1500);
     const t2 = setTimeout(kick, 4000);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [isSuccess, address, queryClient]);
-
-  const yBal = Number(yesBalance);
-  const nBal = Number(noBalance);
-  const currentValue = yBal * yesPrice + nBal * noPrice;
-  const pnlNum = Number(pnl);
-
-  const canRedeem =
-    resolved &&
-    ((result === 1 && yBal > 0) || (result === 2 && nBal > 0));
 
   const handleRedeem = () => {
     if (!MARKET_FACTORY_ADDRESS) return;
-    const id = `redeem-${onChainId}-${Date.now()}`;
+    const id = `redeem-${onChainId}-${side}-${Date.now()}`;
     toastIdRef.current = id;
-    toast.loading("Confirm redeem in your wallet\u2026", { id });
+    toast.loading("Confirm redeem in your wallet…", { id });
     writeContract({
       address: MARKET_FACTORY_ADDRESS,
       abi: MarketFactoryABI,
@@ -109,55 +87,163 @@ export function PositionRow({
     });
   };
 
-  const side = yBal > nBal ? "Yes" : "No";
-  const shares = yBal > nBal ? yBal : nBal;
-  const avgPrice = yBal > nBal ? yesPrice : noPrice;
+  const isWinningSide = resolved && ((side === "YES" && result === 1) || (side === "NO" && result === 2));
+  const isLosingSide = resolved && !isWinningSide;
+  const canRedeem = isWinningSide && balance > DUST;
+  const C = side === "YES" ? "#01d243" : "#ff4757";
 
   return (
-    <div className="glass-card-inner p-5">
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs px-2 py-1 rounded-md"
-              style={side === "Yes"
-                ? { background: "rgba(1,210,67,0.15)", color: "#01d243" }
-                : { background: "rgba(255,71,87,0.15)", color: "#ff4757" }}>
-              {side}
-            </span>
-            <span className="text-xs" style={{ color: "#717182" }}>
-              {shares.toFixed(2)} shares @ {(avgPrice * 100).toFixed(1)}¢
-            </span>
-          </div>
-          <p className="text-sm leading-tight" style={{ color: "#e8e9ed" }}>{question}</p>
+    <div
+      className="rounded-lg p-4"
+      style={{ background: "rgba(31,32,40,0.45)", border: `0.5px solid ${C}22` }}
+    >
+      {/* Top row: side badge + shares + value */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span
+            className="text-xs px-2 py-0.5 rounded-md font-semibold"
+            style={{ background: `${C}22`, color: C }}
+          >
+            {side}
+          </span>
+          <span className="text-xs" style={{ color: "#717182" }}>
+            {balance.toFixed(4)} shares
+          </span>
         </div>
-        <div className="text-right flex-shrink-0">
-          <div className="font-semibold mb-1" style={{ color: "#e8e9ed" }}>${currentValue.toFixed(2)}</div>
-          <div className="text-xs" style={{ color: pnlNum >= 0 ? "#00e676" : "#ff4757" }}>
-            {pnlNum >= 0 ? "+" : ""}${pnlNum.toFixed(2)}
-          </div>
-        </div>
+        <span className="text-sm font-semibold" style={{ color: "#e8e9ed" }}>
+          ${currentValue.toFixed(2)}
+        </span>
       </div>
 
-      <div className="flex items-center justify-between text-xs pt-3"
-        style={{ borderTop: "0.5px solid rgba(255,255,255,0.05)", color: "#717182" }}>
-        <span>Current: {(yBal > nBal ? yesPrice * 100 : noPrice * 100).toFixed(1)}¢</span>
-        <span>Avg: {(avgPrice * 100).toFixed(1)}¢</span>
+      {/* Prices row */}
+      <div className="flex items-center justify-between text-xs mb-2" style={{ color: "#717182" }}>
+        <span>Avg: <span style={{ color: "#e8e9ed" }}>{(avgPrice * 100).toFixed(1)}¢</span></span>
+        <span>Now: <span style={{ color: "#e8e9ed" }}>{(currentPrice * 100).toFixed(1)}¢</span></span>
+        <span
+          style={{ color: pnl >= 0 ? "#00e676" : "#ff4757", fontWeight: 600 }}
+        >
+          {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+        </span>
+      </div>
+
+      {/* Action row */}
+      <div className="flex justify-end">
         {canRedeem ? (
-          <button onClick={handleRedeem} disabled={isLoading}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all"
-            style={{ background: "#01d243", color: "#000" }}>
-            {isLoading ? "..." : "Redeem"}
+          <button
+            onClick={handleRedeem}
+            disabled={isLoading}
+            className="px-3 py-1 text-xs font-semibold rounded-lg transition-all"
+            style={{ background: "#01d243", color: "#000" }}
+          >
+            {isLoading ? "…" : "Redeem"}
           </button>
-        ) : resolved ? (
-          <span style={{ color: result === 1 ? "#01d243" : "#ff4757" }}>
-            {result === 1 ? "YES won" : "NO won"}
+        ) : isLosingSide ? (
+          <span className="text-xs" style={{ color: "#ff4757" }}>Lost</span>
+        ) : resolved && isWinningSide && balance <= DUST ? (
+          <span className="text-xs" style={{ color: "#00e676" }}>Redeemed</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+interface PositionRowProps extends PositionWithMarket {}
+
+export function PositionRow(props: PositionRowProps) {
+  const { address } = useAccount();
+
+  const {
+    onChainId,
+    marketId,
+    question,
+    yesBalance,
+    noBalance,
+    yesAvgPrice,
+    noAvgPrice,
+    yesCurrentValue,
+    noCurrentValue,
+    yesPnl,
+    noPnl,
+    yesPnlPct,
+    noPnlPct,
+    yesPrice,
+    noPrice,
+    resolved,
+    result,
+  } = props;
+
+  const yesBal = Number(yesBalance || "0");
+  const noBal = Number(noBalance || "0");
+  const hasYes = yesBal >= DUST;
+  const hasNo = noBal >= DUST;
+
+  const resolvedLabel = resolved
+    ? result === 1
+      ? "YES won"
+      : result === 2
+      ? "NO won"
+      : "Resolved"
+    : null;
+
+  return (
+    <div className="glass-card-inner p-4">
+      {/* Market question + resolved badge */}
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <p className="text-sm leading-snug flex-1" style={{ color: "#e8e9ed" }}>
+          {question}
+        </p>
+        {resolvedLabel && (
+          <span
+            className="text-xs px-2 py-0.5 rounded-md flex-shrink-0"
+            style={
+              result === 1
+                ? { background: "rgba(1,210,67,0.15)", color: "#01d243" }
+                : { background: "rgba(255,71,87,0.15)", color: "#ff4757" }
+            }
+          >
+            {resolvedLabel}
           </span>
-        ) : (
-          <span style={{ color: pnlNum >= 0 ? "#00e676" : "#ff4757" }}>
-            {((pnlNum / (shares * avgPrice)) * 100).toFixed(1)}%
-          </span>
+        )}
+      </div>
+
+      {/* Legs */}
+      <div className={`grid gap-2 ${hasYes && hasNo ? "grid-cols-2" : "grid-cols-1"}`}>
+        {hasYes && (
+          <PositionLeg
+            side="YES"
+            balance={yesBal}
+            avgPrice={yesAvgPrice}
+            currentPrice={yesPrice}
+            currentValue={Number(yesCurrentValue || "0")}
+            pnl={Number(yesPnl || "0")}
+            pnlPct={Number(yesPnlPct || "0")}
+            resolved={resolved}
+            result={result}
+            question={question}
+            onChainId={onChainId}
+            marketId={marketId}
+            address={address}
+          />
+        )}
+        {hasNo && (
+          <PositionLeg
+            side="NO"
+            balance={noBal}
+            avgPrice={noAvgPrice}
+            currentPrice={noPrice}
+            currentValue={Number(noCurrentValue || "0")}
+            pnl={Number(noPnl || "0")}
+            pnlPct={Number(noPnlPct || "0")}
+            resolved={resolved}
+            result={result}
+            question={question}
+            onChainId={onChainId}
+            marketId={marketId}
+            address={address}
+          />
         )}
       </div>
     </div>
   );
 }
+          

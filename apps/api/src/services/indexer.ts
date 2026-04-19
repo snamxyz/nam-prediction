@@ -1,7 +1,7 @@
 import { createPublicClient, http, formatUnits, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { db } from "../db/client";
-import { markets, trades, userPositions } from "../db/schema";
+import { markets, trades, userPositions, vaultTransactions } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 import { MarketFactoryABI, CPMMABI, VaultABI } from "@nam-prediction/shared";
 import { publishEvent, setCache, cacheKeys } from "../lib/redis";
@@ -44,8 +44,9 @@ export const publicClient = createPublicClient({
   }),
 });
 
-// Track which pools we're already watching so we don't double-subscribe
-const watchedPools = new Set<string>();
+// Track which pools we're already watching so we don't double-subscribe.
+// Values are the viem `unwatch` functions so we can stop polling when a market resolves.
+const watchedPools = new Map<string, () => void>();
 
 // ─── Balance math (decimal-string safe) ───
 //
@@ -159,16 +160,6 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
   }
   const dbMarket = market[0];
 
-  // Dedupe: if the same txHash already produced a trade row in this market, skip.
-  const existingTrade = await db
-    .select({ id: trades.id })
-    .from(trades)
-    .where(and(eq(trades.marketId, dbMarket.id), eq(trades.txHash, txHash)))
-    .limit(1);
-  if (existingTrade.length > 0) {
-    return;
-  }
-
   const traderAddr = trader.toLowerCase();
   const sharesStr = formatUnits(shares, 18);
   const collateralStr = formatUnits(collateral, 6);
@@ -241,17 +232,32 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
     }
   }
 
-  await db.insert(trades).values({
-    marketId: dbMarket.id,
-    trader: traderAddr,
-    isYes,
-    isBuy,
-    shares: sharesStr,
-    collateral: collateralStr,
-    yesPrice: yesPriceNum,
-    noPrice: noPriceNum,
-    txHash,
-  });
+  // Atomic dedupe: the UNIQUE (market_id, tx_hash) index guarantees at most
+  // one row per (market, tx) pair. The first racer lands the insert and gets
+  // an id back; every subsequent racer sees `inserted.length === 0` and
+  // returns early without double-applying the position delta. This replaces
+  // the old SELECT-then-INSERT check that was racing between the trading
+  // route and the Trade-event watcher.
+  const inserted = await db
+    .insert(trades)
+    .values({
+      marketId: dbMarket.id,
+      trader: traderAddr,
+      isYes,
+      isBuy,
+      shares: sharesStr,
+      collateral: collateralStr,
+      yesPrice: yesPriceNum,
+      noPrice: noPriceNum,
+      txHash,
+    })
+    .onConflictDoNothing({ target: [trades.marketId, trades.txHash] })
+    .returning({ id: trades.id });
+
+  if (inserted.length === 0) {
+    // A concurrent caller already recorded this fill — nothing more to do.
+    return;
+  }
 
   // Always bump volume — we know `collateral` from the event itself, no RPC needed.
   // Only touch the price columns if we actually fetched on-chain prices.
@@ -309,7 +315,14 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
     txHash,
   });
 
-  // Update user position
+  // ─── Update user position (per-side balance + cost basis) ───
+  //
+  // Per-side cost basis lets the portfolio show an accurate average price and
+  // live PnL for a user who holds BOTH YES and NO on the same market. On BUY
+  // we add the USDC collateral to the side's cost basis. On SELL we remove a
+  // *proportional* slice of the cost basis so the remaining avg price stays
+  // unchanged (same behavior as "average cost" accounting). avgEntryPrice is
+  // maintained for backward compat — new UI code should read yes/noAvgPrice.
   const existing = await db
     .select()
     .from(userPositions)
@@ -321,31 +334,101 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
     )
     .limit(1);
 
+  const collateralNumForPos = Number(collateral) / 1e6;
+  const sharesNumForPos = Number(shares) / 1e18;
+
   if (existing.length === 0) {
+    // First-ever interaction for (user, market). A fresh SELL here would mean
+    // the chain gave the user shares we never indexed — treat it as a zero
+    // starting point; the reconciler will fix the balance on its next pass.
+    const yesBalance = isYes && isBuy ? sharesStr : "0";
+    const noBalance = !isYes && isBuy ? sharesStr : "0";
+    const yesCost = isYes && isBuy ? collateralStr : "0";
+    const noCost = !isYes && isBuy ? collateralStr : "0";
+    const yesAvg =
+      isYes && isBuy && sharesNumForPos > 0
+        ? Math.max(0, Math.min(1, collateralNumForPos / sharesNumForPos))
+        : 0;
+    const noAvg =
+      !isYes && isBuy && sharesNumForPos > 0
+        ? Math.max(0, Math.min(1, collateralNumForPos / sharesNumForPos))
+        : 0;
+
     await db.insert(userPositions).values({
       marketId: dbMarket.id,
       userAddress: traderAddr,
-      yesBalance: isYes && isBuy ? sharesStr : "0",
-      noBalance: !isYes && isBuy ? sharesStr : "0",
-      avgEntryPrice: 0,
+      yesBalance,
+      noBalance,
+      avgEntryPrice: isBuy ? (isYes ? yesAvg : noAvg) : 0,
       pnl: "0",
+      yesAvgPrice: yesAvg,
+      noAvgPrice: noAvg,
+      yesCostBasis: yesCost,
+      noCostBasis: noCost,
     });
   } else {
     const pos = existing[0];
     let newYes = pos.yesBalance;
     let newNo = pos.noBalance;
+    let newYesCost = pos.yesCostBasis;
+    let newNoCost = pos.noCostBasis;
+
     if (isYes) {
-      newYes = isBuy
-        ? addBigIntStrings(pos.yesBalance, sharesStr)
-        : subBigIntStrings(pos.yesBalance, sharesStr);
+      if (isBuy) {
+        newYes = addBigIntStrings(pos.yesBalance, sharesStr);
+        newYesCost = (Number(pos.yesCostBasis) + collateralNumForPos).toFixed(6);
+      } else {
+        // Proportional cost removal: cost_out = cost * (shares_sold / shares_before)
+        const before = Number(pos.yesBalance);
+        const sold = Math.min(sharesNumForPos, before);
+        const costBefore = Number(pos.yesCostBasis);
+        const costRemoved =
+          before > 0 ? costBefore * (sold / before) : 0;
+        newYes = subBigIntStrings(pos.yesBalance, sharesStr);
+        newYesCost = Math.max(0, costBefore - costRemoved).toFixed(6);
+        // If the remaining balance is dust, snap cost basis to zero so the
+        // avg price doesn't explode from float residue.
+        if (Number(newYes) < 1e-9) newYesCost = "0";
+      }
     } else {
-      newNo = isBuy
-        ? addBigIntStrings(pos.noBalance, sharesStr)
-        : subBigIntStrings(pos.noBalance, sharesStr);
+      if (isBuy) {
+        newNo = addBigIntStrings(pos.noBalance, sharesStr);
+        newNoCost = (Number(pos.noCostBasis) + collateralNumForPos).toFixed(6);
+      } else {
+        const before = Number(pos.noBalance);
+        const sold = Math.min(sharesNumForPos, before);
+        const costBefore = Number(pos.noCostBasis);
+        const costRemoved =
+          before > 0 ? costBefore * (sold / before) : 0;
+        newNo = subBigIntStrings(pos.noBalance, sharesStr);
+        newNoCost = Math.max(0, costBefore - costRemoved).toFixed(6);
+        if (Number(newNo) < 1e-9) newNoCost = "0";
+      }
     }
+
+    const newYesBal = Number(newYes);
+    const newNoBal = Number(newNo);
+    const newYesAvg =
+      newYesBal > 1e-9 ? Math.max(0, Math.min(1, Number(newYesCost) / newYesBal)) : 0;
+    const newNoAvg =
+      newNoBal > 1e-9 ? Math.max(0, Math.min(1, Number(newNoCost) / newNoBal)) : 0;
+
+    // Legacy avgEntryPrice — pick whichever side the user actually holds so
+    // older readers keep seeing something sensible. New UI uses per-side values.
+    const legacyAvg =
+      newYesBal > newNoBal ? newYesAvg : newNoBal > 0 ? newNoAvg : 0;
+
     await db
       .update(userPositions)
-      .set({ yesBalance: newYes, noBalance: newNo })
+      .set({
+        yesBalance: newYes,
+        noBalance: newNo,
+        yesCostBasis: newYesCost,
+        noCostBasis: newNoCost,
+        yesAvgPrice: newYesAvg,
+        noAvgPrice: newNoAvg,
+        avgEntryPrice: legacyAvg,
+      })
       .where(eq(userPositions.id, pos.id));
   }
 
@@ -385,7 +468,7 @@ async function handleMarketResolved(log: any) {
     .set({ resolved: true, result: Number(result), status: "resolved" })
     .where(eq(markets.onChainId, Number(marketId)));
 
-  // Find the DB market to get the internal ID
+  // Find the DB market to get the internal ID and AMM address
   const market = await db
     .select()
     .from(markets)
@@ -393,6 +476,11 @@ async function handleMarketResolved(log: any) {
     .limit(1);
 
   if (market.length > 0) {
+    // Stop polling this pool — resolved markets receive no new trades
+    if (market[0].ammAddress) {
+      unwatchPool(market[0].ammAddress);
+    }
+
     await publishEvent("market:resolved", {
       marketId: market[0].id,
       result: Number(result),
@@ -437,11 +525,16 @@ export async function startIndexer() {
   // configured (e.g. a dev left MARKET_FACTORY_ADDRESS unset) — trades still
   // need to be indexed.
   try {
-    const existingMarkets = await db.select().from(markets);
+    // Only watch pools for markets that are still active — resolved markets
+    // will never emit new Trade events, so watching them just wastes RPC quota.
+    const existingMarkets = await db
+      .select()
+      .from(markets)
+      .where(eq(markets.resolved, false));
     for (const m of existingMarkets) {
       watchTradesForPool(m.ammAddress as `0x${string}`);
     }
-    console.log(`[Indexer] Watching trades for ${existingMarkets.length} existing pool(s)`);
+    console.log(`[Indexer] Watching trades for ${existingMarkets.length} active pool(s)`);
   } catch (err) {
     console.error("[Indexer] Failed to load existing markets for trade watching:", err);
   }
@@ -510,6 +603,23 @@ async function handleVaultDeposit(log: any) {
   const usdcAmount = formatUnits(amount, 6);
   console.log(`[Indexer] Vault Deposit: ${wallet} deposited ${usdcAmount} USDC`);
 
+  // Persist transaction history (unique on tx_hash → safe to call twice).
+  try {
+    await db
+      .insert(vaultTransactions)
+      .values({
+        userAddress: wallet,
+        type: "deposit",
+        amount: usdcAmount,
+        txHash: log.transactionHash as string,
+        blockNumber:
+          log.blockNumber !== undefined ? log.blockNumber.toString() : null,
+      })
+      .onConflictDoNothing({ target: vaultTransactions.txHash });
+  } catch (err) {
+    console.error("[Indexer] Failed to persist vault deposit:", err);
+  }
+
   const balance = await refreshVaultBalance(user as `0x${string}`);
 
   await publishEvent("user:balance", {
@@ -517,6 +627,7 @@ async function handleVaultDeposit(log: any) {
     type: "deposit",
     amount: usdcAmount,
     usdcBalance: balance,
+    txHash: log.transactionHash,
   });
 }
 
@@ -526,6 +637,22 @@ async function handleVaultWithdraw(log: any) {
   const usdcAmount = formatUnits(amount, 6);
   console.log(`[Indexer] Vault Withdraw: ${wallet} withdrew ${usdcAmount} USDC`);
 
+  try {
+    await db
+      .insert(vaultTransactions)
+      .values({
+        userAddress: wallet,
+        type: "withdraw",
+        amount: usdcAmount,
+        txHash: log.transactionHash as string,
+        blockNumber:
+          log.blockNumber !== undefined ? log.blockNumber.toString() : null,
+      })
+      .onConflictDoNothing({ target: vaultTransactions.txHash });
+  } catch (err) {
+    console.error("[Indexer] Failed to persist vault withdraw:", err);
+  }
+
   const balance = await refreshVaultBalance(user as `0x${string}`);
 
   await publishEvent("user:balance", {
@@ -533,6 +660,7 @@ async function handleVaultWithdraw(log: any) {
     type: "withdraw",
     amount: usdcAmount,
     usdcBalance: balance,
+    txHash: log.transactionHash,
   });
 }
 
@@ -598,19 +726,33 @@ function startVaultWatcher() {
   });
 }
 
-/// Watch Trade events for a specific CPMM pool (idempotent — safe to call multiple times)
-export function watchTradesForPool(ammAddress: `0x${string}`) {
+/// Watch Trade events for a specific CPMM pool (idempotent — safe to call multiple times).
+/// Returns the viem unwatch function in case the caller wants to stop watching.
+export function watchTradesForPool(ammAddress: `0x${string}`): () => void {
   const key = ammAddress.toLowerCase();
-  if (watchedPools.has(key)) return;
-  watchedPools.add(key);
+  const existing = watchedPools.get(key);
+  if (existing) return existing;
 
   console.log(`[Indexer] Watching trades on pool: ${ammAddress}`);
-  publicClient.watchContractEvent({
+  const unwatch = publicClient.watchContractEvent({
     address: ammAddress,
     abi: CPMMABI,
     eventName: "Trade",
     onLogs: (logs) => logs.forEach(handleTrade),
   });
+  watchedPools.set(key, unwatch);
+  return unwatch;
+}
+
+/// Stop watching Trade events for a pool (called when its market resolves).
+function unwatchPool(ammAddress: string) {
+  const key = ammAddress.toLowerCase();
+  const unwatch = watchedPools.get(key);
+  if (unwatch) {
+    unwatch();
+    watchedPools.delete(key);
+    console.log(`[Indexer] Stopped watching resolved pool: ${ammAddress}`);
+  }
 }
 
 // ─── Price reconciler ───

@@ -19,6 +19,7 @@ import { toast } from "sonner";
 
 const QUICK = [1, 5, 10, 100];
 const SELL_PERCENTS = [25, 50, 100] as const;
+const DUST = 1e-6;
 const SLIPPAGE_PRESETS = [0.5, 1, 2, 5];
 const WARN_PRICE_IMPACT_PCT = 5;
 
@@ -549,6 +550,43 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         <p className="text-center text-[10px] mt-3" style={{ color: "rgba(113,113,130,0.50)" }}>
           Each trade requires a wallet signature. By trading, you agree to the Terms of Use.
         </p>
+
+        {/* Current position summary */}
+        {isAuthenticated && (yesShares >= DUST || noShares >= DUST) && (
+          <div className="mt-4 rounded-xl p-4 inner-border" style={{ background: "rgba(31,32,40,0.50)" }}>
+            <p className="text-xs font-semibold mb-3" style={{ color: "#717182" }}>Your Position</p>
+            {yesShares >= DUST && (
+              <div className="flex items-center justify-between text-xs mb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(1,210,67,0.15)", color: "#01d243" }}>YES</span>
+                  <span style={{ color: "#e8e9ed" }}>{yesShares.toFixed(4)} shares</span>
+                  <span style={{ color: "#717182" }}>@ {(position?.yesAvgPrice ? position.yesAvgPrice * 100 : yesPrice * 100).toFixed(1)}¢</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: "#e8e9ed" }}>${Number(position?.yesCurrentValue ?? 0).toFixed(2)}</span>
+                  <span style={{ color: Number(position?.yesPnl ?? 0) >= 0 ? "#00e676" : "#ff4757" }}>
+                    {Number(position?.yesPnl ?? 0) >= 0 ? "+" : ""}${Number(position?.yesPnl ?? 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+            {noShares >= DUST && (
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(255,71,87,0.15)", color: "#ff4757" }}>NO</span>
+                  <span style={{ color: "#e8e9ed" }}>{noShares.toFixed(4)} shares</span>
+                  <span style={{ color: "#717182" }}>@ {(position?.noAvgPrice ? position.noAvgPrice * 100 : noPrice * 100).toFixed(1)}¢</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ color: "#e8e9ed" }}>${Number(position?.noCurrentValue ?? 0).toFixed(2)}</span>
+                  <span style={{ color: Number(position?.noPnl ?? 0) >= 0 ? "#00e676" : "#ff4757" }}>
+                    {Number(position?.noPnl ?? 0) >= 0 ? "+" : ""}${Number(position?.noPnl ?? 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

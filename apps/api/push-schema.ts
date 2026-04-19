@@ -44,9 +44,8 @@ ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS markets_status_end_time_idx ON markets(status, end_time);
 CREATE INDEX IF NOT EXISTS markets_execution_status_idx ON markets(execution_mode, status);
 
--- Trades (drop stale schema and recreate)
-DROP TABLE IF EXISTS trades CASCADE;
-CREATE TABLE trades (
+-- Trades (idempotent create; NEVER drop — would blow away price history)
+CREATE TABLE IF NOT EXISTS trades (
   id SERIAL PRIMARY KEY,
   market_id INTEGER NOT NULL REFERENCES markets(id),
   trader TEXT NOT NULL,
@@ -54,10 +53,26 @@ CREATE TABLE trades (
   is_buy BOOLEAN NOT NULL,
   shares NUMERIC(30,18) NOT NULL,
   collateral NUMERIC(30,6) NOT NULL,
+  yes_price REAL NOT NULL DEFAULT 0.5,
+  no_price REAL NOT NULL DEFAULT 0.5,
   tx_hash TEXT NOT NULL,
   "timestamp" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS yes_price REAL NOT NULL DEFAULT 0.5;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS no_price REAL NOT NULL DEFAULT 0.5;
+
+-- Drop any legacy duplicate rows on (market_id, tx_hash) before we add the
+-- unique dedupe index — in case the SELECT-then-INSERT race already landed
+-- double-counts in production.
+DELETE FROM trades t
+USING trades older
+WHERE t.market_id = older.market_id
+  AND t.tx_hash   = older.tx_hash
+  AND t.id        > older.id;
+
 CREATE INDEX IF NOT EXISTS trades_market_timestamp_idx ON trades(market_id, "timestamp");
+CREATE INDEX IF NOT EXISTS trades_trader_timestamp_idx ON trades(trader, "timestamp");
+CREATE UNIQUE INDEX IF NOT EXISTS trades_market_tx_hash_idx ON trades(market_id, tx_hash);
 
 -- User Positions
 CREATE TABLE IF NOT EXISTS user_positions (
@@ -67,8 +82,18 @@ CREATE TABLE IF NOT EXISTS user_positions (
   yes_balance NUMERIC(30,18) NOT NULL DEFAULT '0',
   no_balance NUMERIC(30,18) NOT NULL DEFAULT '0',
   avg_entry_price REAL NOT NULL DEFAULT 0,
-  pnl NUMERIC(30,6) NOT NULL DEFAULT '0'
+  pnl NUMERIC(30,6) NOT NULL DEFAULT '0',
+  yes_avg_price REAL NOT NULL DEFAULT 0,
+  no_avg_price  REAL NOT NULL DEFAULT 0,
+  yes_cost_basis NUMERIC(30,6) NOT NULL DEFAULT '0',
+  no_cost_basis  NUMERIC(30,6) NOT NULL DEFAULT '0',
+  last_reconciled_at TIMESTAMPTZ
 );
+ALTER TABLE user_positions ADD COLUMN IF NOT EXISTS yes_avg_price REAL NOT NULL DEFAULT 0;
+ALTER TABLE user_positions ADD COLUMN IF NOT EXISTS no_avg_price  REAL NOT NULL DEFAULT 0;
+ALTER TABLE user_positions ADD COLUMN IF NOT EXISTS yes_cost_basis NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE user_positions ADD COLUMN IF NOT EXISTS no_cost_basis  NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE user_positions ADD COLUMN IF NOT EXISTS last_reconciled_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS user_market_idx ON user_positions(market_id, user_address);
 CREATE INDEX IF NOT EXISTS positions_user_market_idx ON user_positions(user_address, market_id);
 
@@ -198,6 +223,20 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Vault Transactions (deposit / withdraw history)
+CREATE TABLE IF NOT EXISTS vault_transactions (
+  id SERIAL PRIMARY KEY,
+  user_address TEXT NOT NULL,
+  type TEXT NOT NULL,
+  amount NUMERIC(30,6) NOT NULL,
+  tx_hash TEXT NOT NULL,
+  block_number NUMERIC(30,0),
+  "timestamp" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS vault_tx_hash_idx ON vault_transactions(tx_hash);
+CREATE INDEX IF NOT EXISTS vault_tx_user_timestamp_idx ON vault_transactions(user_address, "timestamp");
+CREATE INDEX IF NOT EXISTS vault_tx_type_timestamp_idx ON vault_transactions(type, "timestamp");
 
 -- Daily Markets
 CREATE TABLE IF NOT EXISTS daily_markets (

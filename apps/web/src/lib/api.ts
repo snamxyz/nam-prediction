@@ -42,6 +42,18 @@ export async function authedPostApi<T>(path: string, body: unknown, token: strin
   return json.data as T;
 }
 
+export async function authedGetApi<T>(path: string, token: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `API error: ${res.status}`);
+  }
+  const json = await res.json();
+  return json.data as T;
+}
+
 export function getApiUrl(): string {
   return API_URL;
 }

@@ -22,6 +22,27 @@
       "when": 1808524800000,
       "tag": "0002_trade_price_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1810000000000,
+      "tag": "0003_reconcile_positions",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1810000100000,
+      "tag": "0004_vault_transactions",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776590561321,
+      "tag": "0005_same_azazel",
+      "breakpoints": true
     }
   ]
 }
