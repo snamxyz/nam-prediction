@@ -8,7 +8,7 @@ const BASE_CHAIN = "base";
  * DexScreener resolver — resolves markets based on NAM/USDC price from DexScreener.
  * Config shape: { comparison: '>=' | '<=', threshold: number }
  *
- * NOTE: m15 markets are resolved by the dedicated BullMQ worker in ../queue/m15-queue.ts
+ * NOTE: hourly markets are resolved by the dedicated BullMQ worker in ../queue/hourly-queue.ts
  * and do not go through this resolver.
  */
 export async function resolveDexScreener(market: MarketRow): Promise<void> {

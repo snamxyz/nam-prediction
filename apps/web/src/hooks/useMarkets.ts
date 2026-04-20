@@ -12,18 +12,18 @@ export function useMarkets() {
   });
 }
 
-export function useLatestM15Market() {
+export function useLatestHourlyMarket() {
   return useQuery<Market | null>({
-    queryKey: ["m15-latest"],
-    queryFn: () => fetchApi<Market | null>("/markets/m15/latest"),
+    queryKey: ["hourly-latest"],
+    queryFn: () => fetchApi<Market | null>("/markets/1h/latest"),
     refetchInterval: 10_000,
   });
 }
 
-export function useM15History() {
+export function useHourlyHistory() {
   return useQuery<Market[]>({
-    queryKey: ["m15-history"],
-    queryFn: () => fetchApi<Market[]>("/markets/m15/history"),
+    queryKey: ["hourly-history"],
+    queryFn: () => fetchApi<Market[]>("/markets/1h/history"),
     refetchInterval: 15_000,
   });
 }

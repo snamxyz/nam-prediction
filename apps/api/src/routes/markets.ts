@@ -6,6 +6,7 @@ import { createPublicClient, http, decodeEventLog, formatUnits, parseUnits } fro
 import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
 import { featureFlags } from "../config/feature-flags";
+import { fetchNamPrice } from "../services/daily-market";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const rpcClient = createPublicClient({
@@ -98,6 +99,16 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
     };
   })
 
+  // GET /markets/nam-price — Live NAM/USDC price from DexScreener
+  .get("/nam-price", async ({ set }) => {
+    const price = await fetchNamPrice();
+    if (price === null) {
+      set.status = 502;
+      return { success: false, error: "Unable to fetch NAM price" };
+    }
+    return { success: true, data: { priceUsd: price.toString() } };
+  })
+
   // GET /markets/features — Runtime rollout flags for clients and ops
   .get("/features", async () => {
     return {
@@ -110,27 +121,27 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
     };
   })
 
-  // GET /markets/m15/latest — Get the latest 15-min market
-  .get("/m15/latest", async () => {
+  // GET /markets/1h/latest — Get the latest hourly market
+  .get("/1h/latest", async () => {
     const result = await db
       .select()
       .from(markets)
-      .where(eq(markets.cadence, "m15"))
+      .where(eq(markets.cadence, "1h"))
       .orderBy(desc(markets.createdAt))
       .limit(1);
 
     return { data: result.length > 0 ? result[0] : null, success: true };
   })
 
-  // GET /markets/m15/history — Last 24h of 15-min markets
-  .get("/m15/history", async () => {
+  // GET /markets/1h/history — Last 24h of hourly markets
+  .get("/1h/history", async () => {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const result = await db
       .select()
       .from(markets)
       .where(
         and(
-          eq(markets.cadence, "m15"),
+          eq(markets.cadence, "1h"),
           gte(markets.createdAt, oneDayAgo)
         )
       )

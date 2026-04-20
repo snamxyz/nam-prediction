@@ -1,9 +1,9 @@
 /**
- * 15-minute market lifecycle service.
+ * 1-hour market lifecycle service.
  *
- * Provides `createNextM15Market()` which creates a new 15-minute NAM market
+ * Provides `createNextHourlyMarket()` which creates a new 1-hour NAM market
  * on-chain and inserts the corresponding DB row. Called automatically after
- * the previous m15 market resolves, and on server startup when no active m15
+ * the previous hourly market resolves, and on server startup when no active hourly
  * market exists.
  */
 import {
@@ -27,8 +27,8 @@ const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
 const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
-const M15_LIQUIDITY = Number(process.env.M15_MARKET_LIQUIDITY || process.env.DAILY_MARKET_LIQUIDITY || 1);
-const DURATION_MINUTES = Number(process.env.M15_MARKET_DURATION_MINUTES || 15);
+const HOURLY_LIQUIDITY = Number(process.env.HOURLY_MARKET_LIQUIDITY || process.env.DAILY_MARKET_LIQUIDITY || 1);
+const DURATION_MINUTES = Number(process.env.HOURLY_MARKET_DURATION_MINUTES || 60);
 const LOCK_WINDOW_SECONDS = Number(process.env.MARKET_LOCK_WINDOW_SECONDS || 10);
 
 function getWalletClient() {
@@ -59,15 +59,15 @@ function formatEndLabel(endTime: Date): string {
 }
 
 /**
- * Check whether there is already an unresolved m15 market in the DB.
+ * Check whether there is already an unresolved hourly market in the DB.
  */
-export async function hasActiveM15Market(): Promise<boolean> {
+export async function hasActiveHourlyMarket(): Promise<boolean> {
   const active = await db
     .select({ id: markets.id })
     .from(markets)
     .where(
       and(
-        eq(markets.cadence, "m15"),
+        eq(markets.cadence, "1h"),
         eq(markets.resolved, false),
       )
     )
@@ -77,21 +77,21 @@ export async function hasActiveM15Market(): Promise<boolean> {
 }
 
 /**
- * Create the next 15-minute NAM market on-chain and insert it into the DB.
+ * Create the next 1-hour NAM market on-chain and insert it into the DB.
  *
  * @param comparison  ">=" or "<=" (default ">=")
  * @param threshold   Explicit price threshold. If omitted, fetches live NAM price.
  */
-export async function createNextM15Market(
+export async function createNextHourlyMarket(
   comparison: ">=" | "<=" = ">=",
   threshold?: number,
 ): Promise<{ onChainId: number }> {
   if (!FACTORY_ADDRESS) throw new Error("MARKET_FACTORY_ADDRESS not set");
 
-  // If there's already an active m15 market, skip to prevent duplicates
-  if (await hasActiveM15Market()) {
-    console.log("[M15] Active m15 market already exists — skipping creation");
-    throw new Error("Active m15 market already exists");
+  // If there's already an active hourly market, skip to prevent duplicates
+  if (await hasActiveHourlyMarket()) {
+    console.log("[Hourly] Active hourly market already exists — skipping creation");
+    throw new Error("Active hourly market already exists");
   }
 
   const walletClient = getWalletClient();
@@ -117,7 +117,7 @@ export async function createNextM15Market(
   const resolutionConfig = {
     comparison,
     threshold,
-    cadence: "m15",
+    cadence: "1h",
     lockTime: lockTime.toISOString(),
     lockTimeUnix: Number(lockTimeUnix),
     pairAddress: process.env.DEXSCREENER_PAIR_ADDRESS || null,
@@ -126,11 +126,11 @@ export async function createNextM15Market(
     new TextEncoder().encode(JSON.stringify(resolutionConfig)),
   );
 
-  const liquidityUsdc = parseUnits(String(M15_LIQUIDITY), 6);
+  const liquidityUsdc = parseUnits(String(HOURLY_LIQUIDITY), 6);
   const approvalAmount = (1n << 256n) - 1n;
 
-  console.log(`[M15] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
-  console.log(`[M15] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
+  console.log(`[Hourly] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
+  console.log(`[Hourly] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
 
   // Approve + Create as two sequential transactions, each going through the
   // serialized nonce manager queue. Only one in-flight tx at a time is allowed
@@ -147,7 +147,7 @@ export async function createNextM15Market(
       nonce,
     })
   );
-  console.log(`[M15] Approve tx: ${approveHash}`);
+  console.log(`[Hourly] Approve tx: ${approveHash}`);
   // Wait for on-chain confirmation before sending the next tx
   await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
@@ -169,7 +169,7 @@ export async function createNextM15Market(
       nonce,
     })
   );
-  console.log(`[M15] Create tx: ${createHash}`);
+  console.log(`[Hourly] Create tx: ${createHash}`);
   const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
 
   let onChainId: number | null = null;
@@ -210,7 +210,7 @@ export async function createNextM15Market(
       noToken,
       ammAddress: liquidityPool,
       executionMode: "amm",
-      cadence: "m15",
+      cadence: "1h",
       status: "open",
       lockTime,
       endTime,
@@ -219,17 +219,17 @@ export async function createNextM15Market(
       yesPrice: 0.5,
       noPrice: 0.5,
       volume: "0",
-      liquidity: M15_LIQUIDITY.toString(),
+      liquidity: HOURLY_LIQUIDITY.toString(),
       resolutionSource: "dexscreener",
       resolutionConfig,
     })
     .onConflictDoNothing();
 
-  // Ensure m15-specific fields are set (in case indexer inserted the row first)
+  // Ensure hourly-specific fields are set (in case indexer inserted the row first)
   await db
     .update(markets)
     .set({
-      cadence: "m15",
+      cadence: "1h",
       status: "open",
       lockTime,
       endTime,
@@ -238,9 +238,9 @@ export async function createNextM15Market(
     })
     .where(eq(markets.onChainId, onChainId));
 
-  console.log(`[M15] Market created successfully. onChainId=${onChainId}`);
-  console.log(`[M15] Question: ${question}`);
-  console.log(`[M15] Pool: ${liquidityPool}`);
+  console.log(`[Hourly] Market created successfully. onChainId=${onChainId}`);
+  console.log(`[Hourly] Question: ${question}`);
+  console.log(`[Hourly] Pool: ${liquidityPool}`);
 
   return { onChainId };
 }

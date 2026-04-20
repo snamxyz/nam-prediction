@@ -1,30 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseUnits } from "viem";
-import { ArrowLeft, DollarSign, Clock, TrendingUp } from "lucide-react";
 import { useMarket, useMarketTrades } from "@/hooks/useMarkets";
 import { useMarketSocket } from "@/hooks/useMarketSocket";
 import { TradePanel } from "@/components/TradePanel";
 import { PriceChart } from "@/components/PriceChart";
-import { M15TimestampBar } from "@/components/M15TimestampBar";
-import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
-import { MARKET_FACTORY_ADDRESS, USDC_ADDRESS } from "@/lib/contracts";
-
-const SOURCE_LABELS: Record<string, { icon: string; label: string }> = {
-  admin: { icon: "👤", label: "Admin" },
-  internal: { icon: "📊", label: "Internal Data" },
-  dexscreener: { icon: "📈", label: "NAM Price" },
-  uma: { icon: "⚖️", label: "UMA Oracle" },
-};
+import { ProbBar } from "@/components/ProbBar";
 
 export default function MarketPage() {
   const params = useParams();
   const id = params.id as string;
-  const { address, isConnected } = useAccount();
 
   const { data: market, isLoading } = useMarket(id);
   const { data: trades } = useMarketTrades(id);
@@ -35,53 +21,19 @@ export default function MarketPage() {
     locked: liveLocked,
   } = useMarketSocket(market?.id);
 
-  const [umaResult, setUmaResult] = useState<1 | 2>(1);
-  const [umaBond, setUmaBond] = useState("100");
-
-  const { writeContract: writeApproveUma, data: umaApproveHash } = useWriteContract();
-  const { writeContract: writeRequestUma, data: umaRequestHash } = useWriteContract();
-  const { isLoading: isUmaApproving } = useWaitForTransactionReceipt({ hash: umaApproveHash });
-  const { isLoading: isUmaRequesting } = useWaitForTransactionReceipt({ hash: umaRequestHash });
-  const isUmaLoading = isUmaApproving || isUmaRequesting;
-
-  const handleRequestUmaResolution = () => {
-    if (!market || !MARKET_FACTORY_ADDRESS || !address) return;
-    const bondAmount = parseUnits(umaBond, 6);
-
-    writeApproveUma(
-      {
-        address: USDC_ADDRESS,
-        abi: ERC20ABI,
-        functionName: "approve",
-        args: [MARKET_FACTORY_ADDRESS, bondAmount],
-      },
-      {
-        onSuccess: () => {
-          writeRequestUma({
-            address: MARKET_FACTORY_ADDRESS,
-            abi: MarketFactoryABI,
-            functionName: "requestUmaResolution",
-            args: [BigInt(market.onChainId), umaResult, bondAmount],
-          });
-        },
-      }
-    );
-  };
-
   if (isLoading) {
     return (
-      <div className="max-w-[1400px] mx-auto space-y-4">
-        <div className="h-8 glass-card rounded w-2/3 animate-pulse" />
-        <div className="h-64 glass-card animate-pulse" />
-        <div className="h-48 glass-card animate-pulse" />
+      <div style={{ maxWidth: 1280, margin: "0 auto" }}>
+        <div className="card" style={{ height: 200, marginBottom: 16 }} />
+        <div className="card" style={{ height: 300 }} />
       </div>
     );
   }
 
   if (!market) {
     return (
-      <div className="glass-card text-center py-20">
-        <p style={{ color: "#717182" }}>Market not found</p>
+      <div className="card" style={{ textAlign: "center", padding: "80px 0" }}>
+        <p style={{ color: "#4c4e68" }}>Market not found</p>
       </div>
     );
   }
@@ -92,159 +44,219 @@ export default function MarketPage() {
   const noPct = 100 - yesPct;
   const isResolved = liveResolved ? true : market.resolved;
   const isLocked = liveLocked || market.status === "locked";
-  const endDate = new Date(market.endTime);
   const liveVolume = liveStats?.volume ?? Number(market.volume);
+  const endDate = new Date(market.endTime);
 
   return (
-    <div className="max-w-[1400px] mx-auto">
+    <div className="fade-up" style={{ maxWidth: 1280, margin: "0 auto" }}>
       {/* Back link */}
       <Link
         href="/"
-        className="inline-flex items-center gap-2 text-sm mb-4 transition-colors"
-        style={{ color: "#717182" }}
-        onMouseEnter={e => (e.currentTarget.style.color = "#e8e9ed")}
-        onMouseLeave={e => (e.currentTarget.style.color = "#717182")}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          fontSize: 12,
+          color: "#4c4e68",
+          marginBottom: 16,
+          transition: "color 0.12s",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "#e4e5eb")}
+        onMouseLeave={(e) => (e.currentTarget.style.color = "#4c4e68")}
       >
-        <ArrowLeft className="w-4 h-4" /> Back to Markets
+        ← Back to Markets
       </Link>
 
-      {/* 15-min market timestamp navigation */}
-      {market.cadence === "m15" && <M15TimestampBar currentMarketId={market.id} />}
+      {/* 2-column layout */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 340px",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        {/* Left column */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Header card */}
+          <div className="card" style={{ padding: 24 }}>
+            <h1
+              style={{
+                fontSize: 18,
+                fontWeight: 600,
+                color: "#e4e5eb",
+                marginBottom: 20,
+                lineHeight: 1.45,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {market.question}
+            </h1>
 
-      {/* Main content grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left: header + charts + trades */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Header */}
-          <div className="glass-card p-4" style={{ overflow: "hidden" }}>
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <h1 className="text-lg font-semibold" style={{ color: "#e8e9ed" }}>
-                {market.question}
-              </h1>
-              {market.resolutionSource && (
+            {/* Large probability numbers */}
+            <div className="w-full"
+              style={{
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <div className="w-1/2 bg-accent/5 p-4 rounded-tl-md">
                 <span
-                  className="text-xs px-2.5 py-1 rounded-lg whitespace-nowrap glass-card-inner"
-                  style={{ color: "rgba(232,233,237,0.70)" }}
+                  className="mono"
+                  style={{ fontSize: 48, fontWeight: 500, color: "#01d243", lineHeight: 1, letterSpacing: "-0.03em" }}
                 >
-                  {SOURCE_LABELS[market.resolutionSource]?.icon}{" "}
-                  {SOURCE_LABELS[market.resolutionSource]?.label || market.resolutionSource}
+                  {yesPct.toFixed(1)}
                 </span>
-              )}
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "#4c4e68",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginLeft: 6,
+                  }}
+                >
+                  YES ¢
+                </span>
+              </div>
+              
+              <div className="w-1/2 bg-[#f0324c]/5 p-4 rounded-tr-md">
+                <span
+                  className="mono"
+                  style={{ fontSize: 48, fontWeight: 500, color: "#f0324c", lineHeight: 1, letterSpacing: "-0.03em" }}
+                >
+                  {noPct.toFixed(1)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "#4c4e68",
+                    letterSpacing: "0.07em",
+                    textTransform: "uppercase",
+                    marginLeft: 6,
+                  }}
+                >
+                  NO ¢
+                </span>
+              </div>
             </div>
 
-            {/* Price bar */}
-            <div className="flex items-center gap-4 mb-3">
-              <div className="text-center">
-                <div className="text-xl font-bold" style={{ color: "#01d243" }}>
-                  {yesPct.toFixed(1)}¢
-                </div>
-                <div className="text-xs" style={{ color: "#717182" }}>YES</div>
-              </div>
-              <div
-                className="flex-1 h-2 rounded-full overflow-hidden flex"
-                style={{ background: "rgba(31,32,40,0.60)" }}
-              >
-                <div
-                  className="h-full rounded-l-full transition-all"
-                  style={{ width: `${yesPct}%`, background: "rgba(1,210,67,0.70)" }}
-                />
-                <div
-                  className="h-full rounded-r-full transition-all"
-                  style={{ width: `${noPct}%`, background: "rgba(255,71,87,0.50)" }}
-                />
-              </div>
-              <div className="text-center">
-                <div className="text-xl font-bold" style={{ color: "#ff4757" }}>
-                  {noPct.toFixed(1)}¢
-                </div>
-                <div className="text-xs" style={{ color: "#717182" }}>NO</div>
-              </div>
-            </div>
+            <ProbBar yes={yesPct} height={4} />
 
-            {/* Meta */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs" style={{ color: "#717182" }}>
-              <span className="flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5" style={{ color: "#01d243" }} />
-                <span style={{ color: "rgba(232,233,237,0.70)" }}>
+            {/* Meta row */}
+            <div
+              style={{
+                display: "flex",
+                gap: 20,
+                marginTop: 16,
+                paddingTop: 14,
+                borderTop: "1px solid rgba(255,255,255,0.04)",
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700 }}>
+                  Volume
+                </span>
+                <div className="mono" style={{ fontSize: 13, color: "#e4e5eb", marginTop: 2 }}>
                   ${liveVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                </span>{" "}
-                Vol.
-              </span>
+                </div>
+              </div>
               {liveStats?.lastTradePrice != null && liveStats.lastTradePrice > 0 && (
-                <span className="flex items-center gap-1.5">
-                  <TrendingUp
-                    className="w-3.5 h-3.5"
-                    style={{ color: liveStats.lastTradeSide === "YES" ? "#01d243" : "#ff4757" }}
-                  />
-                  Last {liveStats.lastTradeSide ?? ""} @ {(liveStats.lastTradePrice * 100).toFixed(1)}¢
-                </span>
+                <div>
+                  <span style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700 }}>
+                    Last Trade
+                  </span>
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: 13,
+                      color: liveStats.lastTradeSide === "YES" ? "#01d243" : "#f0324c",
+                      marginTop: 2,
+                    }}
+                  >
+                    {liveStats.lastTradeSide} @ {(liveStats.lastTradePrice * 100).toFixed(1)}¢
+                  </div>
+                </div>
               )}
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" style={{ color: "#01d243" }} />
-                {market.resolved
-                  ? "Resolved"
-                  : `Ends ${endDate.toLocaleDateString()} ${endDate.toLocaleTimeString()}`}
-              </span>
-              {market.resolved && (
-                <span
-                  className="flex items-center gap-1 font-semibold"
-                  style={{ color: market.result === 1 ? "#01d243" : "#ff4757" }}
-                >
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  {market.result === 1 ? "YES" : "NO"} Wins
+              <div>
+                <span style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700 }}>
+                  {market.resolved ? "Status" : "Ends"}
                 </span>
-              )}
-              {isLocked && !isResolved && (
-                <span
-                  className="flex items-center gap-1 font-semibold text-xs px-2 py-1 rounded"
-                  style={{ background: "rgba(255,165,0,0.15)", color: "#ffa500" }}
-                >
-                  🔒 Locked
-                </span>
-              )}
+                <div className="mono" style={{ fontSize: 13, color: "#e4e5eb", marginTop: 2 }}>
+                  {market.resolved ? (
+                    <span style={{ color: market.result === 1 ? "#01d243" : "#f0324c", fontWeight: 600 }}>
+                      {market.result === 1 ? "YES" : "NO"} Resolved
+                    </span>
+                  ) : (
+                    `${endDate.toLocaleDateString()} ${endDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Charts */}
+          {/* Chart */}
           <PriceChart trades={trades || []} />
-           {/* Recent trades */}
-           <div className="glass-card p-4" style={{ overflow: "hidden" }}>
-            <h3 className="font-semibold mb-3 text-xs uppercase tracking-wide" style={{ color: "#e8e9ed" }}>
+
+          {/* Recent trades */}
+          <div className="card" style={{ padding: 20 }}>
+            <h3
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.09em",
+                color: "#4c4e68",
+                marginBottom: 14,
+              }}
+            >
               Recent Trades
             </h3>
             {trades && trades.length > 0 ? (
-              <div className="space-y-0.5">
-                {trades.slice(0, 5).map((trade) => (
+              <div>
+                {trades.slice(0, 8).map((trade) => (
                   <div
                     key={trade.id}
-                    className="flex items-center justify-between text-sm py-2 transition-colors"
-                    style={{ borderBottom: "0.5px solid rgba(255,255,255,0.04)" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "9px 0",
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    }}
                   >
-                    <div className="flex items-center gap-2">
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded"
-                        style={
-                          trade.isBuy
-                            ? { background: "rgba(1,210,67,0.12)", color: "#01d243" }
-                            : { background: "rgba(255,71,87,0.12)", color: "#ff4757" }
-                        }
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          padding: "2px 7px",
+                          borderRadius: 4,
+                          letterSpacing: "0.04em",
+                          ...(trade.isBuy
+                            ? { background: "rgba(1,210,67,0.10)", color: "#01d243" }
+                            : { background: "rgba(240,50,76,0.10)", color: "#f0324c" }),
+                        }}
                       >
                         {trade.isBuy ? "BUY" : "SELL"}
                       </span>
                       <span
-                        className="text-xs font-semibold"
-                        style={{ color: trade.isYes ? "#01d243" : "#ff4757" }}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: trade.isYes ? "#01d243" : "#f0324c",
+                        }}
                       >
                         {trade.isYes ? "YES" : "NO"}
                       </span>
                     </div>
-                    <div className="text-right">
-                      <div className="text-xs" style={{ color: "rgba(232,233,237,0.85)" }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div className="mono" style={{ fontSize: 12, color: "#e4e5eb" }}>
                         ${Number(trade.collateral).toFixed(2)}
                       </div>
-                      <div className="text-[10px]" style={{ color: "rgba(113,113,130,0.60)" }}>
+                      <div className="mono" style={{ fontSize: 10, color: "#4c4e68" }}>
                         {trade.trader.slice(0, 6)}…{trade.trader.slice(-4)}
                       </div>
                     </div>
@@ -252,13 +264,13 @@ export default function MarketPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm" style={{ color: "#717182" }}>No trades yet</p>
+              <p style={{ fontSize: 12, color: "#4c4e68" }}>No trades yet</p>
             )}
           </div>
         </div>
 
-        {/* Right: trade panel + recent trades */}
-        <div className="space-y-4">
+        {/* Right column (sticky) */}
+        <div style={{ position: "sticky", top: 68 }}>
           {!isResolved && !isLocked ? (
             <TradePanel
               marketId={market.id}
@@ -268,113 +280,48 @@ export default function MarketPage() {
               noPrice={currentNoPrice}
             />
           ) : isLocked && !isResolved ? (
-            <div className="glass-card p-5 text-center">
-              <p className="text-lg font-bold mb-2" style={{ color: "#e8e9ed" }}>
+            <div className="card" style={{ padding: 28, textAlign: "center" }}>
+              <p
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "#e4e5eb",
+                  marginBottom: 6,
+                }}
+              >
                 Market Locked
               </p>
-              <p className="text-sm" style={{ color: "#717182" }}>
-                Trading is closed. Awaiting resolution...
+              <p style={{ fontSize: 13, color: "#4c4e68" }}>
+                Trading is closed. Awaiting resolution…
               </p>
             </div>
           ) : (
-            <div className="glass-card p-5 text-center">
-              <p className="text-lg font-bold mb-2" style={{ color: "#e8e9ed" }}>
+            <div className="card" style={{ padding: 28, textAlign: "center" }}>
+              <p
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "#e4e5eb",
+                  marginBottom: 8,
+                }}
+              >
                 Market Resolved
               </p>
               <p
-                className="text-2xl font-bold"
-                style={{ color: market.result === 1 ? "#01d243" : "#ff4757" }}
+                className="mono"
+                style={{
+                  fontSize: 28,
+                  fontWeight: 600,
+                  color: market.result === 1 ? "#01d243" : "#f0324c",
+                }}
               >
                 {market.result === 1 ? "YES" : "NO"} Wins
               </p>
-              <p className="text-sm mt-2" style={{ color: "#717182" }}>
+              <p style={{ fontSize: 12, color: "#4c4e68", marginTop: 8 }}>
                 Go to Portfolio to redeem your winnings
               </p>
             </div>
           )}
-
-         
-
-          {/* UMA Resolution Request */}
-          {market.resolutionSource === "uma" &&
-            !market.resolved &&
-            Date.now() >= new Date(market.endTime).getTime() && (
-              <div className="glass-card p-4">
-                <h3 className="font-semibold mb-3 text-sm" style={{ color: "#e8e9ed" }}>
-                  ⚖️ Request UMA Resolution
-                </h3>
-                <p className="text-xs mb-3" style={{ color: "#717182" }}>
-                  Market has ended. Propose a resolution via UMA Optimistic Oracle.
-                  Your bond is returned if not disputed.
-                </p>
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <button
-                    onClick={() => setUmaResult(1)}
-                    className="py-2 rounded-lg text-sm font-bold transition-all inner-border"
-                    style={
-                      umaResult === 1
-                        ? { background: "rgba(1,210,67,0.20)", color: "#01d243", borderColor: "rgba(1,210,67,0.30)" }
-                        : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-                    }
-                  >
-                    Propose YES
-                  </button>
-                  <button
-                    onClick={() => setUmaResult(2)}
-                    className="py-2 rounded-lg text-sm font-bold transition-all inner-border"
-                    style={
-                      umaResult === 2
-                        ? { background: "rgba(255,71,87,0.20)", color: "#ff4757", borderColor: "rgba(255,71,87,0.30)" }
-                        : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-                    }
-                  >
-                    Propose NO
-                  </button>
-                </div>
-                <div className="mb-3">
-                  <label className="block text-xs mb-1" style={{ color: "#717182" }}>Bond (USDC)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={umaBond}
-                    onChange={(e) => setUmaBond(e.target.value)}
-                    className="w-full rounded-lg px-3 py-2 text-sm outline-none inner-border"
-                    style={{ background: "rgba(31,32,40,0.60)", color: "#e8e9ed" }}
-                  />
-                </div>
-                <button
-                  onClick={handleRequestUmaResolution}
-                  disabled={!isConnected || isUmaLoading}
-                  className="w-full py-2.5 rounded-lg font-bold text-sm transition-all"
-                  style={
-                    isConnected && !isUmaLoading
-                      ? { background: "#01d243", color: "#000", cursor: "pointer" }
-                      : { background: "rgba(31,32,40,0.50)", color: "#717182", cursor: "not-allowed" }
-                  }
-                >
-                  {!isConnected
-                    ? "Connect Wallet"
-                    : isUmaLoading
-                    ? "Processing..."
-                    : `Propose ${umaResult === 1 ? "YES" : "NO"} Resolution`}
-                </button>
-                {umaRequestHash && (
-                  <p className="text-xs text-center mt-2" style={{ color: "#717182" }}>
-                    Tx:{" "}
-                    <a
-                      href={`https://basescan.org/tx/${umaRequestHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: "#01d243" }}
-                      className="hover:underline"
-                    >
-                      {umaRequestHash.slice(0, 10)}...{umaRequestHash.slice(-8)}
-                    </a>
-                  </p>
-                )}
-              </div>
-            )}
         </div>
       </div>
     </div>

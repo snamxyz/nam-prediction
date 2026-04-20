@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Navbar } from "@/components/Navbar";
-import { LiveTicker } from "@/components/LiveTicker";
-import Background from "@/components/UI/Background";
 
 export const metadata: Metadata = {
   title: "NAM Prediction Market",
@@ -17,14 +15,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:ital,wght@0,400;0,500&display=swap"
+          rel="stylesheet"
+        />
+      </head>
       <body>
         <Providers>
-          <div className="min-h-screen" style={{ background: "#0a0b0f", color: "#e8e9ed" }}>
-          
-            <Background/>
+          <div className="min-h-screen" style={{ background: "#07080c", color: "#e4e5eb" }}>
             <Navbar />
-            <LiveTicker />
-            <main className="max-w-[1400px] mx-auto px-6 py-8 relative" style={{ zIndex: 10 }}>
+            <main className="max-w-[1280px] mx-auto px-6 py-8 relative">
               {children}
             </main>
           </div>

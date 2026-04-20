@@ -8,15 +8,15 @@ import { startIndexer } from "./services/indexer";
 import { startPositionReconciler } from "./services/position-reconciler";
 import { startResolutionService } from "./services/resolution";
 import { setupResolutionSchedule, startResolutionWorker } from "./services/queue/resolution-queue";
-import { setupM15Schedule, startM15Worker } from "./services/queue/m15-queue";
+import { setupHourlySchedule, startHourlyWorker } from "./services/queue/hourly-queue";
 import { setupNonceReconciliation, startNonceReconciliationWorker } from "./services/queue/nonce-reconciliation-queue";
 import { initNonceManager } from "./lib/nonce-manager.instance";
 import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
 import { createServer } from "http";
 
-const ENABLE_M15_MARKETS = (() => {
-  const v = (process.env.ENABLE_M15_MARKETS || "").trim().toLowerCase();
+const ENABLE_HOURLY_MARKETS = (() => {
+  const v = (process.env.ENABLE_HOURLY_MARKETS || "").trim().toLowerCase();
   return ["1", "true", "yes", "on"].includes(v);
 })();
 
@@ -110,12 +110,12 @@ startResolutionWorker();
 setupNonceReconciliation().catch((err) => console.error("[BullMQ] Nonce reconciliation setup error:", err));
 startNonceReconciliationWorker();
 
-// Start dedicated BullMQ m15 market lifecycle worker (lock + resolve + create)
-if (ENABLE_M15_MARKETS) {
-  setupM15Schedule().catch((err) => console.error("[M15] Schedule setup error:", err));
-  startM15Worker();
+// Start dedicated BullMQ hourly market lifecycle worker (lock + resolve + create)
+if (ENABLE_HOURLY_MARKETS) {
+  setupHourlySchedule().catch((err) => console.error("[Hourly] Schedule setup error:", err));
+  startHourlyWorker();
 } else {
-  console.log("[M15] m15 markets disabled (set ENABLE_M15_MARKETS=true to enable)");
+  console.log("[Hourly] Hourly markets disabled (set ENABLE_HOURLY_MARKETS=true to enable)");
 }
 
 export type App = typeof app;

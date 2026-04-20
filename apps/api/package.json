@@ -12,7 +12,7 @@
     "db:push": "bun run push-schema.ts",
     "db:push:drizzle": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "market:create:15m": "bun run src/scripts/create-15m-market.ts"
+    "market:create:hourly": "bun run src/scripts/create-hourly-market.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",

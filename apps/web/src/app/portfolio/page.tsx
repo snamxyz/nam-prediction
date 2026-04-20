@@ -1,17 +1,17 @@
 ﻿"use client";
 
-import dynamic from "next/dynamic";
-import { usePortfolio } from "@/hooks/usePortfolio";
-import { PositionRow } from "@/components/PositionRow";
-import { DepositWithdrawPanel } from "@/components/DepositWithdrawPanel";
-import { useAccount } from "wagmi";
+import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { usePrivy } from "@privy-io/react-auth";
-import { User, DollarSign, BarChart3, TrendingUp, Award, Wallet, Shield, Zap, Copy, CheckCheck } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { usePortfolio } from "@/hooks/usePortfolio";
+import { useVaultBalance } from "@/hooks/useVaultBalance";
+import { VaultModal } from "@/components/VaultModal";
+import { MarketFactoryABI } from "@nam-prediction/shared";
+import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
 import { toast } from "sonner";
-
-const PrivyWalletCard = dynamic(() => import("@/components/PrivyWalletCard").then(m => ({ default: m.PrivyWalletCard })), { ssr: false });
-const VaultTransactionHistory = dynamic(() => import("@/components/VaultTransactionHistory").then(m => ({ default: m.VaultTransactionHistory })), { ssr: false });
+import type { PositionWithMarket } from "@/hooks/usePortfolio";
 
 const DUST = 1e-6;
 
@@ -19,45 +19,42 @@ export default function PortfolioPage() {
   const { isConnected, address } = useAccount();
   const { login } = usePrivy();
   const { data: positions, isLoading } = usePortfolio();
-  const [copied, setCopied] = useState(false);
-
-  const handleCopyAddress = useCallback(async () => {
-    if (!address) return;
-    try {
-      await navigator.clipboard.writeText(address);
-      setCopied(true);
-      toast.success("Address copied");
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error("Failed to copy");
-    }
-  }, [address]);
+  const { usdcBalance, isLoading: isBalanceLoading } = useVaultBalance();
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [vaultTab, setVaultTab] = useState<"deposit" | "withdraw">("deposit");
 
   if (!isConnected) {
     return (
-      <div className="glass-card text-center py-20">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center text-2xl mx-auto mb-4"
-          style={{ background: "rgba(31,32,40,0.60)" }}>
-          <User className="w-8 h-8" style={{ color: "#717182" }} />
-        </div>
-        <h1 className="text-2xl font-semibold mb-4" style={{ color: "#e8e9ed" }}>Portfolio</h1>
-        <p className="text-sm mb-6" style={{ color: "#717182" }}>Connect your wallet to view positions</p>
-        <button onClick={login}
-          className="px-6 py-3 rounded-xl font-semibold text-sm transition-all"
-          style={{ background: "#01d243", color: "#000" }}>
+      <div className="card fade-up" style={{ textAlign: "center", padding: "80px 20px" }}>
+        <p style={{ fontSize: 18, fontWeight: 600, color: "#e4e5eb", marginBottom: 8 }}>
+          Portfolio
+        </p>
+        <p style={{ fontSize: 13, color: "#4c4e68", marginBottom: 24 }}>
+          Connect your wallet to view positions
+        </p>
+        <button
+          onClick={login}
+          style={{
+            padding: "10px 24px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 700,
+            background: "#01d243",
+            color: "#000",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
           Connect Wallet
         </button>
       </div>
     );
   }
 
-  // Split into active (unresolved) and resolved
-  const activePositions = positions?.filter(p => !p.resolved) ?? [];
-  const resolvedPositions = positions?.filter(p => p.resolved) ?? [];
-
-  // Only positions that actually have shares matter for stats
+  const activePositions = positions?.filter((p) => !p.resolved) ?? [];
+  const resolvedPositions = positions?.filter((p) => p.resolved) ?? [];
   const activeWithShares = activePositions.filter(
-    p => Number(p.yesBalance || "0") >= DUST || Number(p.noBalance || "0") >= DUST
+    (p) => Number(p.yesBalance || "0") >= DUST || Number(p.noBalance || "0") >= DUST
   );
 
   const totalActiveValue = activeWithShares.reduce(
@@ -66,146 +63,565 @@ export default function PortfolioPage() {
   );
   const totalPnl = activeWithShares.reduce((s, p) => s + Number(p.pnl || "0"), 0);
 
-  // Win rate: resolved positions where result matches the side user held
-  const resolvedWithResult = resolvedPositions.filter(p => p.result === 1 || p.result === 2);
-  const wins = resolvedWithResult.filter(p =>
-    (p.result === 1 && Number(p.yesBalance || "0") >= DUST) ||
-    (p.result === 2 && Number(p.noBalance || "0") >= DUST)
+  const resolvedWithResult = resolvedPositions.filter(
+    (p) => p.result === 1 || p.result === 2
+  );
+  const wins = resolvedWithResult.filter(
+    (p) =>
+      (p.result === 1 && Number(p.yesBalance || "0") >= DUST) ||
+      (p.result === 2 && Number(p.noBalance || "0") >= DUST)
   ).length;
-  const winRate = resolvedWithResult.length > 0
-    ? Math.round((wins / resolvedWithResult.length) * 100)
-    : 0;
-
-  const displayAddress = address ? `${address.slice(0, 6)}â€¦${address.slice(-4)}` : "";
+  const winRate =
+    resolvedWithResult.length > 0
+      ? Math.round((wins / resolvedWithResult.length) * 100)
+      : 0;
 
   return (
-    <div>
-      {/* Profile card */}
-      <div className="glass-card p-8 mb-8">
-        <div className="flex items-start justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, #01d243, #00e676)" }}>
-              <User className="w-10 h-10" style={{ color: "#0a0b0f" }} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold mb-1" style={{ color: "#e8e9ed" }}>Your Portfolio</h1>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-mono" style={{ color: "#717182" }}>{displayAddress}</p>
-                <button
-                  onClick={handleCopyAddress}
-                  className="p-1 rounded transition-all"
-                  style={{ color: copied ? "#01d243" : "#717182" }}
-                  title="Copy address"
-                >
-                  {copied ? <CheckCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
+    <div className="fade-up">
+      <h1
+        style={{
+          fontSize: 22,
+          fontWeight: 600,
+          letterSpacing: "-0.025em",
+          color: "#e4e5eb",
+          marginBottom: 20,
+        }}
+      >
+        Portfolio
+      </h1>
+
+      {/* Summary row */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 12,
+          marginBottom: 20,
+        }}
+      >
+        <div className="card" style={{ padding: 18 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              color: "#4c4e68",
+              marginBottom: 4,
+            }}
+          >
+            Active Value
+          </div>
+          <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>
+            ${totalActiveValue.toFixed(2)}
           </div>
         </div>
-
-        {/* Stat cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { icon: <DollarSign className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Active Value", value: `$${totalActiveValue.toFixed(2)}`, color: "#e8e9ed" },
-            { icon: <BarChart3 className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Active Positions", value: String(activeWithShares.length), color: "#e8e9ed" },
-            { icon: <TrendingUp className="w-4 h-4" style={{ color: "#00e676" }} />, label: "Unrealised P&L", value: `${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`, color: totalPnl >= 0 ? "#00e676" : "#ff4757" },
-            { icon: <Award className="w-4 h-4" style={{ color: "#01d243" }} />, label: "Win Rate", value: resolvedWithResult.length > 0 ? `${winRate}%` : "â€”", color: "#e8e9ed" },
-          ].map(s => (
-            <div key={s.label} className="glass-card-inner p-4">
-              <div className="flex items-center gap-2 mb-2">{s.icon}<span className="text-xs" style={{ color: "#717182" }}>{s.label}</span></div>
-              <div className="text-2xl font-semibold" style={{ color: s.color }}>{s.value}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Privy wallet balance card */}
-      <div className="mb-8">
-        <PrivyWalletCard />
-      </div>
-
-      {/* Vault: deposit/withdraw + info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <DepositWithdrawPanel />
-        <div className="glass-card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Wallet className="w-5 h-5" style={{ color: "#01d243" }} />
-            <h2 className="text-base font-semibold" style={{ color: "#e8e9ed" }}>About Your Vault</h2>
+        <div className="card" style={{ padding: 18 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              color: "#4c4e68",
+              marginBottom: 4,
+            }}
+          >
+            Unrealised P&L
           </div>
-          <p className="text-xs mb-4" style={{ color: "#717182" }}>
-            Your vault is a per-user escrow contract that holds USDC on your behalf and enables
-            gasless, one-click trading across all markets.
-          </p>
-          <ul className="space-y-3">
-            {[
-              { icon: <Zap className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />, title: "Gasless trading", body: "Trades are signed off-chain and settled in batches â€” you never pay gas." },
-              { icon: <Shield className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />, title: "Isolated escrow", body: "Funds live in your own escrow clone, isolated from every other user." },
-              { icon: <DollarSign className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#01d243" }} />, title: "Withdraw anytime", body: "Available balance can be pulled back to your wallet at any time." },
-            ].map(item => (
-              <li key={item.title} className="flex items-start gap-3">
-                {item.icon}
-                <div>
-                  <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>{item.title}</p>
-                  <p className="text-[11px]" style={{ color: "#717182" }}>{item.body}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div
+            className="mono"
+            style={{ fontSize: 21, color: totalPnl >= 0 ? "#01d243" : "#f0324c" }}
+          >
+            {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
+          </div>
+        </div>
+        <div className="card" style={{ padding: 18 }}>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              color: "#4c4e68",
+              marginBottom: 4,
+            }}
+          >
+            Win Rate
+          </div>
+          <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>
+            {resolvedWithResult.length > 0 ? `${winRate}%` : "—"}
+          </div>
         </div>
       </div>
 
-      {/* Transaction history */}
-      <div className="mb-8">
-        <VaultTransactionHistory />
+      {/* Vault card */}
+      <div
+        className="card"
+        style={{
+          padding: 18,
+          marginBottom: 20,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+              color: "#4c4e68",
+              marginBottom: 4,
+            }}
+          >
+            Vault Balance
+          </div>
+          {isBalanceLoading ? (
+            <div style={{ height: 28, width: 80, borderRadius: 6, background: "rgba(255,255,255,0.06)", marginTop: 2 }} />
+          ) : (
+            <div className="mono" style={{ fontSize: 21, color: "#01d243" }}>
+              ${parseFloat(usdcBalance).toFixed(2)}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => {
+              setVaultTab("deposit");
+              setVaultOpen(true);
+            }}
+            style={{
+              padding: "8px 18px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              background: "#01d243",
+              color: "#000",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Deposit
+          </button>
+          <button
+            onClick={() => {
+              setVaultTab("withdraw");
+              setVaultOpen(true);
+            }}
+            style={{
+              padding: "8px 18px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              background: "#111320",
+              color: "#e4e5eb",
+              border: "1px solid rgba(255,255,255,0.07)",
+              cursor: "pointer",
+            }}
+          >
+            Withdraw
+          </button>
+        </div>
       </div>
 
-      {/* Active Positions */}
-      <div className="glass-card p-8 mb-6">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold" style={{ color: "#e8e9ed" }}>Active Positions</h2>
-          <span className="text-sm" style={{ color: "#717182" }}>{activeWithShares.length} positions</span>
+      {/* Positions table */}
+      <div className="card" style={{ padding: 20, marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 16,
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.09em",
+              color: "#4c4e68",
+            }}
+          >
+            Active Positions
+          </h2>
+          <span style={{ fontSize: 11, color: "#4c4e68" }}>
+            {activeWithShares.length} positions
+          </span>
         </div>
 
         {isLoading && (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="glass-card-inner p-5 animate-pulse h-20" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="card-2" style={{ height: 52 }} />
             ))}
           </div>
         )}
 
         {!isLoading && activeWithShares.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-sm mb-2" style={{ color: "rgba(232,233,237,0.80)" }}>No active positions</p>
-            <p className="text-xs" style={{ color: "#717182" }}>Start trading to build your portfolio</p>
+          <div style={{ textAlign: "center", padding: "40px 0" }}>
+            <p style={{ fontSize: 13, color: "#e4e5eb", marginBottom: 4 }}>
+              No active positions
+            </p>
+            <p style={{ fontSize: 11, color: "#4c4e68" }}>
+              Start trading to build your portfolio
+            </p>
           </div>
         )}
 
         {activeWithShares.length > 0 && (
-          <div className="space-y-4">
+          <div>
+            {/* Table header */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+                gap: 8,
+                paddingBottom: 8,
+                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                marginBottom: 4,
+              }}
+            >
+              {["Market", "Side", "Shares", "Avg Price", "Value", "P&L"].map(
+                (h) => (
+                  <div
+                    key={h}
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                      color: "#4c4e68",
+                    }}
+                  >
+                    {h}
+                  </div>
+                )
+              )}
+            </div>
             {activeWithShares.map((pos) => (
-              <PositionRow key={pos.id} {...pos} />
+              <PositionTableRow key={pos.id} pos={pos} address={address} />
             ))}
           </div>
         )}
       </div>
 
-      {/* Resolved Positions */}
+      {/* Resolved */}
       {resolvedPositions.length > 0 && (
-        <div className="glass-card p-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold" style={{ color: "#e8e9ed" }}>Resolved Positions</h2>
-            <span className="text-sm" style={{ color: "#717182" }}>{resolvedPositions.length} positions</span>
+        <div className="card" style={{ padding: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 16,
+            }}
+          >
+            <h2
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.09em",
+                color: "#4c4e68",
+              }}
+            >
+              Resolved Positions
+            </h2>
+            <span style={{ fontSize: 11, color: "#4c4e68" }}>
+              {resolvedPositions.length}
+            </span>
           </div>
-          <div className="space-y-4">
+          <div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+                gap: 8,
+                paddingBottom: 8,
+                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                marginBottom: 4,
+              }}
+            >
+              {["Market", "Side", "Shares", "Result", "Value", "Action"].map(
+                (h) => (
+                  <div
+                    key={h}
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                      color: "#4c4e68",
+                    }}
+                  >
+                    {h}
+                  </div>
+                )
+              )}
+            </div>
             {resolvedPositions.map((pos) => (
-              <PositionRow key={pos.id} {...pos} />
+              <PositionTableRow
+                key={pos.id}
+                pos={pos}
+                address={address}
+                resolved
+              />
             ))}
           </div>
         </div>
       )}
+
+      <VaultModal
+        open={vaultOpen}
+        onClose={() => setVaultOpen(false)}
+        initialTab={vaultTab}
+      />
     </div>
+  );
+}
+
+/* ---- Position table row ---- */
+
+function PositionTableRow({
+  pos,
+  address,
+  resolved,
+}: {
+  pos: PositionWithMarket;
+  address: `0x${string}` | undefined;
+  resolved?: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const toastIdRef = useRef<string | null>(null);
+  const { writeContract, data: txHash } = useWriteContract({
+    mutation: {
+      onError: (err: any) => {
+        const msg = err?.shortMessage || err?.message || "Redeem failed";
+        const isRejection =
+          /user (rejected|denied)|rejected the request/i.test(msg);
+        const display = isRejection ? "Redeem cancelled" : msg;
+        if (toastIdRef.current) {
+          toast.error(display, { id: toastIdRef.current });
+          toastIdRef.current = null;
+        } else toast.error(display);
+      },
+    },
+  });
+  const { isLoading: redeemLoading, isSuccess } =
+    useWaitForTransactionReceipt({ hash: txHash });
+
+  useEffect(() => {
+    if (!redeemLoading || !toastIdRef.current) return;
+    toast.loading("Redeeming…", { id: toastIdRef.current });
+  }, [redeemLoading]);
+
+  useEffect(() => {
+    if (!isSuccess) return;
+    if (toastIdRef.current) {
+      toast.success("Redeemed. Payout added to your vault.", {
+        id: toastIdRef.current,
+      });
+      toastIdRef.current = null;
+    } else toast.success("Redeemed. Payout added to your vault.");
+    const kick = () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
+      queryClient.invalidateQueries({ queryKey: ["vault-balance", address] });
+    };
+    kick();
+    const t1 = setTimeout(kick, 1500);
+    const t2 = setTimeout(kick, 4000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isSuccess, address, queryClient]);
+
+  const handleRedeem = () => {
+    if (!MARKET_FACTORY_ADDRESS) return;
+    const id = `redeem-${pos.onChainId}-${Date.now()}`;
+    toastIdRef.current = id;
+    toast.loading("Confirm redeem in your wallet…", { id });
+    writeContract({
+      address: MARKET_FACTORY_ADDRESS,
+      abi: MarketFactoryABI,
+      functionName: "redeem",
+      args: [BigInt(pos.onChainId)],
+    });
+  };
+
+  const yesBal = Number(pos.yesBalance || "0");
+  const noBal = Number(pos.noBalance || "0");
+  const hasYes = yesBal >= DUST;
+  const hasNo = noBal >= DUST;
+
+  const legs: {
+    side: "YES" | "NO";
+    bal: number;
+    avgPrice: number;
+    value: number;
+    pnl: number;
+  }[] = [];
+  if (hasYes)
+    legs.push({
+      side: "YES",
+      bal: yesBal,
+      avgPrice: pos.yesAvgPrice,
+      value: Number(pos.yesCurrentValue || "0"),
+      pnl: Number(pos.yesPnl || "0"),
+    });
+  if (hasNo)
+    legs.push({
+      side: "NO",
+      bal: noBal,
+      avgPrice: pos.noAvgPrice,
+      value: Number(pos.noCurrentValue || "0"),
+      pnl: Number(pos.noPnl || "0"),
+    });
+
+  const isWin = (side: "YES" | "NO") =>
+    pos.resolved &&
+    ((side === "YES" && pos.result === 1) ||
+      (side === "NO" && pos.result === 2));
+
+  return (
+    <>
+      {legs.map((leg) => (
+        <Link key={`${pos.id}-${leg.side}`} href={`/market/${pos.marketId}`}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+              gap: 8,
+              padding: "10px 0",
+              borderBottom: "1px solid rgba(255,255,255,0.04)",
+              cursor: "pointer",
+              transition: "background 0.12s",
+              alignItems: "center",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "rgba(255,255,255,0.02)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+          >
+            <div
+              style={{
+                fontSize: 12,
+                color: "#e4e5eb",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {pos.question}
+            </div>
+            <div>
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  background:
+                    leg.side === "YES"
+                      ? "rgba(1,210,67,0.10)"
+                      : "rgba(240,50,76,0.10)",
+                  color: leg.side === "YES" ? "#01d243" : "#f0324c",
+                }}
+              >
+                {leg.side}
+              </span>
+            </div>
+            <div
+              className="mono"
+              style={{ fontSize: 12, color: "#e4e5eb" }}
+            >
+              {leg.bal.toFixed(2)}
+            </div>
+            {!resolved ? (
+              <>
+                <div
+                  className="mono"
+                  style={{ fontSize: 12, color: "#4c4e68" }}
+                >
+                  {(leg.avgPrice * 100).toFixed(1)}¢
+                </div>
+                <div
+                  className="mono"
+                  style={{ fontSize: 12, color: "#e4e5eb" }}
+                >
+                  ${leg.value.toFixed(2)}
+                </div>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 12,
+                    color: leg.pnl >= 0 ? "#01d243" : "#f0324c",
+                  }}
+                >
+                  {leg.pnl >= 0 ? "+" : ""}${leg.pnl.toFixed(2)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color:
+                      pos.result === 1 ? "#01d243" : "#f0324c",
+                  }}
+                >
+                  {pos.result === 1 ? "YES" : "NO"} won
+                </div>
+                <div
+                  className="mono"
+                  style={{ fontSize: 12, color: "#e4e5eb" }}
+                >
+                  ${leg.value.toFixed(2)}
+                </div>
+                <div>
+                  {isWin(leg.side) && leg.bal > DUST ? (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleRedeem();
+                      }}
+                      disabled={redeemLoading}
+                      style={{
+                        padding: "4px 12px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: "#01d243",
+                        color: "#000",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {redeemLoading ? "…" : "Redeem"}
+                    </button>
+                  ) : isWin(leg.side) ? (
+                    <span style={{ fontSize: 10, color: "#01d243" }}>
+                      Redeemed
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 10, color: "#f0324c" }}>
+                      Lost
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </Link>
+      ))}
+    </>
   );
 }

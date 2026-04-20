@@ -8,8 +8,8 @@ import { MarketFactoryABI } from "@nam-prediction/shared";
 import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
 import { getNonceManager } from "../lib/nonce-manager.instance";
 
-// NOTE: m15 markets are owned by the dedicated BullMQ worker in ./queue/m15-queue.ts.
-// This poller intentionally ignores cadence === "m15" rows.
+// NOTE: hourly markets are owned by the dedicated BullMQ worker in ./queue/hourly-queue.ts.
+// This poller intentionally ignores cadence === "1h" rows.
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -76,14 +76,14 @@ async function pollResolutions() {
   if (!FACTORY_ADDRESS) return;
 
   try {
-    // Find all unresolved markets, excluding m15 (owned by the dedicated m15 worker)
+    // Find all unresolved markets, excluding hourly (owned by the dedicated hourly worker)
     const unresolvedMarkets = await db
       .select()
       .from(markets)
       .where(eq(markets.resolved, false));
 
     for (const market of unresolvedMarkets) {
-      if (market.cadence === "m15") continue; // handled by m15-queue worker
+      if (market.cadence === "1h") continue; // handled by hourly-queue worker
       if (market.resolutionSource === "admin") continue; // admin markets resolved manually
 
       try {

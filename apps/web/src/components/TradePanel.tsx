@@ -216,7 +216,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const num = parseFloat(amount) || 0;
   const price = side === "YES" ? yesPrice : noPrice;
   const isYes = side === "YES";
-  const C = isYes ? "#01d243" : "#ff4757";
+  const C = isYes ? "#01d243" : "#f0324c";
 
   // Display values
   const estimatedShares = estimate?.shares
@@ -263,35 +263,40 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   };
 
   return (
-    <div className="glass-card" style={{ overflow: "hidden" }}>
+    <div className="card" style={{ overflow: "hidden" }}>
       {/* Header */}
-      <div className="px-5 pt-5 pb-4" style={{ borderBottom: "0.5px solid rgba(255,255,255,0.05)" }}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold" style={{ color: "#e8e9ed" }}>Trade</h3>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: "#e4e5eb" }}>Trade</h3>
           {isAuthenticated && (
-            <span className="text-xs" style={{ color: "#717182" }}>
+            <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>
               Balance: <span style={{ color: "#01d243" }}>${parseFloat(usdcBalance).toFixed(2)}</span>
             </span>
           )}
         </div>
       </div>
 
-      <div className="px-5 pt-4 pb-5">
+      <div style={{ padding: "16px 20px 20px" }}>
         {/* Buy / Sell mode toggle */}
-        <div className="grid grid-cols-2 gap-2 mb-4">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
           {(["BUY", "SELL"] as const).map((m) => {
             const active = mode === m;
-            const mc = m === "BUY" ? "#01d243" : "#ff4757";
+            const mc = m === "BUY" ? "#01d243" : "#f0324c";
             return (
               <button
                 key={m}
                 onClick={() => { setMode(m); setAmount(""); setEstimate(null); setError(null); }}
-                className="py-2 rounded-lg text-xs font-bold transition-all inner-border"
-                style={
-                  active
-                    ? { background: `${mc}22`, color: mc, borderColor: `${mc}4d` }
-                    : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-                }
+                style={{
+                  padding: "8px 0",
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: `1px solid ${active ? mc + "4d" : "rgba(255,255,255,0.04)"}`,
+                  background: active ? mc + "18" : "#111320",
+                  color: active ? mc : "#4c4e68",
+                  cursor: "pointer",
+                  transition: "all 0.12s",
+                }}
               >
                 {m}
               </button>
@@ -300,21 +305,26 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         </div>
 
         {/* Yes / No toggle */}
-        <div className="grid grid-cols-2 gap-2 mb-5">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 18 }}>
           {(["YES", "NO"] as const).map((s) => {
             const active = side === s;
-            const sc = s === "YES" ? "#01d243" : "#ff4757";
+            const sc = s === "YES" ? "#01d243" : "#f0324c";
             const sidePrice = s === "YES" ? yesPrice : noPrice;
             return (
               <button
                 key={s}
                 onClick={() => setSide(s)}
-                className="py-2.5 rounded-lg text-sm font-semibold transition-all inner-border"
-                style={
-                  active
-                    ? { background: `${sc}33`, color: sc, borderColor: `${sc}4d` }
-                    : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-                }
+                style={{
+                  padding: "10px 0",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  border: `1px solid ${active ? sc + "4d" : "rgba(255,255,255,0.04)"}`,
+                  background: active ? sc + "22" : "#111320",
+                  color: active ? sc : "#4c4e68",
+                  cursor: "pointer",
+                  transition: "all 0.12s",
+                }}
               >
                 {s === "YES" ? "Yes" : "No"} {formatCents(sidePrice)}
               </button>
@@ -323,22 +333,22 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         </div>
 
         {/* Amount */}
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs" style={{ color: "#717182" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+          <p style={{ fontSize: 11, color: "#4c4e68" }}>
             {mode === "BUY" ? "Amount (USDC)" : "Shares to Sell"}
           </p>
           {mode === "SELL" && isAuthenticated && (
-            <p className="text-xs" style={{ color: "#717182" }}>
+            <p style={{ fontSize: 11, color: "#4c4e68" }}>
               Owned:{" "}
-              <span style={{ color: ownedShares > 0 ? C : "#717182", fontWeight: 600 }}>
+              <span style={{ color: ownedShares > 0 ? C : "#4c4e68", fontWeight: 600 }}>
                 {formatShares(ownedShares)} {side}
               </span>
             </p>
           )}
         </div>
-        <div className="relative mb-3">
+        <div style={{ position: "relative", marginBottom: 10 }}>
           {mode === "BUY" && (
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: "#717182" }}>$</span>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#4c4e68" }}>$</span>
           )}
           <input
             type="number"
@@ -346,18 +356,27 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             placeholder="0"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full rounded-lg pr-4 py-2.5 text-sm text-right outline-none inner-border"
+            className="mono"
             style={{
-              background: "rgba(31,32,40,0.60)",
-              color: "#e8e9ed",
-              paddingLeft: mode === "BUY" ? "1.75rem" : "1rem",
+              width: "100%",
+              borderRadius: 8,
+              paddingRight: 14,
+              paddingTop: 10,
+              paddingBottom: 10,
+              paddingLeft: mode === "BUY" ? 28 : 14,
+              fontSize: 13,
+              textAlign: "right",
+              outline: "none",
+              background: "#111320",
+              color: "#e4e5eb",
+              border: "1px solid rgba(255,255,255,0.04)",
             }}
           />
         </div>
 
         {/* Quick sell percentages */}
         {mode === "SELL" && (
-          <div className="flex gap-2 mb-4">
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
             {SELL_PERCENTS.map((p) => {
               const disabled = ownedShares <= 0;
               const label = p === 100 ? "MAX" : `${p}%`;
@@ -366,21 +385,26 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                   key={p}
                   onClick={() => setSellPercent(p)}
                   disabled={disabled}
-                  className="flex-1 py-1.5 rounded-md text-xs transition-all inner-border"
                   style={{
-                    background: "rgba(31,32,40,0.50)",
-                    color: disabled ? "rgba(113,113,130,0.50)" : "#717182",
+                    flex: 1,
+                    padding: "6px 0",
+                    borderRadius: 6,
+                    fontSize: 11,
+                    background: "#111320",
+                    color: disabled ? "rgba(76,78,104,0.50)" : "#4c4e68",
                     cursor: disabled ? "not-allowed" : "pointer",
+                    border: "1px solid rgba(255,255,255,0.04)",
+                    transition: "all 0.12s",
                   }}
                   onMouseEnter={(e) => {
                     if (disabled) return;
-                    e.currentTarget.style.background = "rgba(31,32,40,0.80)";
-                    e.currentTarget.style.color = "#e8e9ed";
+                    e.currentTarget.style.background = "#1a1c2a";
+                    e.currentTarget.style.color = "#e4e5eb";
                   }}
                   onMouseLeave={(e) => {
                     if (disabled) return;
-                    e.currentTarget.style.background = "rgba(31,32,40,0.50)";
-                    e.currentTarget.style.color = "#717182";
+                    e.currentTarget.style.background = "#111320";
+                    e.currentTarget.style.color = "#4c4e68";
                   }}
                 >
                   {label}
@@ -392,20 +416,29 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
         {/* Quick amounts (buy only) */}
         {mode === "BUY" && (
-          <div className="flex gap-2 mb-4">
+          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
             {QUICK.map((q) => (
               <button
                 key={q}
                 onClick={() => setAmount((s) => String((parseFloat(s) || 0) + q))}
-                className="flex-1 py-1.5 rounded-md text-xs transition-all inner-border"
-                style={{ background: "rgba(31,32,40,0.50)", color: "#717182" }}
+                style={{
+                  flex: 1,
+                  padding: "6px 0",
+                  borderRadius: 6,
+                  fontSize: 11,
+                  background: "#111320",
+                  color: "#4c4e68",
+                  border: "1px solid rgba(255,255,255,0.04)",
+                  cursor: "pointer",
+                  transition: "all 0.12s",
+                }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(31,32,40,0.80)";
-                  e.currentTarget.style.color = "#e8e9ed";
+                  e.currentTarget.style.background = "#1a1c2a";
+                  e.currentTarget.style.color = "#e4e5eb";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(31,32,40,0.50)";
-                  e.currentTarget.style.color = "#717182";
+                  e.currentTarget.style.background = "#111320";
+                  e.currentTarget.style.color = "#4c4e68";
                 }}
               >
                 +${q}
@@ -413,15 +446,24 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             ))}
             <button
               onClick={() => setAmount(usdcBalance)}
-              className="flex-1 py-1.5 rounded-md text-xs transition-all inner-border"
-              style={{ background: "rgba(31,32,40,0.50)", color: "#717182" }}
+              style={{
+                flex: 1,
+                padding: "6px 0",
+                borderRadius: 6,
+                fontSize: 11,
+                background: "#111320",
+                color: "#4c4e68",
+                border: "1px solid rgba(255,255,255,0.04)",
+                cursor: "pointer",
+                transition: "all 0.12s",
+              }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(31,32,40,0.80)";
-                e.currentTarget.style.color = "#e8e9ed";
+                e.currentTarget.style.background = "#1a1c2a";
+                e.currentTarget.style.color = "#e4e5eb";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(31,32,40,0.50)";
-                e.currentTarget.style.color = "#717182";
+                e.currentTarget.style.background = "#111320";
+                e.currentTarget.style.color = "#4c4e68";
               }}
             >
               Max
@@ -430,21 +472,25 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         )}
 
         {/* Slippage tolerance */}
-        <div className="flex items-center justify-between mb-5">
-          <p className="text-xs" style={{ color: "#717182" }}>Max slippage</p>
-          <div className="flex items-center gap-1.5">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <p style={{ fontSize: 11, color: "#4c4e68" }}>Max slippage</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {SLIPPAGE_PRESETS.map((s) => {
               const active = slippagePct === s;
               return (
                 <button
                   key={s}
                   onClick={() => setSlippagePct(s)}
-                  className="px-2 py-1 rounded text-[11px] transition-all inner-border"
-                  style={
-                    active
-                      ? { background: "rgba(1,210,67,0.15)", color: "#01d243", borderColor: "rgba(1,210,67,0.30)" }
-                      : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-                  }
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    fontSize: 10,
+                    border: `1px solid ${active ? "rgba(1,210,67,0.30)" : "rgba(255,255,255,0.04)"}`,
+                    background: active ? "rgba(1,210,67,0.12)" : "#111320",
+                    color: active ? "#01d243" : "#4c4e68",
+                    cursor: "pointer",
+                    transition: "all 0.12s",
+                  }}
                 >
                   {s}%
                 </button>
@@ -454,18 +500,18 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         </div>
 
         {/* Return breakdown */}
-        <div className="rounded-xl p-4 mb-5 inner-border" style={{ background: "rgba(31,32,40,0.50)" }}>
-          <div className="flex justify-between text-xs mb-2.5">
-            <span style={{ color: "#717182" }}>Avg price</span>
-            <span style={{ color: "#e8e9ed" }}>
+        <div style={{ borderRadius: 10, padding: 14, marginBottom: 18, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+            <span style={{ color: "#4c4e68" }}>Avg price</span>
+            <span className="mono" style={{ color: "#e4e5eb" }}>
               {estimate?.avgPrice ? formatCents(avgPriceNum) : formatCents(price)}
             </span>
           </div>
 
           {num > 0 && (
-            <div className="flex justify-between text-xs mb-2.5">
-              <span style={{ color: "#717182" }}>Price impact</span>
-              <span style={{ color: highImpact ? "#ff4757" : "#e8e9ed" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+              <span style={{ color: "#4c4e68" }}>Price impact</span>
+              <span className="mono" style={{ color: highImpact ? "#f0324c" : "#e4e5eb" }}>
                 {priceImpactPct.toFixed(2)}%
               </span>
             </div>
@@ -473,30 +519,30 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
           {mode === "BUY" ? (
             <>
-              <div className="flex justify-between text-xs mb-2.5">
-                <span style={{ color: "#717182" }}>Shares</span>
-                <span style={{ color: "#e8e9ed" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                <span style={{ color: "#4c4e68" }}>Shares</span>
+                <span className="mono" style={{ color: "#e4e5eb" }}>
                   {num > 0 ? estimatedShares.toFixed(4) : "—"}
                 </span>
               </div>
-              <div className="my-2.5" style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
-              <div className="flex justify-between text-xs mb-2.5">
-                <span style={{ color: "#717182" }}>Potential return</span>
-                <span style={{ color: num > 0 ? C : "#717182", fontWeight: num > 0 ? 600 : 400 }}>
+              <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "8px 0" }} />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                <span style={{ color: "#4c4e68" }}>Potential return</span>
+                <span className="mono" style={{ color: num > 0 ? C : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
                   {num > 0 ? `$${potentialPayout.toFixed(2)} (+${pct.toFixed(1)}%)` : "—"}
                 </span>
               </div>
-              <div className="flex justify-between text-xs">
-                <span style={{ color: "#717182" }}>Payout if {side} wins</span>
-                <span style={{ color: "rgba(232,233,237,0.80)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <span style={{ color: "#4c4e68" }}>Payout if {side} wins</span>
+                <span className="mono" style={{ color: "rgba(228,229,235,0.80)" }}>
                   {num > 0 ? `$${potentialPayout.toFixed(2)}` : "—"}
                 </span>
               </div>
             </>
           ) : (
-            <div className="flex justify-between text-xs">
-              <span style={{ color: "#717182" }}>USDC received</span>
-              <span style={{ color: num > 0 ? "#01d243" : "#717182", fontWeight: num > 0 ? 600 : 400 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+              <span style={{ color: "#4c4e68" }}>USDC received</span>
+              <span className="mono" style={{ color: num > 0 ? "#01d243" : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
                 {num > 0 ? `$${estimatedUsdc.toFixed(4)}` : "—"}
               </span>
             </div>
@@ -506,8 +552,15 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         {/* Slippage warning */}
         {num > 0 && highImpact && (
           <p
-            className="text-xs mb-3 px-3 py-2 rounded-lg"
-            style={{ color: "#ffa500", background: "rgba(255,165,0,0.10)", border: "0.5px solid rgba(255,165,0,0.25)" }}
+            style={{
+              fontSize: 11,
+              marginBottom: 10,
+              padding: "8px 12px",
+              borderRadius: 8,
+              color: "#ffa500",
+              background: "rgba(255,165,0,0.08)",
+              border: "1px solid rgba(255,165,0,0.20)",
+            }}
           >
             ⚠ High price impact ({priceImpactPct.toFixed(2)}%). Consider a smaller trade size.
           </p>
@@ -515,7 +568,16 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
         {/* Error */}
         {error && (
-          <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ color: "#ff4757", background: "rgba(255,71,87,0.10)" }}>
+          <p
+            style={{
+              fontSize: 11,
+              marginBottom: 10,
+              padding: "8px 12px",
+              borderRadius: 8,
+              color: "#f0324c",
+              background: "rgba(240,50,76,0.08)",
+            }}
+          >
             {error}
           </p>
         )}
@@ -524,8 +586,17 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         {!isAuthenticated ? (
           <button
             onClick={login}
-            className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
-            style={{ background: "#01d243", color: "#000", cursor: "pointer" }}
+            style={{
+              width: "100%",
+              padding: "12px 0",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              background: "#01d243",
+              color: "#000",
+              cursor: "pointer",
+              border: "none",
+            }}
           >
             Connect to Trade
           </button>
@@ -533,12 +604,18 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           <button
             onClick={handleTrade}
             disabled={!isConnected || num <= 0 || isLoading || !wallets.length}
-            className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
-            style={
-              isConnected && num > 0 && !isLoading && wallets.length > 0
+            style={{
+              width: "100%",
+              padding: "12px 0",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              border: "none",
+              transition: "all 0.12s",
+              ...(isConnected && num > 0 && !isLoading && wallets.length > 0
                 ? { background: C, color: isYes ? "#000" : "#fff", cursor: "pointer" }
-                : { background: "rgba(31,32,40,0.50)", color: "#717182", cursor: "not-allowed" }
-            }
+                : { background: "#111320", color: "#4c4e68", cursor: "not-allowed" }),
+            }}
           >
             {isLoading
               ? "Processing…"
@@ -547,39 +624,39 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
               : "Enter an amount"}
           </button>
         )}
-        <p className="text-center text-[10px] mt-3" style={{ color: "rgba(113,113,130,0.50)" }}>
+        <p style={{ textAlign: "center", fontSize: 9, marginTop: 10, color: "rgba(76,78,104,0.50)" }}>
           Each trade requires a wallet signature. By trading, you agree to the Terms of Use.
         </p>
 
         {/* Current position summary */}
         {isAuthenticated && (yesShares >= DUST || noShares >= DUST) && (
-          <div className="mt-4 rounded-xl p-4 inner-border" style={{ background: "rgba(31,32,40,0.50)" }}>
-            <p className="text-xs font-semibold mb-3" style={{ color: "#717182" }}>Your Position</p>
+          <div style={{ marginTop: 14, borderRadius: 10, padding: 14, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
+            <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#4c4e68" }}>Your Position</p>
             {yesShares >= DUST && (
-              <div className="flex items-center justify-between text-xs mb-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(1,210,67,0.15)", color: "#01d243" }}>YES</span>
-                  <span style={{ color: "#e8e9ed" }}>{yesShares.toFixed(4)} shares</span>
-                  <span style={{ color: "#717182" }}>@ {(position?.yesAvgPrice ? position.yesAvgPrice * 100 : yesPrice * 100).toFixed(1)}¢</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(1,210,67,0.12)", color: "#01d243" }}>YES</span>
+                  <span className="mono" style={{ color: "#e4e5eb" }}>{yesShares.toFixed(4)} shares</span>
+                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(position?.yesAvgPrice ? position.yesAvgPrice * 100 : yesPrice * 100).toFixed(1)}¢</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ color: "#e8e9ed" }}>${Number(position?.yesCurrentValue ?? 0).toFixed(2)}</span>
-                  <span style={{ color: Number(position?.yesPnl ?? 0) >= 0 ? "#00e676" : "#ff4757" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="mono" style={{ color: "#e4e5eb" }}>${Number(position?.yesCurrentValue ?? 0).toFixed(2)}</span>
+                  <span className="mono" style={{ color: Number(position?.yesPnl ?? 0) >= 0 ? "#01d243" : "#f0324c" }}>
                     {Number(position?.yesPnl ?? 0) >= 0 ? "+" : ""}${Number(position?.yesPnl ?? 0).toFixed(2)}
                   </span>
                 </div>
               </div>
             )}
             {noShares >= DUST && (
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(255,71,87,0.15)", color: "#ff4757" }}>NO</span>
-                  <span style={{ color: "#e8e9ed" }}>{noShares.toFixed(4)} shares</span>
-                  <span style={{ color: "#717182" }}>@ {(position?.noAvgPrice ? position.noAvgPrice * 100 : noPrice * 100).toFixed(1)}¢</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(240,50,76,0.12)", color: "#f0324c" }}>NO</span>
+                  <span className="mono" style={{ color: "#e4e5eb" }}>{noShares.toFixed(4)} shares</span>
+                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(position?.noAvgPrice ? position.noAvgPrice * 100 : noPrice * 100).toFixed(1)}¢</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ color: "#e8e9ed" }}>${Number(position?.noCurrentValue ?? 0).toFixed(2)}</span>
-                  <span style={{ color: Number(position?.noPnl ?? 0) >= 0 ? "#00e676" : "#ff4757" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="mono" style={{ color: "#e4e5eb" }}>${Number(position?.noCurrentValue ?? 0).toFixed(2)}</span>
+                  <span className="mono" style={{ color: Number(position?.noPnl ?? 0) >= 0 ? "#01d243" : "#f0324c" }}>
                     {Number(position?.noPnl ?? 0) >= 0 ? "+" : ""}${Number(position?.noPnl ?? 0).toFixed(2)}
                   </span>
                 </div>

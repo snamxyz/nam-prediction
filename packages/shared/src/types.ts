@@ -24,7 +24,7 @@ export type MarketExecutionModeType = (typeof MarketExecutionMode)[keyof typeof 
 
 export const MarketCadence = {
   DAILY: "daily",
-  M15: "m15",
+  HOURLY: "1h",
 } as const;
 export type MarketCadenceType = (typeof MarketCadence)[keyof typeof MarketCadence];
 

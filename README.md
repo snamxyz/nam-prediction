@@ -1,6 +1,6 @@
 # nam-prediction
 
-A prediction market platform for the NAM token on Base, built as a Turbo monorepo. Users trade YES/NO outcome tokens on rolling 15-minute and daily markets, with fully on-chain settlement via a Constant Product Market Maker (CPMM).
+A prediction market platform for the NAM token on Base, built as a Turbo monorepo. Users trade YES/NO outcome tokens on rolling 1-hour and daily markets, with fully on-chain settlement via a Constant Product Market Maker (CPMM).
 
 ## Architecture
 
@@ -25,7 +25,7 @@ nam-prediction/
 
 ## How it works
 
-The platform runs rolling **15-minute AMM markets**. Each market asks *"Will NAM be >= $X at T+15min?"*. Trading happens fully on-chain through `CPMM.sol` with a configurable fee (default 2%). When one market resolves, the next is created automatically using the current price as threshold.
+The platform runs rolling **1-hour AMM markets**. Each market asks *"Will NAM be >= $X at T+1h?"*. Trading happens fully on-chain through `CPMM.sol` with a configurable fee (default 2%). When one market resolves, the next is created automatically using the current price as threshold.
 
 Resolution polls DexScreener every 60s and settles via `MarketFactory.resolveMarket()` on Base. Winners redeem 1:1 USDC per outcome token through `MarketFactory.redeem()`.
 
@@ -70,11 +70,11 @@ Feature flags:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
-| `ENABLE_M15_MARKETS` | `false` | Auto-create rolling 15-min markets |
-| `M15_MARKET_DURATION_MINUTES` | `15` | Market duration |
+| `ENABLE_HOURLY_MARKETS` | `false` | Auto-create rolling 1-hour markets |
+| `HOURLY_MARKET_DURATION_MINUTES` | `60` | Market duration |
 | `MARKET_LOCK_WINDOW_SECONDS` | `10` | Lock window before end |
 | `DEFAULT_FEE_BPS` | `200` | CPMM trading fee (2%) |
-| `M15_MARKET_LIQUIDITY` | `1` | Seed USDC per 15-min market |
+| `HOURLY_MARKET_LIQUIDITY` | `1` | Seed USDC per hourly market |
 | `DAILY_MARKET_LIQUIDITY` | `100` | Seed USDC per daily market |
 
 > **Never commit real secrets.** The committed `.env` is for local development only — rotate any shared keys before going to production.
@@ -118,11 +118,11 @@ bun run deploy:base           # deploy to Base mainnet
 
 After deployment, update `MARKET_FACTORY_ADDRESS` and `NEXT_PUBLIC_MARKET_FACTORY_ADDRESS` in `.env`.
 
-### Create a 15-minute market manually
+### Create a 1-hour market manually
 
 ```bash
 cd apps/api
-bun run market:create:15m
+bun run market:create:hourly
 ```
 
 ## Scripts

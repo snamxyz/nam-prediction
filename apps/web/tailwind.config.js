@@ -4,12 +4,17 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        yes: "#01d243",
-        no: "#ff4757",
-        surface: "#13141a",
-        card: "#1f2028",
+        bg: "#07080c",
+        surface: "#0d0e14",
+        "surface-h": "#111320",
         accent: "#01d243",
-        muted: "#717182",
+        yes: "#01d243",
+        no: "#f0324c",
+        muted: "#4c4e68",
+      },
+      fontFamily: {
+        sans: ["'Space Grotesk'", "system-ui", "sans-serif"],
+        mono: ["'DM Mono'", "monospace"],
       },
     },
   },

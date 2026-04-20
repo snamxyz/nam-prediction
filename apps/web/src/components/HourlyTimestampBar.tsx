@@ -2,14 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { useM15History } from "@/hooks/useMarkets";
+import { useHourlyHistory } from "@/hooks/useMarkets";
 
-interface M15TimestampBarProps {
+interface HourlyTimestampBarProps {
   currentMarketId: number;
 }
 
-export function M15TimestampBar({ currentMarketId }: M15TimestampBarProps) {
-  const { data: history } = useM15History();
+export function HourlyTimestampBar({ currentMarketId }: HourlyTimestampBarProps) {
+  const { data: history } = useHourlyHistory();
   const activeRef = useRef<HTMLAnchorElement>(null);
 
   // Auto-scroll active pill into view

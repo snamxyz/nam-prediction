@@ -1,14 +1,14 @@
 /**
- * Create a 15-minute NAM market.
+ * Create a 1-hour NAM market.
  *
  * Usage:
- *   bun run src/scripts/create-15m-market.ts
- *   bun run src/scripts/create-15m-market.ts <threshold>
- *   bun run src/scripts/create-15m-market.ts <threshold> <comparison>
+ *   bun run src/scripts/create-hourly-market.ts
+ *   bun run src/scripts/create-hourly-market.ts <threshold>
+ *   bun run src/scripts/create-hourly-market.ts <threshold> <comparison>
  *
  * comparison: ">=" | "<=" (default: ">=")
  */
-import { createNextM15Market } from "../services/m15-market";
+import { createNextHourlyMarket } from "../services/hourly-market";
 
 function readComparison(input: string | undefined): ">=" | "<=" {
   if (input === "<=") return "<=";
@@ -28,7 +28,7 @@ async function main() {
     }
   }
 
-  await createNextM15Market(comparison, threshold);
+  await createNextHourlyMarket(comparison, threshold);
 }
 
 main()
@@ -36,6 +36,6 @@ main()
     process.exit(0);
   })
   .catch((err) => {
-    console.error("[M15] Failed to create market:", err);
+    console.error("[Hourly] Failed to create market:", err);
     process.exit(1);
   });

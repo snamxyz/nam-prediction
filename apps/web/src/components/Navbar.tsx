@@ -1,84 +1,174 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useVaultBalance } from "@/hooks/useVaultBalance";
-import { TrendingUp, Search, Wallet, User } from "lucide-react";
+import { useNamPrice } from "@/hooks/useNamPrice";
 
 export function Navbar() {
-  const { login, logout, isAuthenticated } = useAuth();
-  const { usdcBalance } = useVaultBalance();
+  const { login, logout, isAuthenticated, walletAddress } = useAuth();
+  const pathname = usePathname();
+  const { price } = useNamPrice();
+  const prevPriceRef = useRef<number | null>(null);
+  const up = price !== null && (prevPriceRef.current === null || price >= prevPriceRef.current);
+  if (price !== null && price !== prevPriceRef.current) prevPriceRef.current = price;
+
+  const truncatedAddress = walletAddress
+    ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
+    : "";
+
+  const navLinks = [
+    { href: "/", label: "Markets" },
+    { href: "/portfolio", label: "Portfolio" },
+  ];
 
   return (
-    <header className="sticky top-0 z-50 w-full" style={{ background: "rgba(10,11,15,0.95)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-      <div className="max-w-[1400px] mx-auto px-6 py-4 flex items-center justify-between gap-6">
-        {/* Left: logo + nav */}
-        <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2">
-            <TrendingUp className="w-7 h-7" style={{ color: "#01d243" }} />
-            <span className="text-xl font-semibold" style={{ color: "#e8e9ed" }}>NAM Market</span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-6 text-sm">
-            <Link href="/" className="transition-colors" style={{ color: "#e8e9ed" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "#01d243")}
-              onMouseLeave={e => (e.currentTarget.style.color = "#e8e9ed")}>
-              Markets
-            </Link>
-            <Link href="/portfolio" className="transition-colors" style={{ color: "#717182" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "#e8e9ed")}
-              onMouseLeave={e => (e.currentTarget.style.color = "#717182")}>
-              Portfolio
-            </Link>
-            <Link href="/admin/create-market" className="transition-colors" style={{ color: "#717182" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "#e8e9ed")}
-              onMouseLeave={e => (e.currentTarget.style.color = "#717182")}>
-              Create
-            </Link>
-          </nav>
-        </div>
-        {/* Right: search + wallet + auth */}
-        <div className="flex items-center gap-4">
-          <div className="relative hidden sm:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#717182" }} />
-            <input type="text" placeholder="Search markets…"
-              className="w-64 pl-10 pr-4 py-2 text-sm rounded-lg outline-none"
-              style={{ background: "#1f2028", border: "1px solid rgba(255,255,255,0.08)", color: "#e8e9ed" }} />
-          </div>
+    <header
+      className="sticky top-0 z-50 w-full"
+      style={{
+        background: "#07080cf2",
+        backdropFilter: "blur(16px)",
+        borderBottom: "1px solid rgba(255,255,255,0.07)",
+      }}
+    >
+      <div
+        className="mx-auto flex items-center"
+        style={{ maxWidth: 1280, padding: "0 24px", height: 54 }}
+      >
+        {/* Logo */}
+        <Link
+          href="/"
+          className="flex items-center gap-2 shrink-0"
+          style={{ marginRight: 32 }}
+        >
+          <svg width="22" height="16" viewBox="0 0 22 16" fill="none">
+            <polyline
+              points="1,13 5,4 9,10 13,6 17,2 21,13"
+              stroke="#01d243"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </svg>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              letterSpacing: "-0.02em",
+              color: "#e4e5eb",
+            }}
+          >
+            NAM
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              color: "#4c4e68",
+              fontWeight: 500,
+              marginTop: 1,
+            }}
+          >
+            Predict
+          </span>
+        </Link>
 
-          {isAuthenticated ? (
-            <div className="flex items-center gap-3">
+        {/* Nav links */}
+        <nav className="flex gap-0.5 flex-1">
+          {navLinks.map(({ href, label }) => {
+            const isActive =
+              href === "/" ? pathname === "/" : pathname.startsWith(href);
+            return (
               <Link
-                href="/portfolio"
-                className="hidden sm:flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-all"
-                style={{ background: "#1f2028", border: "1px solid rgba(255,255,255,0.08)", color: "#e8e9ed" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(1,210,67,0.30)"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
+                key={href}
+                href={href}
+                style={{
+                  padding: "6px 13px",
+                  borderRadius: 7,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  background: isActive ? "#111320" : "transparent",
+                  color: isActive ? "#e4e5eb" : "#4c4e68",
+                  transition: "all 0.12s",
+                }}
               >
-                <Wallet className="w-4 h-4" style={{ color: "#01d243" }} />
-                <span className="text-xs font-semibold">${parseFloat(usdcBalance).toFixed(2)}</span>
-                <span className="text-[10px]" style={{ color: "#717182" }}>Vault</span>
+                {label}
               </Link>
-              <button onClick={logout} className="px-3 py-2 text-sm rounded-lg transition-colors"
-                style={{ background: "rgba(31,32,40,0.50)", color: "#717182" }}
-                onMouseEnter={e => { e.currentTarget.style.background = "rgba(31,32,40,0.80)"; e.currentTarget.style.color = "#e8e9ed"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "rgba(31,32,40,0.50)"; e.currentTarget.style.color = "#717182"; }}>
-                Disconnect
-              </button>
-              <Link href="/portfolio" className="p-2 rounded-lg transition-colors" style={{ color: "#e8e9ed" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#1f2028")}
-                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                <User className="w-5 h-5" />
-              </Link>
-            </div>
-          ) : (
-            <button onClick={login} className="px-4 py-2 text-sm rounded-lg font-semibold transition-all"
-              style={{ background: "#01d243", color: "#000" }}
-              onMouseEnter={e => (e.currentTarget.style.background = "#00e676")}
-              onMouseLeave={e => (e.currentTarget.style.background = "#01d243")}>
-              Connect Wallet
-            </button>
-          )}
+            );
+          })}
+        </nav>
+
+        {/* NAM price chip */}
+        <div
+          className="flex items-center gap-1.5"
+          style={{
+            padding: "5px 12px",
+            borderRadius: 7,
+            background: "#111320",
+            border: "1px solid rgba(255,255,255,0.07)",
+            marginRight: 12,
+          }}
+        >
+          <span className="live-dot" />
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: "#4c4e68" }}
+          >
+            NAM/USDC
+          </span>
+          <span
+            className="mono"
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: up ? "#01d243" : "#f0324c",
+            }}
+          >
+            {price !== null ? `$${price.toFixed(5)}` : "$—"}
+          </span>
         </div>
+
+        {/* Wallet button */}
+        {isAuthenticated ? (
+          <button
+            onClick={logout}
+            className="flex items-center gap-1.5 mono"
+            style={{
+              padding: "6px 12px",
+              borderRadius: 8,
+              background: "#0d0e14",
+              border: "1px solid rgba(255,255,255,0.07)",
+              fontSize: 12,
+              color: "#e4e5eb",
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#01d243",
+                flexShrink: 0,
+              }}
+            />
+            {truncatedAddress}
+          </button>
+        ) : (
+          <button
+            onClick={login}
+            style={{
+              padding: "7px 16px",
+              borderRadius: 8,
+              background: "#01d243",
+              color: "#000",
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            Connect Wallet
+          </button>
+        )}
       </div>
     </header>
   );

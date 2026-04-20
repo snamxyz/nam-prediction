@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NAM Prediction Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Mono:ital,wght@0,400;0,500&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #07080c;
+      --surface: #0d0e14;
+      --surface-h: #111320;
+      --border: rgba(255,255,255,0.07);
+      --border-s: rgba(255,255,255,0.04);
+      --accent: #01d243;
+      --yes: #01d243;
+      --no: #f0324c;
+      --text: #e4e5eb;
+      --muted: #4c4e68;
+      --font: 'Space Grotesk', sans-serif;
+      --mono: 'DM Mono', monospace;
+      --r: 10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    button { font-family: var(--font); cursor: pointer; border: none; outline: none; }
+    input, select { font-family: var(--mono); outline: none; border: none; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+    .card-2 { background: var(--surface-h); border: 1px solid var(--border-s); border-radius: 8px; }
+    .mono { font-family: var(--mono); }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+    .fade-up { animation: fadeUp 0.35s ease-out forwards; }
+    .live { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--yes); animation:blink 2s ease-in-out infinite; }
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+  </style>
+  <template id="__bundler_thumbnail">
+    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100" height="100" fill="#07080c"/>
+      <rect x="15" y="15" width="70" height="70" rx="8" fill="#0d0e14" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+      <text x="50" y="54" text-anchor="middle" font-size="18" fill="#01d243" font-weight="700" font-family="monospace">NAM</text>
+    </svg>
+  </template>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ── Tokens ────────────────────────────────────────────────────────────────
+const T = {
+  bg:'#07080c', surface:'#0d0e14', surfaceH:'#111320',
+  border:'rgba(255,255,255,0.07)', borderS:'rgba(255,255,255,0.04)',
+  accent:'#01d243', yes:'#01d243', no:'#f0324c',
+  text:'#e4e5eb', muted:'#4c4e68',
+};
+
+// ── Mock data ─────────────────────────────────────────────────────────────
+const BASE_NAM = 0.08542;
+const MARKETS = [
+  { id:1, question:"Will NAM be ≥ $0.08542 at 14:15?", yesPrice:0.524, noPrice:0.476, volume:12840, endTime:new Date(Date.now()+8*60*1000+42*1000).toISOString(), cadence:"1h", resolved:false, status:"open" },
+  { id:2, question:"Will NAM reach $0.10 before May 1, 2026?", yesPrice:0.31, noPrice:0.69, volume:48200, endTime:new Date(Date.now()+10*24*3600*1000).toISOString(), cadence:"daily", resolved:false, status:"open" },
+  { id:3, question:"Will NAM daily trading volume exceed $5M this week?", yesPrice:0.67, noPrice:0.33, volume:29100, endTime:new Date(Date.now()+3*24*3600*1000).toISOString(), cadence:"daily", resolved:false, status:"open" },
+  { id:4, question:"Will NAM be listed on a major CEX by June 2026?", yesPrice:0.48, noPrice:0.52, volume:91500, endTime:new Date(Date.now()+42*24*3600*1000).toISOString(), cadence:"daily", resolved:false, status:"open" },
+  { id:5, question:"Will NAM market cap exceed $100M before April 30?", yesPrice:0.22, noPrice:0.78, volume:34700, endTime:new Date(Date.now()-2*24*3600*1000).toISOString(), cadence:"daily", resolved:true, result:2, status:"resolved" },
+];
+const HOURLY = MARKETS[0];
+const CHART = [
+  {t:"13:00",y:50.0},{t:"13:05",y:50.8},{t:"13:10",y:52.1},{t:"13:15",y:51.4},
+  {t:"13:20",y:53.2},{t:"13:25",y:51.8},{t:"13:30",y:54.1},{t:"13:35",y:52.9},
+  {t:"13:40",y:53.8},{t:"13:45",y:52.0},{t:"13:50",y:53.4},{t:"13:55",y:52.4},
+];
+const TRADES = [
+  { id:1, side:"YES", isBuy:true,  amount:50,  trader:"0x1a2b…3c4d", ago:"2m" },
+  { id:2, side:"NO",  isBuy:true,  amount:10,  trader:"0x9f8e…7d6c", ago:"4m" },
+  { id:3, side:"YES", isBuy:false, amount:25,  trader:"0x4e5f…6a7b", ago:"6m" },
+  { id:4, side:"YES", isBuy:true,  amount:100, trader:"0x2c3d…4e5f", ago:"9m" },
+  { id:5, side:"NO",  isBuy:false, amount:5,   trader:"0x7g8h…9i0j", ago:"12m"},
+];
+const PORTFOLIO = [
+  { id:1, question:"Will NAM be ≥ $0.08542 at 14:15?",            side:"YES", shares:190.8, avgP:0.524, curP:0.524, value:100.00, pnl:0.00,  status:"open" },
+  { id:2, question:"Will NAM reach $0.10 before May 1, 2026?",    side:"NO",  shares:145.0, avgP:0.69,  curP:0.69,  value:100.05, pnl:0.05,  status:"open" },
+  { id:5, question:"Will NAM market cap exceed $100M before Apr?", side:"NO",  shares:200.0, avgP:0.78,  curP:1.00,  value:200.00, pnl:44.00, status:"won"  },
+];
+
+// ── Utils ─────────────────────────────────────────────────────────────────
+const fmtVol = n => n>=1e6?`$${(n/1e6).toFixed(1)}M`:n>=1e3?`$${(n/1e3).toFixed(1)}K`:`$${n.toFixed(0)}`;
+const fmtLeft = iso => {
+  const d = (new Date(iso)-Date.now())/1000;
+  if (d<=0) return "Ended";
+  const dy=Math.floor(d/86400), h=Math.floor((d%86400)/3600), m=Math.floor((d%3600)/60), s=Math.floor(d%60);
+  if (dy>0) return `${dy}d ${h}h`;
+  if (h>0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+};
+function useCountdown(iso) {
+  const [v,setV] = useState(()=>iso?fmtLeft(iso):"");
+  useEffect(() => {
+    if (!iso) return;
+    const id = setInterval(()=>setV(fmtLeft(iso)),1000);
+    return ()=>clearInterval(id);
+  },[iso]);
+  return v;
+}
+
+// ── Sparkline ─────────────────────────────────────────────────────────────
+function Spark({ data, color, h=80 }) {
+  if (!data||data.length<2) return null;
+  const W=400;
+  const vals = data.map(d=>d.y);
+  const lo=Math.min(...vals)-3, hi=Math.max(...vals)+3;
+  const px=i=>(i/(data.length-1))*W;
+  const py=v=>h-((v-lo)/(hi-lo))*h;
+  const path = data.map((d,i)=>`${i===0?'M':'L'}${px(i).toFixed(1)},${py(d.y).toFixed(1)}`).join(' ');
+  const area = `${path} L${W},${h} L0,${h} Z`;
+  const gid = `g${color.slice(1)}`;
+  return (
+    <svg viewBox={`0 0 ${W} ${h}`} preserveAspectRatio="none" style={{width:'100%',height:h,display:'block',overflow:'visible'}}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.18"/>
+          <stop offset="100%" stopColor={color} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${gid})`}/>
+      <path d={path} stroke={color} strokeWidth="1.5" fill="none"/>
+      {/* Last dot */}
+      <circle cx={px(data.length-1).toFixed(1)} cy={py(data[data.length-1].y).toFixed(1)} r="3" fill={color}/>
+    </svg>
+  );
+}
+
+// ── ProbBar ───────────────────────────────────────────────────────────────
+function ProbBar({ yes, h=3 }) {
+  return (
+    <div style={{height:h,borderRadius:h,background:'rgba(255,255,255,0.05)',overflow:'hidden',display:'flex',gap:1}}>
+      <div style={{width:`${yes}%`,height:'100%',background:T.yes,borderRadius:h,transition:'width 0.7s cubic-bezier(0.4,0,0.2,1)'}}/>
+      <div style={{flex:1,height:'100%',background:T.no,opacity:0.55,borderRadius:h}}/>
+    </div>
+  );
+}
+
+// ── Navbar ────────────────────────────────────────────────────────────────
+function Navbar({ page, setPage, connected, setConnected }) {
+  const [price, setPrice] = useState(BASE_NAM);
+  const [up, setUp] = useState(true);
+  useEffect(()=>{
+    const id=setInterval(()=>{
+      setPrice(p=>{
+        const next=p+(Math.random()-0.5)*0.000015;
+        setUp(next>=p);
+        return next;
+      });
+    },2800);
+    return ()=>clearInterval(id);
+  },[]);
+
+  return (
+    <header style={{position:'sticky',top:0,zIndex:50,background:`${T.bg}f2`,backdropFilter:'blur(16px)',borderBottom:`1px solid ${T.border}`}}>
+      <div style={{maxWidth:1280,margin:'0 auto',padding:'0 24px',height:54,display:'flex',alignItems:'center',gap:0}}>
+        {/* Logo */}
+        <button onClick={()=>setPage('home')} style={{display:'flex',alignItems:'center',gap:9,background:'none',marginRight:32,flexShrink:0}}>
+          <svg width="22" height="16" viewBox="0 0 22 16" fill="none">
+            <polyline points="1,13 5,4 9,10 13,6 17,2 21,13" stroke={T.accent} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" fill="none"/>
+          </svg>
+          <span style={{fontSize:14,fontWeight:700,letterSpacing:'-0.02em',color:T.text}}>NAM</span>
+          <span style={{fontSize:11,color:T.muted,fontWeight:500,marginTop:1}}>Predict</span>
+        </button>
+
+        {/* Nav */}
+        <nav style={{display:'flex',gap:2,flex:1}}>
+          {[['home','Markets'],['portfolio','Portfolio']].map(([p,l])=>(
+            <button key={p} onClick={()=>setPage(p)} style={{
+              padding:'6px 13px',borderRadius:7,fontSize:13,fontWeight:500,transition:'all 0.12s',
+              background:page===p?T.surfaceH:'transparent',color:page===p?T.text:T.muted,
+            }}>{l}</button>
+          ))}
+        </nav>
+
+        {/* NAM price chip */}
+        <div style={{display:'flex',alignItems:'center',gap:7,padding:'5px 12px',borderRadius:7,background:T.surfaceH,border:`1px solid ${T.border}`,marginRight:12}}>
+          <span className="live"/>
+          <span style={{fontSize:11,color:T.muted,fontFamily:T.mono}}>NAM/USDC</span>
+          <span style={{fontSize:12,fontFamily:T.mono,fontWeight:500,color:up?T.yes:T.no}}>${price.toFixed(5)}</span>
+        </div>
+
+        {/* Wallet */}
+        {connected
+          ? <button onClick={()=>setConnected(false)} style={{display:'flex',alignItems:'center',gap:7,padding:'6px 12px',borderRadius:8,background:T.surface,border:`1px solid ${T.border}`,fontSize:12,fontFamily:T.mono,color:T.text}}>
+              <div style={{width:6,height:6,borderRadius:'50%',background:T.accent,flexShrink:0}}/>
+              0x1a2b…3c4d
+            </button>
+          : <button onClick={()=>setConnected(true)} style={{padding:'7px 16px',borderRadius:8,background:T.accent,color:'#000',fontSize:13,fontWeight:700}}>
+              Connect Wallet
+            </button>
+        }
+      </div>
+    </header>
+  );
+}
+
+// ── Stats Bar ─────────────────────────────────────────────────────────────
+function StatsBar() {
+  const vol = MARKETS.reduce((s,m)=>s+m.volume,0);
+  const items = [
+    {label:'Total Volume', val:fmtVol(vol)},
+    {label:'24h Volume',   val:fmtVol(vol*0.12)},
+    {label:'Open Markets', val:String(MARKETS.filter(m=>!m.resolved).length)},
+    {label:'NAM Price',    val:`$${BASE_NAM}`, accent:true},
+  ];
+  return (
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:28}}>
+      {items.map(s=>(
+        <div key={s.label} className="card" style={{padding:'14px 18px'}}>
+          <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:6}}>{s.label}</div>
+          <div style={{fontFamily:T.mono,fontSize:21,fontWeight:500,color:s.accent?T.accent:T.text}}>{s.val}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Market Card ───────────────────────────────────────────────────────────
+function MarketCard({ market, onClick }) {
+  const cd = useCountdown(market.endTime);
+  const yp = Math.round(market.yesPrice*100);
+  const [hov,setHov] = useState(false);
+  return (
+    <div onClick={()=>onClick(market.id)}
+      onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+      style={{background:hov?T.surfaceH:T.surface,border:`1px solid ${hov?'rgba(255,255,255,0.12)':T.border}`,borderRadius:12,padding:20,cursor:'pointer',transition:'all 0.14s'}}>
+      <p style={{fontSize:13,fontWeight:500,lineHeight:1.55,color:T.text,marginBottom:18,textWrap:'pretty'}}>{market.question}</p>
+      {/* Big split prob */}
+      <div style={{display:'flex',alignItems:'center',gap:0,marginBottom:14,borderRadius:8,overflow:'hidden',border:`1px solid ${T.borderS}`}}>
+        <div style={{flex:1,textAlign:'center',padding:'10px 0',background:`${T.yes}09`}}>
+          <span style={{fontFamily:T.mono,fontSize:26,fontWeight:500,color:T.yes}}>{yp}</span>
+          <span style={{fontSize:10,color:T.muted,display:'block',marginTop:1,letterSpacing:'0.07em',textTransform:'uppercase',fontWeight:700}}>YES %</span>
+        </div>
+        <div style={{width:1,height:48,background:T.borderS}}/>
+        <div style={{flex:1,textAlign:'center',padding:'10px 0',background:`${T.no}07`}}>
+          <span style={{fontFamily:T.mono,fontSize:26,fontWeight:500,color:T.no}}>{100-yp}</span>
+          <span style={{fontSize:10,color:T.muted,display:'block',marginTop:1,letterSpacing:'0.07em',textTransform:'uppercase',fontWeight:700}}>NO %</span>
+        </div>
+      </div>
+      <ProbBar yes={yp}/>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:12,paddingTop:12,borderTop:`1px solid ${T.borderS}`}}>
+        <span style={{fontSize:11,color:T.muted,fontFamily:T.mono}}>{fmtVol(market.volume)} vol</span>
+        {market.resolved
+          ? <span style={{fontSize:11,fontWeight:700,color:market.result===1?T.yes:T.no}}>{market.result===1?'YES':'NO'} resolved</span>
+          : <span style={{fontSize:11,color:T.muted}}>{cd} left</span>
+        }
+      </div>
+    </div>
+  );
+}
+
+// ── 1-Hour Hero ────────────────────────────────────────────────────────────────────
+function HourlyHero({ market, onTrade }) {
+  const cd = useCountdown(market?.endTime);
+  if (!market) return null;
+  const yp = (market.yesPrice*100).toFixed(1);
+  const np = (market.noPrice*100).toFixed(1);
+  return (
+    <div className="card fade-up" style={{padding:28,marginBottom:24,position:'relative',overflow:'hidden'}}>
+      {/* Background accent */}
+      <div style={{position:'absolute',top:-80,left:-80,width:400,height:400,background:`radial-gradient(circle,${T.yes}07 0%,transparent 65%)`,pointerEvents:'none'}}/>
+      <div style={{position:'absolute',top:-80,right:-80,width:400,height:400,background:`radial-gradient(circle,${T.no}05 0%,transparent 65%)`,pointerEvents:'none'}}/>
+
+      {/* Top row */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span className="live"/>
+          <span style={{fontSize:10,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:T.muted}}>1-Hour Market</span>
+        </div>
+        <span style={{fontSize:11,color:T.muted,fontFamily:T.mono}}>{cd} remaining</span>
+      </div>
+
+      {/* Question */}
+      <h2 style={{fontSize:20,fontWeight:600,color:T.text,marginBottom:28,lineHeight:1.4,maxWidth:700,textWrap:'pretty',letterSpacing:'-0.01em'}}>{market.question}</h2>
+
+      {/* Large probability display */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1px 1fr',marginBottom:22,gap:0}}>
+        <div style={{textAlign:'center',padding:'18px 24px'}}>
+          <div style={{fontFamily:T.mono,fontSize:60,fontWeight:500,color:T.yes,lineHeight:1,letterSpacing:'-0.03em'}}>{yp}</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:6,letterSpacing:'0.09em',textTransform:'uppercase',fontWeight:700}}>YES %</div>
+        </div>
+        <div style={{background:T.border,margin:'12px 0'}}/>
+        <div style={{textAlign:'center',padding:'18px 24px'}}>
+          <div style={{fontFamily:T.mono,fontSize:60,fontWeight:500,color:T.no,lineHeight:1,letterSpacing:'-0.03em'}}>{np}</div>
+          <div style={{fontSize:11,color:T.muted,marginTop:6,letterSpacing:'0.09em',textTransform:'uppercase',fontWeight:700}}>NO %</div>
+        </div>
+      </div>
+
+      <ProbBar yes={parseFloat(yp)} h={4}/>
+
+      {/* Footer */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:20}}>
+        <div style={{display:'flex',gap:20}}>
+          <div>
+            <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:3}}>Volume</div>
+            <div style={{fontFamily:T.mono,fontSize:13,color:T.text}}>{fmtVol(market.volume)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:3}}>Yes price</div>
+            <div style={{fontFamily:T.mono,fontSize:13,color:T.yes}}>{(market.yesPrice*100).toFixed(1)}¢</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:3}}>No price</div>
+            <div style={{fontFamily:T.mono,fontSize:13,color:T.no}}>{(market.noPrice*100).toFixed(1)}¢</div>
+          </div>
+        </div>
+        <button onClick={()=>onTrade(market.id)} style={{padding:'10px 22px',borderRadius:8,background:T.accent,color:'#000',fontSize:13,fontWeight:700,letterSpacing:'0.01em'}}>
+          Trade Now →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Home Page ─────────────────────────────────────────────────────────────
+function HomePage({ setPage, setMarketId }) {
+  const rest = MARKETS.filter(m=>m.cadence!=='1h');
+  const [tab,setTab] = useState('all');
+  const nav = id => { setMarketId(id); setPage('market'); };
+  const filtered = rest.filter(m=>tab==='all'?true:tab==='open'?!m.resolved:m.resolved);
+
+  return (
+    <div className="fade-up" data-screen-label="01 Home" style={{maxWidth:1280,margin:'0 auto',padding:'32px 24px'}}>
+      <div style={{marginBottom:24}}>
+        <h1 style={{fontSize:22,fontWeight:600,letterSpacing:'-0.025em',color:T.text,marginBottom:5}}>Prediction Markets</h1>
+        <p style={{fontSize:13,color:T.muted}}>Trade on NAM ecosystem milestones. Backed by real outcomes.</p>
+      </div>
+      <StatsBar/>
+      <HourlyHero market={HOURLY} onTrade={nav}/>
+      {/* Tabs */}
+      <div style={{display:'flex',gap:4,marginBottom:16}}>
+        {[['all','All Markets'],['open','Open'],['resolved','Resolved']].map(([v,l])=>(
+          <button key={v} onClick={()=>setTab(v)} style={{
+            padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,transition:'all 0.12s',
+            background:tab===v?T.surfaceH:'transparent',color:tab===v?T.text:T.muted,
+            border:`1px solid ${tab===v?T.border:'transparent'}`,
+          }}>{l}</button>
+        ))}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:12}}>
+        {filtered.map(m=><MarketCard key={m.id} market={m} onClick={nav}/>)}
+      </div>
+    </div>
+  );
+}
+
+// ── Trade Panel ───────────────────────────────────────────────────────────
+function TradePanel({ market, connected, onConnect }) {
+  const [mode,setMode] = useState('BUY');
+  const [side,setSide] = useState('YES');
+  const [amt,setAmt] = useState('');
+  const [slip,setSlip] = useState(1);
+  const num = parseFloat(amt)||0;
+  const price = side==='YES'?market.yesPrice:market.noPrice;
+  const shares = num>0&&price>0 ? num/price : 0;
+  const payout = shares;
+  const profit = num>0 ? ((payout-num)/num)*100 : 0;
+  const sc = side==='YES'?T.yes:T.no;
+  const QUICK = [1,5,10,100];
+
+  return (
+    <div className="card" style={{overflow:'hidden'}}>
+      <div style={{padding:'15px 20px',borderBottom:`1px solid ${T.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span style={{fontSize:13,fontWeight:600,color:T.text}}>Trade</span>
+        <span style={{fontSize:11,color:T.muted,fontFamily:T.mono}}>Bal: <span style={{color:T.yes}}>$47.20</span></span>
+      </div>
+      <div style={{padding:20}}>
+        {/* BUY / SELL */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:12}}>
+          {['BUY','SELL'].map(m=>{
+            const mc=m==='BUY'?T.yes:T.no;
+            const active=mode===m;
+            return <button key={m} onClick={()=>{setMode(m);setAmt('');}} style={{
+              padding:'9px',borderRadius:8,fontSize:12,fontWeight:700,transition:'all 0.12s',
+              background:active?`${mc}1e`:T.surfaceH, color:active?mc:T.muted,
+              border:`1px solid ${active?`${mc}44`:'transparent'}`,
+            }}>{m}</button>;
+          })}
+        </div>
+        {/* YES / NO */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginBottom:16}}>
+          {['YES','NO'].map(s=>{
+            const sp=s==='YES'?market.yesPrice:market.noPrice;
+            const scc=s==='YES'?T.yes:T.no;
+            const active=side===s;
+            return <button key={s} onClick={()=>setSide(s)} style={{
+              padding:'10px 8px',borderRadius:8,fontSize:13,fontWeight:600,transition:'all 0.12s',
+              background:active?`${scc}1e`:T.surfaceH, color:active?scc:T.muted,
+              border:`1px solid ${active?`${scc}44`:'transparent'}`,
+            }}>
+              {s} <span style={{fontFamily:T.mono,fontSize:11,opacity:0.8}}>{(sp*100).toFixed(1)}¢</span>
+            </button>;
+          })}
+        </div>
+        {/* Amount */}
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:6}}>
+            {mode==='BUY'?'Amount (USDC)':'Shares to sell'}
+          </div>
+          <div style={{position:'relative'}}>
+            {mode==='BUY'&&<span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:T.muted,fontSize:14,fontFamily:T.mono}}>$</span>}
+            <input type="number" min="0" placeholder="0" value={amt} onChange={e=>setAmt(e.target.value)}
+              style={{width:'100%',padding:'10px 14px',paddingLeft:mode==='BUY'?26:14,borderRadius:8,background:T.surfaceH,border:`1px solid ${T.border}`,color:T.text,fontSize:14,textAlign:'right'}}/>
+          </div>
+        </div>
+        {/* Quick */}
+        <div style={{display:'flex',gap:4,marginBottom:14}}>
+          {QUICK.map(q=>(
+            <button key={q} onClick={()=>setAmt(s=>String((parseFloat(s)||0)+q))}
+              style={{flex:1,padding:'6px 0',borderRadius:6,fontSize:11,fontWeight:600,background:T.surfaceH,color:T.muted,border:`1px solid ${T.borderS}`,transition:'all 0.12s'}}
+              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+              onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.borderS;}}>
+              +${q}
+            </button>
+          ))}
+          <button onClick={()=>setAmt('47.20')}
+            style={{flex:1,padding:'6px 0',borderRadius:6,fontSize:11,fontWeight:600,background:T.surfaceH,color:T.muted,border:`1px solid ${T.borderS}`,transition:'all 0.12s'}}
+            onMouseEnter={e=>{e.currentTarget.style.color=T.text;}} onMouseLeave={e=>{e.currentTarget.style.color=T.muted;}}>
+            Max
+          </button>
+        </div>
+        {/* Slippage */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+          <span style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700}}>Slippage</span>
+          <div style={{display:'flex',gap:4}}>
+            {[0.5,1,2,5].map(s=>(
+              <button key={s} onClick={()=>setSlip(s)} style={{
+                padding:'4px 8px',borderRadius:5,fontSize:11,transition:'all 0.12s',
+                background:slip===s?`${T.accent}1e`:T.surfaceH, color:slip===s?T.accent:T.muted,
+                border:`1px solid ${slip===s?`${T.accent}44`:'transparent'}`,
+              }}>{s}%</button>
+            ))}
+          </div>
+        </div>
+        {/* Breakdown */}
+        <div style={{background:T.surfaceH,borderRadius:8,padding:'13px 15px',marginBottom:16,border:`1px solid ${T.borderS}`}}>
+          {[
+            ['Avg price', `${(price*100).toFixed(1)}¢`],
+            ['Est. shares', num>0?shares.toFixed(2):'—'],
+          ].map(([k,v])=>(
+            <div key={k} style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:8}}>
+              <span style={{color:T.muted}}>{k}</span>
+              <span style={{color:T.text,fontFamily:T.mono}}>{v}</span>
+            </div>
+          ))}
+          <div style={{height:1,background:T.borderS,margin:'8px 0'}}/>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12}}>
+            <span style={{color:T.muted}}>If {side} wins</span>
+            <span style={{color:num>0?sc:T.muted,fontWeight:600,fontFamily:T.mono}}>
+              {num>0?`$${payout.toFixed(2)} (+${profit.toFixed(0)}%)`:'—'}
+            </span>
+          </div>
+        </div>
+        {/* CTA */}
+        {!connected
+          ? <button onClick={onConnect} style={{width:'100%',padding:'12px',borderRadius:9,background:T.accent,color:'#000',fontSize:13,fontWeight:700,letterSpacing:'0.01em'}}>
+              Connect Wallet to Trade
+            </button>
+          : <button style={{width:'100%',padding:'12px',borderRadius:9,fontSize:13,fontWeight:700,letterSpacing:'0.01em',transition:'all 0.15s',
+              background:num>0?sc:T.surfaceH, color:num>0?(side==='YES'?'#000':'#fff'):T.muted,
+              cursor:num>0?'pointer':'not-allowed',
+            }}>
+              {num>0?`${mode} ${side} · $${num.toFixed(2)}`:'Enter an amount'}
+            </button>
+        }
+        <p style={{textAlign:'center',fontSize:10,color:'rgba(76,78,104,0.55)',marginTop:10,lineHeight:1.5}}>
+          Each trade requires a wallet signature.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Market Detail ─────────────────────────────────────────────────────────
+function MarketDetailPage({ marketId, setPage, connected, onConnect }) {
+  const market = MARKETS.find(m=>m.id===marketId)||MARKETS[0];
+  const cd = useCountdown(market.endTime);
+  const yp = (market.yesPrice*100).toFixed(1);
+  const np = (market.noPrice*100).toFixed(1);
+
+  return (
+    <div className="fade-up" data-screen-label="02 Market Detail" style={{maxWidth:1280,margin:'0 auto',padding:'32px 24px'}}>
+      <button onClick={()=>setPage('home')} style={{display:'flex',alignItems:'center',gap:6,fontSize:13,color:T.muted,background:'none',marginBottom:20,transition:'color 0.12s'}}
+        onMouseEnter={e=>e.currentTarget.style.color=T.text} onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
+        ← Back to Markets
+      </button>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 340px',gap:14,alignItems:'start'}}>
+        {/* Left column */}
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {/* Header */}
+          <div className="card" style={{padding:24}}>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12,marginBottom:22}}>
+              <h1 style={{fontSize:19,fontWeight:600,color:T.text,lineHeight:1.4,flex:1,letterSpacing:'-0.01em',textWrap:'pretty'}}>{market.question}</h1>
+              {!market.resolved
+                ? <div style={{display:'flex',alignItems:'center',gap:7,flexShrink:0,padding:'5px 11px',borderRadius:7,background:T.surfaceH,border:`1px solid ${T.border}`}}>
+                    <span className="live"/><span style={{fontSize:11,fontFamily:T.mono,color:T.muted}}>{cd}</span>
+                  </div>
+                : <span style={{fontSize:11,fontWeight:700,padding:'4px 9px',borderRadius:6,flexShrink:0,
+                    background:market.result===1?`${T.yes}20`:`${T.no}20`,color:market.result===1?T.yes:T.no}}>
+                    {market.result===1?'YES':'NO'} RESOLVED
+                  </span>
+              }
+            </div>
+            {/* Big split */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1px 1fr',marginBottom:16,borderRadius:10,overflow:'hidden',border:`1px solid ${T.border}`}}>
+              <div style={{padding:'18px 24px',background:`${T.yes}09`}}>
+                <div style={{fontFamily:T.mono,fontSize:48,fontWeight:500,color:T.yes,lineHeight:1,letterSpacing:'-0.02em'}}>{yp}</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:4,textTransform:'uppercase',letterSpacing:'0.09em',fontWeight:700}}>YES %</div>
+              </div>
+              <div style={{background:T.border}}/>
+              <div style={{padding:'18px 24px',background:`${T.no}07`}}>
+                <div style={{fontFamily:T.mono,fontSize:48,fontWeight:500,color:T.no,lineHeight:1,letterSpacing:'-0.02em'}}>{np}</div>
+                <div style={{fontSize:10,color:T.muted,marginTop:4,textTransform:'uppercase',letterSpacing:'0.09em',fontWeight:700}}>NO %</div>
+              </div>
+            </div>
+            <ProbBar yes={parseFloat(yp)} h={4}/>
+            {/* Meta */}
+            <div style={{display:'flex',gap:24,marginTop:16,flexWrap:'wrap'}}>
+              {[['Volume',fmtVol(market.volume)],['Last trade','YES @ 52.0¢'],['Liquidity','$1,200'],['Fee','2%']].map(([k,v])=>(
+                <div key={k}>
+                  <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:3}}>{k}</div>
+                  <div style={{fontSize:13,color:T.text,fontFamily:T.mono}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Chart */}
+          <div className="card" style={{padding:20}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:T.muted}}>YES Price History</span>
+              <div style={{display:'flex',gap:12,fontSize:10,fontFamily:T.mono}}>
+                <span style={{color:T.yes}}>● YES prob.</span>
+              </div>
+            </div>
+            {/* Chart area with labels */}
+            <div style={{position:'relative',paddingLeft:32}}>
+              {/* Y labels */}
+              <div style={{position:'absolute',left:0,top:0,height:80,display:'flex',flexDirection:'column',justifyContent:'space-between',pointerEvents:'none'}}>
+                {[100,75,50].map(v=>(
+                  <span key={v} style={{fontSize:9,color:T.muted,fontFamily:T.mono,lineHeight:1}}>{v}</span>
+                ))}
+              </div>
+              <Spark data={CHART} color={T.yes} h={80}/>
+            </div>
+            {/* X labels */}
+            <div style={{display:'flex',justifyContent:'space-between',marginTop:6,paddingLeft:32}}>
+              {CHART.filter((_,i)=>i%3===0).map(d=>(
+                <span key={d.t} style={{fontSize:9,color:T.muted,fontFamily:T.mono}}>{d.t}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent trades */}
+          <div className="card" style={{padding:20}}>
+            <div style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:T.muted,marginBottom:14}}>Recent Trades</div>
+            {TRADES.map((tr,i)=>(
+              <div key={tr.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 0',borderBottom:i<TRADES.length-1?`1px solid ${T.borderS}`:'none',gap:10}}>
+                <div style={{display:'flex',alignItems:'center',gap:9}}>
+                  <span style={{fontSize:9,fontWeight:700,padding:'3px 7px',borderRadius:4,letterSpacing:'0.05em',
+                    background:tr.isBuy?(tr.side==='YES'?`${T.yes}18`:`${T.no}15`):'rgba(255,255,255,0.05)',
+                    color:tr.isBuy?(tr.side==='YES'?T.yes:T.no):T.muted}}>
+                    {tr.isBuy?'BUY':'SELL'} {tr.side}
+                  </span>
+                  <span style={{fontSize:11,color:T.muted,fontFamily:T.mono}}>{tr.trader}</span>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:12,color:T.text,fontFamily:T.mono}}>${tr.amount}</div>
+                  <div style={{fontSize:10,color:T.muted}}>{tr.ago} ago</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Right: trade panel */}
+        <div style={{position:'sticky',top:68}}>
+          {market.resolved
+            ? <div className="card" style={{padding:28,textAlign:'center'}}>
+                <p style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:10}}>Market Resolved</p>
+                <div style={{fontFamily:T.mono,fontSize:40,fontWeight:500,color:market.result===1?T.yes:T.no,marginBottom:10}}>
+                  {market.result===1?'YES':'NO'}
+                </div>
+                <p style={{fontSize:12,color:T.muted}}>Go to Portfolio to redeem your winnings</p>
+              </div>
+            : <TradePanel market={market} connected={connected} onConnect={onConnect}/>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Vault Modal ───────────────────────────────────────────────────────────
+function VaultModal({ mode, onClose, balance, setBalance }) {
+  const [amt, setAmt] = useState('');
+  const num = parseFloat(amt) || 0;
+  const isDeposit = mode === 'deposit';
+  const color = isDeposit ? T.yes : T.no;
+  const max = isDeposit ? 9999 : parseFloat(balance);
+
+  const handleSubmit = () => {
+    if (num <= 0 || num > max) return;
+    const next = isDeposit
+      ? (parseFloat(balance) + num).toFixed(2)
+      : (parseFloat(balance) - num).toFixed(2);
+    setBalance(next);
+    onClose();
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)',backdropFilter:'blur(6px)'}}
+      onClick={onClose}>
+      <div className="card" style={{width:360,padding:28,boxShadow:'0 24px 64px rgba(0,0,0,0.7)'}}
+        onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:22}}>
+          <h3 style={{fontSize:15,fontWeight:600,color:T.text,letterSpacing:'-0.01em'}}>
+            {isDeposit ? 'Deposit USDC' : 'Withdraw USDC'}
+          </h3>
+          <button onClick={onClose} style={{background:'none',color:T.muted,fontSize:18,lineHeight:1,padding:'2px 4px',transition:'color 0.12s'}}
+            onMouseEnter={e=>e.currentTarget.style.color=T.text}
+            onMouseLeave={e=>e.currentTarget.style.color=T.muted}>×</button>
+        </div>
+
+        {/* Balance chip */}
+        <div style={{display:'flex',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,background:T.surfaceH,border:`1px solid ${T.borderS}`,marginBottom:18}}>
+          <span style={{fontSize:11,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700}}>
+            {isDeposit ? 'Wallet Balance' : 'Vault Balance'}
+          </span>
+          <span style={{fontFamily:T.mono,fontSize:12,color:T.text}}>
+            {isDeposit ? '$2,400.00' : `$${balance}`}
+          </span>
+        </div>
+
+        {/* Amount input */}
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:6}}>Amount</div>
+          <div style={{position:'relative'}}>
+            <span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',color:T.muted,fontSize:14,fontFamily:T.mono}}>$</span>
+            <input type="number" min="0" max={max} placeholder="0.00" value={amt}
+              onChange={e=>setAmt(e.target.value)}
+              autoFocus
+              style={{width:'100%',padding:'11px 14px 11px 26px',borderRadius:8,background:T.surfaceH,border:`1px solid ${num>max&&num>0?T.no:T.border}`,color:T.text,fontSize:15,fontFamily:T.mono}}/>
+            <button onClick={()=>setAmt(String(max))}
+              style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:10,fontWeight:700,color:color,background:`${color}18`,padding:'3px 7px',borderRadius:5,border:'none',cursor:'pointer',letterSpacing:'0.05em'}}>
+              MAX
+            </button>
+          </div>
+          {num > max && num > 0 && (
+            <p style={{fontSize:11,color:T.no,marginTop:5}}>Exceeds available balance</p>
+          )}
+        </div>
+
+        {/* Quick amounts */}
+        <div style={{display:'flex',gap:5,marginBottom:22}}>
+          {[10,50,100,500].map(q=>(
+            <button key={q} onClick={()=>setAmt(String(q))}
+              style={{flex:1,padding:'6px 0',borderRadius:6,fontSize:11,fontWeight:600,background:T.surfaceH,color:T.muted,border:`1px solid ${T.borderS}`,transition:'all 0.12s'}}
+              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+              onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.borderS;}}>
+              ${q}
+            </button>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <button onClick={handleSubmit} disabled={num<=0||num>max}
+          style={{width:'100%',padding:'12px',borderRadius:9,fontSize:13,fontWeight:700,letterSpacing:'0.01em',transition:'all 0.15s',
+            background:num>0&&num<=max?color:T.surfaceH,
+            color:num>0&&num<=max?(isDeposit?'#000':'#fff'):T.muted,
+            cursor:num>0&&num<=max?'pointer':'not-allowed',
+          }}>
+          {isDeposit?'Deposit':'Withdraw'} {num>0?`$${num.toFixed(2)}`:''}
+        </button>
+        <p style={{textAlign:'center',fontSize:10,color:'rgba(76,78,104,0.55)',marginTop:10}}>
+          {isDeposit?'Funds arrive in your vault instantly.':'Withdrawal sent to your connected wallet.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Portfolio ─────────────────────────────────────────────────────────────
+function PortfolioPage({ connected, onConnect, setPage, setMarketId }) {
+  const totalVal = PORTFOLIO.reduce((s,p)=>s+p.value,0);
+  const totalPnl = PORTFOLIO.reduce((s,p)=>s+p.pnl,0);
+  const [vaultBalance, setVaultBalance] = useState('47.20');
+  const [modal, setModal] = useState(null); // 'deposit' | 'withdraw' | null
+
+  if (!connected) return (
+    <div className="fade-up" data-screen-label="03 Portfolio" style={{maxWidth:1280,margin:'0 auto',padding:'32px 24px',textAlign:'center'}}>
+      <div style={{maxWidth:360,margin:'100px auto'}}>
+        <p style={{fontSize:16,fontWeight:600,color:T.text,marginBottom:8}}>Connect your wallet</p>
+        <p style={{fontSize:13,color:T.muted,marginBottom:24}}>View your positions and redeem winnings</p>
+        <button onClick={onConnect} style={{padding:'10px 24px',borderRadius:8,background:T.accent,color:'#000',fontSize:13,fontWeight:700}}>Connect Wallet</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fade-up" data-screen-label="03 Portfolio" style={{maxWidth:1280,margin:'0 auto',padding:'32px 24px'}}>
+      <div style={{marginBottom:24}}>
+        <h1 style={{fontSize:22,fontWeight:600,letterSpacing:'-0.025em',color:T.text,marginBottom:5}}>Portfolio</h1>
+        <p style={{fontSize:13,color:T.muted}}>Your open positions and resolved markets</p>
+      </div>
+      {/* Summary */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:28}}>
+        {[{l:'Portfolio Value',v:`$${totalVal.toFixed(2)}`,c:T.text},{l:'Total P&L',v:`+$${totalPnl.toFixed(2)}`,c:T.yes},{l:'Open Positions',v:String(PORTFOLIO.filter(p=>p.status==='open').length),c:T.text}].map(s=>(
+          <div key={s.l} className="card" style={{padding:'14px 18px'}}>
+            <div style={{fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700,marginBottom:6}}>{s.l}</div>
+            <div style={{fontFamily:T.mono,fontSize:22,fontWeight:500,color:s.c}}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Positions table */}
+      <div className="card" style={{overflow:'hidden',marginBottom:16}}>
+        <div style={{padding:'14px 20px',borderBottom:`1px solid ${T.border}`}}>
+          <span style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.09em',color:T.muted}}>Positions</span>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 64px 80px 80px 84px 84px',gap:16,padding:'9px 20px',borderBottom:`1px solid ${T.borderS}`,fontSize:10,color:T.muted,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:700}}>
+          {['Market','Side','Shares','Avg Price','Value','P&L'].map((h,i)=>(
+            <span key={h} style={i>0?{textAlign:'right'}:{}}>{h}</span>
+          ))}
+        </div>
+        {PORTFOLIO.map((p,i)=>(
+          <div key={p.id} onClick={()=>{setMarketId(p.id);setPage('market');}}
+            style={{display:'grid',gridTemplateColumns:'1fr 64px 80px 80px 84px 84px',gap:16,padding:'14px 20px',cursor:'pointer',transition:'background 0.1s',borderBottom:i<PORTFOLIO.length-1?`1px solid ${T.borderS}`:'none'}}
+            onMouseEnter={e=>e.currentTarget.style.background=T.surfaceH}
+            onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <div>
+              <p style={{fontSize:13,color:T.text,lineHeight:1.4,textWrap:'pretty'}}>{p.question}</p>
+              {p.status==='won'&&<span style={{fontSize:9,fontWeight:700,color:T.yes,background:`${T.yes}15`,padding:'2px 7px',borderRadius:4,marginTop:5,display:'inline-block',letterSpacing:'0.05em'}}>REDEEMABLE</span>}
+            </div>
+            <span style={{textAlign:'right',alignSelf:'center',fontSize:12,fontWeight:700,color:p.side==='YES'?T.yes:T.no,fontFamily:T.mono}}>{p.side}</span>
+            <span style={{textAlign:'right',alignSelf:'center',fontSize:12,color:T.text,fontFamily:T.mono}}>{p.shares.toFixed(1)}</span>
+            <span style={{textAlign:'right',alignSelf:'center',fontSize:12,color:T.text,fontFamily:T.mono}}>{(p.avgP*100).toFixed(1)}¢</span>
+            <span style={{textAlign:'right',alignSelf:'center',fontSize:12,color:T.text,fontFamily:T.mono,fontWeight:500}}>${p.value.toFixed(2)}</span>
+            <span style={{textAlign:'right',alignSelf:'center',fontSize:12,fontFamily:T.mono,fontWeight:700,color:p.pnl>=0?T.yes:T.no}}>
+              {p.pnl>=0?'+':''}{p.pnl.toFixed(2)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Vault */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="card" style={{padding:20}}>
+          <h3 style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Vault Balance</h3>
+          <p style={{fontSize:11,color:T.muted,marginBottom:14}}>USDC available for trading</p>
+          <div style={{fontFamily:T.mono,fontSize:30,color:T.yes,marginBottom:18,letterSpacing:'-0.02em'}}>${vaultBalance}</div>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={()=>setModal('deposit')} style={{flex:1,padding:'9px',borderRadius:8,background:T.accent,color:'#000',fontSize:13,fontWeight:700}}>Deposit</button>
+            <button onClick={()=>setModal('withdraw')} style={{flex:1,padding:'9px',borderRadius:8,background:T.surfaceH,border:`1px solid ${T.border}`,color:T.text,fontSize:13,fontWeight:600}}>Withdraw</button>
+          </div>
+        </div>
+        <div className="card" style={{padding:20}}>
+          <h3 style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Transaction History</h3>
+          <p style={{fontSize:11,color:T.muted,marginBottom:14}}>Recent deposits and withdrawals</p>
+          <div style={{fontSize:12,color:T.muted,textAlign:'center',padding:'24px 0',borderRadius:8,background:T.surfaceH}}>No transactions yet</div>
+        </div>
+      </div>
+
+      {modal && (
+        <VaultModal
+          mode={modal}
+          onClose={()=>setModal(null)}
+          balance={vaultBalance}
+          setBalance={setVaultBalance}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Tweaks ────────────────────────────────────────────────────────────────
+const TWEAK_DEFAULS = /*EDITMODE-BEGIN*/{
+  "densityScale": 1,
+  "showChartGrid": true,
+  "probDisplaySize": "large",
+  "accentVariant": "purple"
+}/*EDITMODE-END*/;
+
+function TweaksPanel({ show, tweaks, setTweaks }) {
+  if (!show) return null;
+  const set = (k,v) => {
+    const next={...tweaks,[k]:v};
+    setTweaks(next);
+    window.parent.postMessage({type:'__edit_mode_set_keys',edits:{[k]:v}},'*');
+  };
+  return (
+    <div style={{position:'fixed',bottom:20,right:20,zIndex:300,background:T.surfaceH,border:`1px solid ${T.border}`,borderRadius:12,padding:20,width:240,boxShadow:'0 12px 40px rgba(0,0,0,0.6)'}}>
+      <p style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.09em',color:T.text,marginBottom:16}}>Tweaks</p>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:T.muted,marginBottom:7}}>Accent color</div>
+        <div style={{display:'flex',gap:7}}>
+          {[['green','#01d243'],['cyan','#00e5ff'],['purple','#a78bfa'],['amber','#f59e0b']].map(([n,c])=>(
+            <button key={n} onClick={()=>set('accentVariant',n)} title={n}
+              style={{width:22,height:22,borderRadius:'50%',background:c,border:tweaks.accentVariant===n?'2px solid white':'2px solid transparent',cursor:'pointer'}}/>
+          ))}
+        </div>
+      </div>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:T.muted,marginBottom:7}}>Probability display</div>
+        <div style={{display:'flex',gap:5}}>
+          {[['large','Large'],['compact','Compact']].map(([v,l])=>(
+            <button key={v} onClick={()=>set('probDisplaySize',v)} style={{flex:1,padding:'5px',borderRadius:6,fontSize:11,fontWeight:600,
+              background:tweaks.probDisplaySize===v?`${T.accent}20`:T.surface,color:tweaks.probDisplaySize===v?T.accent:T.muted,
+              border:`1px solid ${tweaks.probDisplaySize===v?`${T.accent}44`:'transparent'}`}}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div style={{fontSize:11,color:T.muted,marginBottom:7}}>Chart gridlines</div>
+        <div onClick={()=>set('showChartGrid',!tweaks.showChartGrid)} style={{display:'flex',alignItems:'center',gap:9,cursor:'pointer'}}>
+          <div style={{width:34,height:19,borderRadius:10,background:tweaks.showChartGrid?T.accent:T.surface,border:`1px solid ${tweaks.showChartGrid?T.accent:T.border}`,position:'relative',transition:'all 0.2s'}}>
+            <div style={{position:'absolute',top:2,left:tweaks.showChartGrid?14:2,width:13,height:13,borderRadius:'50%',background:'white',transition:'left 0.2s'}}/>
+          </div>
+          <span style={{fontSize:11,color:tweaks.showChartGrid?T.text:T.muted}}>{tweaks.showChartGrid?'On':'Off'}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────
+function App() {
+  const [page,setPage] = useState(()=>localStorage.getItem('nam_page')||'home');
+  const [marketId,setMarketId] = useState(()=>parseInt(localStorage.getItem('nam_mid')||'1'));
+  const [connected,setConnected] = useState(false);
+  const [tweaks,setTweaks] = useState(TWEAK_DEFAULS);
+  const [tweaksVisible,setTweaksVisible] = useState(false);
+
+  useEffect(()=>{
+    localStorage.setItem('nam_page',page);
+    localStorage.setItem('nam_mid',String(marketId));
+  },[page,marketId]);
+
+  useEffect(()=>{
+    const handler = e => {
+      if (e.data?.type==='__activate_edit_mode') setTweaksVisible(true);
+      if (e.data?.type==='__deactivate_edit_mode') setTweaksVisible(false);
+    };
+    window.addEventListener('message',handler);
+    window.parent.postMessage({type:'__edit_mode_available'},'*');
+    return ()=>window.removeEventListener('message',handler);
+  },[]);
+
+  const nav = id => { setMarketId(id); setPage('market'); };
+
+  return (
+    <>
+      <Navbar page={page} setPage={setPage} connected={connected} setConnected={setConnected}/>
+      {page==='home'&&<HomePage setPage={setPage} setMarketId={setMarketId}/>}
+      {page==='market'&&<MarketDetailPage marketId={marketId} setPage={setPage} connected={connected} onConnect={()=>setConnected(true)}/>}
+      {page==='portfolio'&&<PortfolioPage connected={connected} onConnect={()=>setConnected(true)} setPage={setPage} setMarketId={setMarketId}/>}
+      <TweaksPanel show={tweaksVisible} tweaks={tweaks} setTweaks={setTweaks}/>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

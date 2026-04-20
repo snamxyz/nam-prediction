@@ -1,24 +1,24 @@
-NAM 15-Minute Prediction Market — Full System Rundown
-=====================================================
+NAM 1-Hour Prediction Market — Full System Rundown
+====================================================
 
 1. Market Creation (Backend)
 ----------------------------
 
-The 15-minute markets are created automatically by the API server.
+The 1-hour markets are created automatically by the API server.
 
-Trigger: On server startup (if no active m15 market exists) or immediately after the previous m15 market resolves.
+Trigger: On server startup (if no active hourly market exists) or immediately after the previous hourly market resolves.
 
-Flow (m15-market.ts → createNextM15Market()):
-1. Checks if an active (unresolved, cadence=m15) market already exists in the DB — skips if yes.
+Flow (hourly-market.ts → createNextHourlyMarket()):
+1. Checks if an active (unresolved, cadence=1h) market already exists in the DB — skips if yes.
 2. Fetches the live NAM/USDC price from DexScreener (via fetchNamPrice()).
-3. Computes the time window: now → endTime (now + 15 min), lockTime (endTime - 10 sec).
+3. Computes the time window: now → endTime (now + 60 min), lockTime (endTime - 10 sec).
 4. Constructs the question: "Will NAM be >= $X.XXXXXX at <endTimeISO>?"
 5. Builds a resolutionConfig JSON: { comparison, threshold, cadence, lockTime, lockTimeUnix, pairAddress }.
 6. Sends two on-chain transactions (sequential nonces) to Base:
    - Approve: Approves MarketFactory to spend USDC.
    - Create: Calls MarketFactory.createMarket(question, endTimeUnix, liquidityUsdc, feeBps=200, sourceId=2 (dexscreener), resolutionData).
 7. Decodes the MarketCreated event from the receipt to get the onChainId, yesToken, noToken, liquidityPool.
-8. Inserts a row into the markets DB table with executionMode: "amm", cadence: "m15", status: "open", prices at 50/50.
+8. Inserts a row into the markets DB table with executionMode: "amm", cadence: "1h", status: "open", prices at 50/50.
 
 On-chain (MarketFactory.sol → createMarket()):
 - Clones OutcomeToken implementation twice (YES + NO) via EIP-1167 minimal proxy.
@@ -32,7 +32,7 @@ On-chain (MarketFactory.sol → createMarket()):
 2. Market Making — AMM (CPMM.sol)
 ----------------------------------
 
-The 15-minute markets use an on-chain Constant Product Market Maker (CPMM). There is no off-chain market maker or order-book based matching for these markets.
+The 1-hour markets use an on-chain Constant Product Market Maker (CPMM). There is no off-chain market maker or order-book based matching for these markets.
 
 Invariant: yesReserve * noReserve = k
 
@@ -132,7 +132,7 @@ timestamp     | Time of recording
 5. CLOB (Order Book) System — Exists but Separate
 --------------------------------------------------
 
-There is a parallel Central Limit Order Book (CLOB) system for markets with executionMode: "clob", but the 15-minute markets use executionMode: "amm" and do NOT go through it.
+There is a parallel Central Limit Order Book (CLOB) system for markets with executionMode: "clob", but the 1-hour markets use executionMode: "amm" and do NOT go through it.
 
 For reference, the CLOB path works like:
 - POST /orders — Inserts a limit/market order into the orders DB table (requires Privy auth, validates market is CLOB-mode and not locked/expired).
@@ -141,15 +141,15 @@ For reference, the CLOB path works like:
 - Fills produce FillEvent objects with maker/taker info, price, and quantity.
 - Feature flags (enableAmmTrading / enableClobTrading) control which mode is active.
 
-The 15-minute markets currently bypass this entirely — all trading goes directly on-chain through the CPMM.
+The 1-hour markets currently bypass this entirely — all trading goes directly on-chain through the CPMM.
 
 
 6. Market Locking
 -----------------
 
-- Each m15 market has a lockTime = endTime - 10 seconds.
-- The resolution polling service checks all unresolved m15 markets and transitions status from "open" to "locked" when now >= lockTime.
-- The CLOB order endpoint rejects new orders if lockTime has passed (but since m15 markets use AMM, this only matters if the frontend checks market.status).
+- Each hourly market has a lockTime = endTime - 10 seconds.
+- The resolution polling service checks all unresolved hourly markets and transitions status from "open" to "locked" when now >= lockTime.
+- The CLOB order endpoint rejects new orders if lockTime has passed (but since hourly markets use AMM, this only matters if the frontend checks market.status).
 - On-chain, there is no lock enforcement — the CPMM has no time-based guards, so the lock is only enforced at the application layer.
 
 
@@ -161,7 +161,7 @@ The 15-minute markets currently bypass this entirely — all trading goes direct
 Runs on a setInterval (default 60s). For each unresolved market:
 
 - resolutionSource: "admin" — Skipped (manual only).
-- resolutionSource: "dexscreener" + cadence: "m15" — Delegated to the DexScreener resolver.
+- resolutionSource: "dexscreener" + cadence: "1h" — Delegated to the DexScreener resolver.
 - resolutionSource: "dexscreener" + daily — Handled by BullMQ cron (separate worker), skipped here.
 - resolutionSource: "api" — Fetches from an external resolution API.
 
@@ -180,10 +180,10 @@ Runs on a setInterval (default 60s). For each unresolved market:
 
 ### Post-resolution chain reaction
 
-After resolving an m15 market, maybeCreateNextM15() is called:
+After resolving an hourly market, maybeCreateNextHourly() is called:
 - Uses the current NAM price as the new threshold.
-- Calls createNextM15Market(">=", currentPrice) to immediately spin up the next 15-minute market.
-- This creates a continuous rolling cycle of m15 markets.
+- Calls createNextHourlyMarket(">=" , currentPrice) to immediately spin up the next 1-hour market.
+- This creates a continuous rolling cycle of hourly markets.
 
 ### Indexer picks up MarketResolved
 
@@ -251,9 +251,9 @@ Every 60 seconds:
   - emit MarketResolved
                 |
                 v
-  [maybeCreateNextM15()]
-  -> createNextM15Market(currentPrice)
-  -> new 15-min cycle begins
+  [maybeCreateNextHourly()]
+  -> createNextHourlyMarket(currentPrice)
+  -> new 1-hour cycle begins
 
 
 10. Key Config & Feature Flags
@@ -261,11 +261,11 @@ Every 60 seconds:
 
 Variable                        | Default  | Purpose
 ------------------------------- | -------- | ----------------------------------------
-ENABLE_M15_MARKETS              | false    | Enable auto-creation of m15 markets
-M15_MARKET_DURATION_MINUTES     | 15       | Duration of each market
+ENABLE_HOURLY_MARKETS           | false    | Enable auto-creation of hourly markets
+HOURLY_MARKET_DURATION_MINUTES  | 60       | Duration of each market
 MARKET_LOCK_WINDOW_SECONDS      | 10       | Lock period before end
 DEFAULT_FEE_BPS                 | 200      | CPMM trading fee (2%)
-M15_MARKET_LIQUIDITY            | 1        | Initial USDC liquidity (6 dec)
+HOURLY_MARKET_LIQUIDITY          | 1        | Initial USDC liquidity (6 dec)
 RESOLUTION_POLL_INTERVAL        | 60000    | Polling interval (ms)
 enableAmmTrading                | flag     | Master switch for AMM trades
 enableClobTrading               | flag     | Master switch for CLOB trades

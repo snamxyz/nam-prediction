@@ -1,70 +1,84 @@
 "use client";
 
-import { StatsBar } from "@/components/StatsBar";
-import { M15MarketHero } from "@/components/M15MarketHero";
 import { useState } from "react";
+import { StatsBar } from "@/components/StatsBar";
+import { HourlyMarketHero } from "@/components/HourlyMarketHero";
+import { MarketCard } from "@/components/MarketCard";
+import { useMarkets } from "@/hooks/useMarkets";
 
 export default function HomePage() {
-  const [mode, setMode] = useState<"m15" | "items" | "tokens">("m15");
+  const { data: markets } = useMarkets();
+  const [tab, setTab] = useState<"all" | "open" | "resolved">("all");
+
+  const nonHourly = markets?.filter((m) => m.cadence !== "1h") ?? [];
+  const filtered = nonHourly.filter((m) =>
+    tab === "all" ? true : tab === "open" ? !m.resolved : m.resolved
+  );
+
+  const tabs = [
+    { key: "all" as const, label: "All Markets" },
+    { key: "open" as const, label: "Open" },
+    { key: "resolved" as const, label: "Resolved" },
+  ];
 
   return (
-    <div>
-      {/* Featured 15-Min Market */}
-
-      <div className="mb-8">
+    <div className="fade-up">
+      {/* Page header */}
+      <div style={{ marginBottom: 24 }}>
         <h1
-          className="text-2xl font-semibold mb-2"
-          style={{ color: "#e8e9ed" }}
+          style={{
+            fontSize: 22,
+            fontWeight: 600,
+            letterSpacing: "-0.025em",
+            color: "#e4e5eb",
+            marginBottom: 5,
+          }}
         >
-          NAM Prediction Markets
+          Prediction Markets
         </h1>
-        <p className="text-sm" style={{ color: "#717182" }}>
+        <p style={{ fontSize: 13, color: "#4c4e68" }}>
           Trade on NAM ecosystem milestones. Backed by real outcomes.
         </p>
       </div>
 
       <StatsBar />
+      <HourlyMarketHero />
 
-      <div className="h-[1px] w-full bg-white/10 mb-10"></div>
-      <div className="flex space-x-2 mb-6">
-        <button
-          onClick={() => {
-            setMode("m15");
-          }}
-          className={`text-xs font-bold border rounded-full ${
-            mode === "m15"
-              ? "border-accent text-accent bg-accent/10 "
-              : "border-transparent bg-gray-800/50 text-gray-500"
-          } w-32 py-2`}
-        >
-          15M NAM price
-        </button>
-        <button
-          onClick={() => {
-            setMode("items");
-          }}
-          className={`text-xs font-bold border rounded-full ${
-            mode === "items"
-              ? "border-accent text-accent bg-accent/10 "
-              : "border-transparent bg-gray-800/50 text-gray-500"
-          } w-32 py-2 `}
-        >
-          Items Price
-        </button>
-        <button
-          onClick={() => {
-            setMode("tokens");
-          }}
-          className={`text-xs font-bold border rounded-full ${
-            mode === "tokens"
-              ? "border-accent text-accent bg-accent/10 "
-              : "border-transparent bg-gray-800/50 text-gray-500"
-          } w-32 py-2`}
-        >
-          Tokens Claimed
-        </button>
+      {/* Tab filters */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+        {tabs.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 500,
+              background: tab === key ? "#111320" : "transparent",
+              color: tab === key ? "#e4e5eb" : "#4c4e68",
+              border: `1px solid ${tab === key ? "rgba(255,255,255,0.07)" : "transparent"}`,
+              cursor: "pointer",
+              transition: "all 0.12s",
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-          {mode === "m15" && <M15MarketHero />}
+
+      {/* Market card grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
+          gap: 12,
+        }}
+      >
+        {filtered.map((m) => (
+          <MarketCard key={m.id} market={m} />
+        ))}
+      </div>
     </div>
   );
 }

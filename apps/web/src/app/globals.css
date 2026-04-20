@@ -3,81 +3,79 @@
 @tailwind utilities;
 
 :root {
-  --background: #0a0b0f;
-  --foreground: #e8e9ed;
+  --background: #07080c;
+  --foreground: #e4e5eb;
   --accent: #01d243;
-  --muted: #717182;
+  --muted: #4c4e68;
+  --surface: #0d0e14;
+  --surface-hover: #111320;
+  --border: rgba(255,255,255,0.07);
+  --border-subtle: rgba(255,255,255,0.04);
+  --yes: #01d243;
+  --no: #f0324c;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
 }
 
 /* Keyframe animations */
-@keyframes pulseSlow {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.1); }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-@keyframes driftOrb {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(30px, -20px) scale(1.05); }
-  66% { transform: translate(-20px, 15px) scale(0.97); }
-}
-@keyframes fadeInPop {
-  from { opacity: 0; transform: scale(0.85); }
-  to { opacity: 1; transform: scale(1); }
-}
-@keyframes livePing {
-  75%, 100% { transform: scale(2); opacity: 0; }
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
-.anim-pulse { animation: pulseSlow ease-in-out infinite; }
-.anim-drift { animation: driftOrb ease-in-out infinite; }
-.anim-pop { animation: fadeInPop 0.3s ease-out forwards; }
-.anim-ping { animation: livePing 1s cubic-bezier(0,0,0.2,1) infinite; }
+.fade-up { animation: fadeUp 0.35s ease-out forwards; }
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--yes);
+  animation: blink 2s ease-in-out infinite;
+}
+.mono { font-family: 'DM Mono', monospace; }
 
-/* Glass card styles */
-.glass-card {
-  background: rgba(19, 20, 26, 0.70);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-top: 0.5px solid rgba(255, 255, 255, 0.05);
-  border-left: 0.5px solid rgba(255, 255, 255, 0.05);
-  border-right: none;
-  border-bottom: none;
-  border-radius: 1rem;
+/* Card styles */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.card-2 {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
 }
 
-.glass-card-inner {
-  background: rgba(31, 32, 40, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-top: 0.5px solid rgba(255, 255, 255, 0.05);
-  border-left: 0.5px solid rgba(255, 255, 255, 0.05);
-  border-right: none;
-  border-bottom: none;
-  border-radius: 0.75rem;
+/* Hide number input spinners */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
-
-.inner-border {
-  border-top: 0.5px solid rgba(255, 255, 255, 0.05);
-  border-left: 0.5px solid rgba(255, 255, 255, 0.05);
-  border-right: none;
-  border-bottom: none;
+input[type=number] {
+  -moz-appearance: textfield;
 }
 
 /* NProgress — above sticky Navbar (z-50) */
