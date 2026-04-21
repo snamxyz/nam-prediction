@@ -16,7 +16,7 @@ interface PriceChartProps {
 
 interface ChartPoint {
   time: string;
-  yesPrice: number;
+  yesProbability: number;
 }
 
 export function PriceChart({ trades }: PriceChartProps) {
@@ -28,7 +28,7 @@ export function PriceChart({ trades }: PriceChartProps) {
         hour: "2-digit",
         minute: "2-digit",
       }),
-      yesPrice: +((t.yesPrice ?? 0.5) * 100).toFixed(1),
+      yesProbability: +((t.yesPrice ?? 0.5) * 100).toFixed(1),
     }));
 
   if (data.length === 0) {
@@ -60,7 +60,7 @@ export function PriceChart({ trades }: PriceChartProps) {
           marginBottom: 16,
         }}
       >
-        Yes Price History
+        Probabilities
       </h3>
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={data} margin={{ top: 5, right: 8, bottom: 5, left: 0 }}>
@@ -81,7 +81,7 @@ export function PriceChart({ trades }: PriceChartProps) {
             ticks={[0, 25, 50, 75, 100]}
             allowDecimals={false}
             tick={{ fontSize: 10, fill: "#4c4e68" }}
-            tickFormatter={(v) => `${v}¢`}
+            tickFormatter={(v) => `${v}%`}
             stroke="transparent"
             width={34}
           />
@@ -94,11 +94,11 @@ export function PriceChart({ trades }: PriceChartProps) {
               color: "#e4e5eb",
               fontFamily: "'DM Mono', monospace",
             }}
-            formatter={(v: number) => [`${v.toFixed(1)}¢`, "YES"]}
+            formatter={(v: number) => [`${v.toFixed(1)}%`, "YES"]}
           />
           <Area
             type="monotone"
-            dataKey="yesPrice"
+            dataKey="yesProbability"
             stroke="#01d243"
             strokeWidth={1.5}
             fill="url(#yesFill)"

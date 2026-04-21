@@ -14,6 +14,25 @@ const rpcClient = createPublicClient({
   transport: http(RPC_URL),
 });
 
+type NamPricePoint = {
+  ts: string;
+  priceUsd: string;
+};
+
+const NAM_PRICE_HISTORY_LIMIT = 180;
+const namPriceHistory: NamPricePoint[] = [];
+
+function pushNamPricePoint(price: number): NamPricePoint[] {
+  namPriceHistory.push({
+    ts: new Date().toISOString(),
+    priceUsd: price.toString(),
+  });
+  if (namPriceHistory.length > NAM_PRICE_HISTORY_LIMIT) {
+    namPriceHistory.splice(0, namPriceHistory.length - NAM_PRICE_HISTORY_LIMIT);
+  }
+  return namPriceHistory;
+}
+
 // Positions are stored as numeric(30,18) decimal strings. Scale to wei
 // before doing BigInt arithmetic, then format back to decimal.
 function toWei(decimalStr: string | null | undefined): bigint {
@@ -106,7 +125,15 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
       set.status = 502;
       return { success: false, error: "Unable to fetch NAM price" };
     }
-    return { success: true, data: { priceUsd: price.toString() } };
+    const history = pushNamPricePoint(price);
+    return {
+      success: true,
+      data: {
+        priceUsd: price.toString(),
+        tokenAddress: process.env.NAM_TOKEN_ADDRESS ?? null,
+        history,
+      },
+    };
   })
 
   // GET /markets/features — Runtime rollout flags for clients and ops
