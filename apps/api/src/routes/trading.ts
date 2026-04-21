@@ -251,7 +251,8 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
       const isYes = side.toLowerCase() === "yes";
 
       const sharesOut = estimateBuyShares(usdcIn, FEE_BPS, yesReserve, noReserve, isYes);
-      const avgPrice = sharesOut > 0n ? Number(usdcIn) / (Number(sharesOut) / 1e12) : 0;
+      // Shares are 18-decimal OutcomeTokens; avg price is USDC/share.
+      const avgPrice = sharesOut > 0n ? Number(usdcIn) / (Number(sharesOut) / 1e18) : 0;
 
       return {
         success: true,
@@ -298,7 +299,8 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
       const isYes = side.toLowerCase() === "yes";
 
       const usdcOut = estimateSellUsdc(sharesIn, FEE_BPS, yesReserve, noReserve, isYes);
-      const avgPrice = Number(sharesIn) > 0 ? (Number(usdcOut) * 1e12) / Number(sharesIn) : 0;
+      // Shares are 18-decimal OutcomeTokens; avg price is USDC/share.
+      const avgPrice = Number(sharesIn) > 0 ? (Number(usdcOut) * 1e18) / Number(sharesIn) : 0;
 
       return {
         success: true,

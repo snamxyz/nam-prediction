@@ -96,7 +96,7 @@ export default function MarketPage() {
   const priceDelta = namPrice == null || priceToBeat == null ? null : namPrice - priceToBeat;
 
   return (
-    <div className="fade-up" style={{ maxWidth: 1280, margin: "0 auto" }}>
+    <div className="fade-up" style={{ maxWidth: 1400, margin: "0 auto" }}>
       <Link
         href="/"
         style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#4c4e68", marginBottom: 16, transition: "color 0.12s" }}
@@ -106,7 +106,7 @@ export default function MarketPage() {
         ← Back to Markets
       </Link>
 
-      <div className="market-grid" style={{ display: "grid", gridTemplateColumns: "1fr 308px", gap: 16, alignItems: "start" }}>
+      <div className="market-grid" style={{ display: "grid", gridTemplateColumns: "1fr 350px", gap: 16, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div className="card" style={{ padding: "22px 24px" }}>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 20 }}>

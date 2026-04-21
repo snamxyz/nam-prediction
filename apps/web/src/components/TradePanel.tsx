@@ -243,6 +243,8 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const pct = num > 0 && mode === "BUY" ? ((potentialPayout - num) / num) * 100 : 0;
 
   const formatCents = (p: number) => `${(p * 100).toFixed(1)}¢`;
+  const yesAvgDisplay = position?.yesAvgPrice ?? yesPrice;
+  const noAvgDisplay = position?.noAvgPrice ?? noPrice;
 
   const ownedSharesStr = side === "YES" ? yesSharesStr : noSharesStr;
   const ownedShares = side === "YES" ? yesShares : noShares;
@@ -637,7 +639,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(1,210,67,0.12)", color: "#01d243" }}>YES</span>
                   <span className="mono" style={{ color: "#e4e5eb" }}>{yesShares.toFixed(4)} shares</span>
-                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(position?.yesAvgPrice ? position.yesAvgPrice * 100 : yesPrice * 100).toFixed(1)}¢</span>
+                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(yesAvgDisplay * 100).toFixed(1)}¢</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span className="mono" style={{ color: "#e4e5eb" }}>${Number(position?.yesCurrentValue ?? 0).toFixed(2)}</span>
@@ -652,7 +654,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(240,50,76,0.12)", color: "#f0324c" }}>NO</span>
                   <span className="mono" style={{ color: "#e4e5eb" }}>{noShares.toFixed(4)} shares</span>
-                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(position?.noAvgPrice ? position.noAvgPrice * 100 : noPrice * 100).toFixed(1)}¢</span>
+                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(noAvgDisplay * 100).toFixed(1)}¢</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span className="mono" style={{ color: "#e4e5eb" }}>${Number(position?.noCurrentValue ?? 0).toFixed(2)}</span>

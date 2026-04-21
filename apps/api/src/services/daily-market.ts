@@ -80,6 +80,26 @@ function formatDate(date: Date): string {
 }
 
 /**
+ * Format a date as e.g. "22nd April 2026".
+ */
+function formatOrdinalDate(date: Date): string {
+  const day = date.getUTCDate();
+  const month = date.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+  const year = date.getUTCFullYear();
+  const suffix =
+    day % 100 >= 11 && day % 100 <= 13
+      ? "th"
+      : day % 10 === 1
+      ? "st"
+      : day % 10 === 2
+      ? "nd"
+      : day % 10 === 3
+      ? "rd"
+      : "th";
+  return `${day}${suffix} ${month} ${year}`;
+}
+
+/**
  * Create a daily NAM price prediction market on-chain and track it in DB.
  */
 export async function createDailyMarket(threshold: number): Promise<void> {
@@ -105,7 +125,7 @@ export async function createDailyMarket(threshold: number): Promise<void> {
     return;
   }
 
-  const question = `Will NAM be above $${threshold.toFixed(6)} at 00:00 UTC on ${dateStr}?`;
+  const question = `Will NAM Price be Up or Down on ${formatOrdinalDate(endTime)}`;
   const liquidityUsdc = parseUnits(String(DAILY_MARKET_LIQUIDITY), 6);
 
   // Resolution source = 2 (dexscreener), encode config as JSON bytes
@@ -174,7 +194,7 @@ export async function createDailyMarket(threshold: number): Promise<void> {
       .orderBy(desc(markets.createdAt));
 
     for (const m of recentMarkets) {
-      if (m.question.includes(dateStr) && m.resolutionSource === "dexscreener") {
+      if (m.question.includes(formatOrdinalDate(endTime)) && m.resolutionSource === "dexscreener") {
         linkedMarketId = m.id;
         break;
       }
