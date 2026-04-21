@@ -9,7 +9,7 @@ import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
 import { getNonceManager } from "../lib/nonce-manager.instance";
 
 // NOTE: hourly markets are owned by the dedicated BullMQ worker in ./queue/hourly-queue.ts.
-// This poller intentionally ignores cadence === "1h" rows.
+// This poller intentionally ignores cadence === "24h" rows.
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -83,7 +83,7 @@ async function pollResolutions() {
       .where(eq(markets.resolved, false));
 
     for (const market of unresolvedMarkets) {
-      if (market.cadence === "1h") continue; // handled by hourly-queue worker
+      if (market.cadence === "24h") continue; // handled by hourly-queue worker
       if (market.resolutionSource === "admin") continue; // admin markets resolved manually
 
       try {

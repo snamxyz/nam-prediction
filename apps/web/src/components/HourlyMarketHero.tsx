@@ -19,9 +19,9 @@ function useCountdown(targetDate: string | null | undefined) {
         setTimeLeft("Resolving...");
         return;
       }
-      const m = Math.floor(diff / (1000 * 60));
-      const s = Math.floor((diff % (1000 * 60)) / 1000);
-      setTimeLeft(`${m}m ${s}s`);
+      const h = Math.floor(diff / (1000 * 60 * 60));
+      const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      setTimeLeft(`${h}h ${m}m`);
     };
     update();
     const interval = setInterval(update, 1000);
@@ -105,7 +105,7 @@ export function HourlyMarketHero() {
               color: "#4c4e68",
             }}
           >
-            1-Hour Market
+            24-Hour Market
           </span>
         </div>
         <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>

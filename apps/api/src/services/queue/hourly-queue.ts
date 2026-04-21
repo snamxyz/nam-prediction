@@ -1,5 +1,5 @@
 /**
- * Dedicated BullMQ queue + worker that owns the full 1-hour NAM market lifecycle:
+ * Dedicated BullMQ queue + worker that owns the full 24-hour NAM market lifecycle:
  * - Flips open hourly markets to "locked" once past their lockTime.
  * - Resolves hourly markets on-chain after endTime using the DexScreener NAM price.
  * - Creates the next hourly market automatically when none is active.
@@ -62,7 +62,7 @@ export async function setupHourlySchedule() {
   }
 
   await hourlyQueue.add(
-    "tick-1h",
+    "tick-24h",
     {},
     {
       repeat: {
@@ -75,7 +75,7 @@ export async function setupHourlySchedule() {
   );
 
   await hourlyQueue.add(
-    "tick-1h-bootstrap",
+    "tick-24h-bootstrap",
     {},
     {
       removeOnComplete: true,
@@ -83,7 +83,7 @@ export async function setupHourlySchedule() {
     }
   );
 
-  console.log("[HourlyQueue] Repeatable hourly tick scheduled every minute (UTC) + bootstrap job enqueued");
+  console.log("[HourlyQueue] Repeatable 24h tick scheduled every minute (UTC) + bootstrap job enqueued");
 }
 
 // ─── Worker ───
@@ -131,7 +131,7 @@ export async function processHourlyTick(): Promise<void> {
       .from(markets)
       .where(
         and(
-          eq(markets.cadence, "1h"),
+          eq(markets.cadence, "24h"),
           eq(markets.resolved, false),
         )
       )

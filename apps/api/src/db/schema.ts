@@ -23,7 +23,7 @@ export const markets = pgTable(
     noToken: text("no_token").notNull(),
     ammAddress: text("amm_address").notNull(),
     executionMode: text("execution_mode").notNull().default("amm"), // amm | clob
-    cadence: text("cadence").notNull().default("daily"), // daily | 1h
+    cadence: text("cadence").notNull().default("daily"), // daily | 24h (resolves 00:00 ET)
     status: text("status").notNull().default("open"), // created | open | locked | resolving | resolved | cancelled
     lockTime: timestamp("lock_time", { withTimezone: true }),
     endTime: timestamp("end_time", { withTimezone: true }).notNull(),

@@ -1,5 +1,5 @@
 /**
- * Create a 1-hour NAM market.
+ * Create a 24-hour NAM market resolving at 00:00 Eastern Time.
  *
  * Usage:
  *   bun run src/scripts/create-hourly-market.ts
@@ -36,6 +36,6 @@ main()
     process.exit(0);
   })
   .catch((err) => {
-    console.error("[Hourly] Failed to create market:", err);
+    console.error("[24h] Failed to create market:", err);
     process.exit(1);
   });

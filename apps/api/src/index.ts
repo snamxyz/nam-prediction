@@ -15,8 +15,8 @@ import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
 import { createServer } from "http";
 
-const ENABLE_HOURLY_MARKETS = (() => {
-  const v = (process.env.ENABLE_HOURLY_MARKETS || "").trim().toLowerCase();
+const ENABLE_24H_MARKETS = (() => {
+  const v = (process.env.ENABLE_24H_MARKETS || "").trim().toLowerCase();
   return ["1", "true", "yes", "on"].includes(v);
 })();
 
@@ -110,12 +110,12 @@ startResolutionWorker();
 setupNonceReconciliation().catch((err) => console.error("[BullMQ] Nonce reconciliation setup error:", err));
 startNonceReconciliationWorker();
 
-// Start dedicated BullMQ hourly market lifecycle worker (lock + resolve + create)
-if (ENABLE_HOURLY_MARKETS) {
-  setupHourlySchedule().catch((err) => console.error("[Hourly] Schedule setup error:", err));
+// Start dedicated BullMQ 24h market lifecycle worker (lock + resolve + create)
+if (ENABLE_24H_MARKETS) {
+  setupHourlySchedule().catch((err) => console.error("[24h] Schedule setup error:", err));
   startHourlyWorker();
 } else {
-  console.log("[Hourly] Hourly markets disabled (set ENABLE_HOURLY_MARKETS=true to enable)");
+  console.log("[24h] 24h markets disabled (set ENABLE_24H_MARKETS=true to enable)");
 }
 
 export type App = typeof app;

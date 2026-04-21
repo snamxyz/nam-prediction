@@ -1,10 +1,10 @@
 /**
- * 1-hour market lifecycle service.
+ * 24-hour market lifecycle service.
  *
- * Provides `createNextHourlyMarket()` which creates a new 1-hour NAM market
- * on-chain and inserts the corresponding DB row. Called automatically after
- * the previous hourly market resolves, and on server startup when no active hourly
- * market exists.
+ * Provides `createNextHourlyMarket()` which creates a new 24-hour NAM market
+ * on-chain and inserts the corresponding DB row. The market resolves at
+ * 00:00 Eastern Time the following day. Called automatically after the previous
+ * 24h market resolves, and on server startup when no active 24h market exists.
  */
 import {
   createPublicClient,
@@ -28,7 +28,6 @@ const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
 const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
 const HOURLY_LIQUIDITY = Number(process.env.HOURLY_MARKET_LIQUIDITY || process.env.DAILY_MARKET_LIQUIDITY || 1);
-const DURATION_MINUTES = Number(process.env.HOURLY_MARKET_DURATION_MINUTES || 60);
 const LOCK_WINDOW_SECONDS = Number(process.env.MARKET_LOCK_WINDOW_SECONDS || 10);
 
 function getWalletClient() {
@@ -59,6 +58,42 @@ function formatEndLabel(endTime: Date): string {
 }
 
 /**
+ * Returns the next 00:00 Eastern Time as a UTC Date, DST-aware.
+ * Handles both EST (UTC-5) and EDT (UTC-4) without external libraries.
+ */
+function getNextMidnightET(): Date {
+  const now = new Date();
+  const todayET = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const [y, m, d] = todayET.split("-").map(Number);
+  const nextDayUTC = new Date(Date.UTC(y, m - 1, d + 1));
+  const ny = nextDayUTC.getUTCFullYear();
+  const nm = String(nextDayUTC.getUTCMonth() + 1).padStart(2, "0");
+  const nd = String(nextDayUTC.getUTCDate()).padStart(2, "0");
+  const tomorrowStr = `${ny}-${nm}-${nd}`;
+  // Start at T05:00:00Z = midnight EST. During EDT (UTC-4) this is 01:00 ET.
+  let candidate = new Date(`${tomorrowStr}T05:00:00Z`);
+  const etHour =
+    Number(
+      candidate
+        .toLocaleTimeString("en-US", {
+          timeZone: "America/New_York",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        })
+        .split(":")[0]
+    ) % 24;
+  if (etHour !== 0) {
+    candidate = new Date(candidate.getTime() - etHour * 60 * 60 * 1000);
+  }
+  return candidate;
+}
+
+function formatETDate(midnightET: Date): string {
+  return midnightET.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+/**
  * Check whether there is already an unresolved hourly market in the DB.
  */
 export async function hasActiveHourlyMarket(): Promise<boolean> {
@@ -67,7 +102,7 @@ export async function hasActiveHourlyMarket(): Promise<boolean> {
     .from(markets)
     .where(
       and(
-        eq(markets.cadence, "1h"),
+        eq(markets.cadence, "24h"),
         eq(markets.resolved, false),
       )
     )
@@ -77,7 +112,7 @@ export async function hasActiveHourlyMarket(): Promise<boolean> {
 }
 
 /**
- * Create the next 1-hour NAM market on-chain and insert it into the DB.
+ * Create the next 24-hour NAM market on-chain and insert it into the DB.
  *
  * @param comparison  ">=" or "<=" (default ">=")
  * @param threshold   Explicit price threshold. If omitted, fetches live NAM price.
@@ -90,8 +125,8 @@ export async function createNextHourlyMarket(
 
   // If there's already an active hourly market, skip to prevent duplicates
   if (await hasActiveHourlyMarket()) {
-    console.log("[Hourly] Active hourly market already exists — skipping creation");
-    throw new Error("Active hourly market already exists");
+    console.log("[24h] Active 24h market already exists — skipping creation");
+    throw new Error("Active 24h market already exists");
   }
 
   const walletClient = getWalletClient();
@@ -107,17 +142,18 @@ export async function createNextHourlyMarket(
   }
 
   const now = new Date();
-  const endTime = new Date(now.getTime() + DURATION_MINUTES * 60 * 1000);
+  const endTime = getNextMidnightET();
+  const etDate = formatETDate(endTime);
   const lockTime = new Date(endTime.getTime() - LOCK_WINDOW_SECONDS * 1000);
   const endTimeUnix = BigInt(Math.floor(endTime.getTime() / 1000));
   const lockTimeUnix = BigInt(Math.floor(lockTime.getTime() / 1000));
 
-  const question = `Will NAM be ${comparison} $${threshold.toFixed(6)} at ${formatEndLabel(endTime)}?`;
+  const question = `Will NAM be ${comparison} $${threshold.toFixed(6)} at 00:00 ET on ${etDate}?`;
 
   const resolutionConfig = {
     comparison,
     threshold,
-    cadence: "1h",
+    cadence: "24h",
     lockTime: lockTime.toISOString(),
     lockTimeUnix: Number(lockTimeUnix),
     pairAddress: process.env.DEXSCREENER_PAIR_ADDRESS || null,
@@ -129,8 +165,8 @@ export async function createNextHourlyMarket(
   const liquidityUsdc = parseUnits(String(HOURLY_LIQUIDITY), 6);
   const approvalAmount = (1n << 256n) - 1n;
 
-  console.log(`[Hourly] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
-  console.log(`[Hourly] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
+  console.log(`[24h] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
+  console.log(`[24h] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
 
   // Approve + Create as two sequential transactions, each going through the
   // serialized nonce manager queue. Only one in-flight tx at a time is allowed
@@ -147,7 +183,7 @@ export async function createNextHourlyMarket(
       nonce,
     })
   );
-  console.log(`[Hourly] Approve tx: ${approveHash}`);
+  console.log(`[24h] Approve tx: ${approveHash}`);
   // Wait for on-chain confirmation before sending the next tx
   await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
@@ -169,7 +205,7 @@ export async function createNextHourlyMarket(
       nonce,
     })
   );
-  console.log(`[Hourly] Create tx: ${createHash}`);
+  console.log(`[24h] Create tx: ${createHash}`);
   const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
 
   let onChainId: number | null = null;
@@ -210,7 +246,7 @@ export async function createNextHourlyMarket(
       noToken,
       ammAddress: liquidityPool,
       executionMode: "amm",
-      cadence: "1h",
+      cadence: "24h",
       status: "open",
       lockTime,
       endTime,
@@ -225,11 +261,11 @@ export async function createNextHourlyMarket(
     })
     .onConflictDoNothing();
 
-  // Ensure hourly-specific fields are set (in case indexer inserted the row first)
+  // Ensure 24h-specific fields are set (in case indexer inserted the row first)
   await db
     .update(markets)
     .set({
-      cadence: "1h",
+      cadence: "24h",
       status: "open",
       lockTime,
       endTime,
@@ -238,9 +274,9 @@ export async function createNextHourlyMarket(
     })
     .where(eq(markets.onChainId, onChainId));
 
-  console.log(`[Hourly] Market created successfully. onChainId=${onChainId}`);
-  console.log(`[Hourly] Question: ${question}`);
-  console.log(`[Hourly] Pool: ${liquidityPool}`);
+  console.log(`[24h] Market created successfully. onChainId=${onChainId}`);
+  console.log(`[24h] Question: ${question}`);
+  console.log(`[24h] Pool: ${liquidityPool}`);
 
   return { onChainId };
 }

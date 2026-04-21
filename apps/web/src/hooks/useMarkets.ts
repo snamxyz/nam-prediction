@@ -14,16 +14,16 @@ export function useMarkets() {
 
 export function useLatestHourlyMarket() {
   return useQuery<Market | null>({
-    queryKey: ["hourly-latest"],
-    queryFn: () => fetchApi<Market | null>("/markets/1h/latest"),
+    queryKey: ["24h-latest"],
+    queryFn: () => fetchApi<Market | null>("/markets/24h/latest"),
     refetchInterval: 10_000,
   });
 }
 
 export function useHourlyHistory() {
   return useQuery<Market[]>({
-    queryKey: ["hourly-history"],
-    queryFn: () => fetchApi<Market[]>("/markets/1h/history"),
+    queryKey: ["24h-history"],
+    queryFn: () => fetchApi<Market[]>("/markets/24h/history"),
     refetchInterval: 15_000,
   });
 }

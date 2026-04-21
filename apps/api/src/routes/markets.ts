@@ -121,28 +121,28 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
     };
   })
 
-  // GET /markets/1h/latest — Get the latest hourly market
-  .get("/1h/latest", async () => {
+  // GET /markets/24h/latest — Get the latest 24h market
+  .get("/24h/latest", async () => {
     const result = await db
       .select()
       .from(markets)
-      .where(eq(markets.cadence, "1h"))
+      .where(eq(markets.cadence, "24h"))
       .orderBy(desc(markets.createdAt))
       .limit(1);
 
     return { data: result.length > 0 ? result[0] : null, success: true };
   })
 
-  // GET /markets/1h/history — Last 24h of hourly markets
-  .get("/1h/history", async () => {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  // GET /markets/24h/history — Last 7 days of 24h markets
+  .get("/24h/history", async () => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const result = await db
       .select()
       .from(markets)
       .where(
         and(
-          eq(markets.cadence, "1h"),
-          gte(markets.createdAt, oneDayAgo)
+          eq(markets.cadence, "24h"),
+          gte(markets.createdAt, sevenDaysAgo)
         )
       )
       .orderBy(desc(markets.createdAt));

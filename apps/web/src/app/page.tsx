@@ -10,7 +10,7 @@ export default function HomePage() {
   const { data: markets } = useMarkets();
   const [tab, setTab] = useState<"all" | "open" | "resolved">("all");
 
-  const nonHourly = markets?.filter((m) => m.cadence !== "1h") ?? [];
+  const nonHourly = markets?.filter((m) => m.cadence !== "24h") ?? [];
   const filtered = nonHourly.filter((m) =>
     tab === "all" ? true : tab === "open" ? !m.resolved : m.resolved
   );
