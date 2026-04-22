@@ -21,7 +21,15 @@ contract CPMM {
     address public collateral; // USDC
     address public factory;
     address public vault; // Vault contract for delegated trading
-    uint256 public feeBps; // trading fee in basis points
+    uint256 public feeBps; // LP swap fee retained inside the pool (basis points)
+
+    // Protocol fee routed to the treasury wallet on every buy/sell.
+    address public feeWallet;
+    uint256 public protocolFeeBps;
+
+    // Extra headroom retained on top of outstanding winning claims when the
+    // liquidity breaker computes withdrawable. `reserved = claims + claims * bufferBps / BPS`.
+    uint256 public claimsBufferBps;
 
     uint256 public yesReserve;
     uint256 public noReserve;
@@ -32,10 +40,22 @@ contract CPMM {
     // LP share tracking
     mapping(address => uint256) public lpShareOf;
 
+    // ─── Liquidity breaker state ───
+    // Populated by the factory when the market resolves. Gates `withdrawExcessLiquidity`
+    // and tells `getOutstandingWinningClaims` which side's supply to use as reserved claims.
+    bool public resolved;
+    bool public yesWon;
+    bool public liquidityDrained;
+    uint256 public liquidityWithdrawn;
+
     // ─── Constants ───
     uint256 private constant PRECISION = 1e18;
     uint256 private constant BPS = 10000;
     uint256 private constant DECIMAL_SCALE = 1e12; // 6 → 18 decimal scaling
+    uint256 private constant MAX_PROTOCOL_FEE_BPS = 1000; // cap at 10%
+    // Hard cap on the post-resolution claims buffer. 50% is already well above
+    // anything sensible; the default is 100 bps (1%).
+    uint256 private constant MAX_CLAIMS_BUFFER_BPS = 5000;
 
     // ─── Events ───
     event Trade(
@@ -55,6 +75,17 @@ contract CPMM {
         uint256 sharesBurned,
         uint256 usdcOut
     );
+    event FeeCollected(
+        address indexed trader,
+        uint256 amount,
+        bool isBuy,
+        bool isYes
+    );
+    event LiquidityWithdrawn(address indexed treasury, uint256 amount);
+    event MarketResolutionNotified(bool yesWon);
+    event FeeWalletUpdated(address indexed newFeeWallet);
+    event ProtocolFeeBpsUpdated(uint256 newFeeBps);
+    event ClaimsBufferBpsUpdated(uint256 newBufferBps);
 
     // ─── Initialize (replaces constructor for clones) ───
     function initialize(
@@ -63,13 +94,21 @@ contract CPMM {
         address noToken_,
         address collateral_,
         uint256 feeBps_,
-        address factory_
+        address factory_,
+        address feeWallet_,
+        uint256 protocolFeeBps_,
+        uint256 claimsBufferBps_
     ) external {
         require(!_initialized, "Already initialized");
         require(yesToken_ != address(0), "Zero yesToken");
         require(noToken_ != address(0), "Zero noToken");
         require(collateral_ != address(0), "Zero collateral");
         require(feeBps_ < BPS, "Fee too high");
+        require(protocolFeeBps_ <= MAX_PROTOCOL_FEE_BPS, "Protocol fee too high");
+        require(claimsBufferBps_ <= MAX_CLAIMS_BUFFER_BPS, "Buffer too high");
+        // feeWallet may be zero at init; in that case protocolFeeBps must also be zero
+        // so fees can't be routed to the zero address.
+        require(feeWallet_ != address(0) || protocolFeeBps_ == 0, "Fee wallet required");
 
         _initialized = true;
         marketId = marketId_;
@@ -78,6 +117,9 @@ contract CPMM {
         collateral = collateral_;
         feeBps = feeBps_;
         factory = factory_;
+        feeWallet = feeWallet_;
+        protocolFeeBps = protocolFeeBps_;
+        claimsBufferBps = claimsBufferBps_;
     }
 
     // ─── Seed initial liquidity (only factory, once) ───
@@ -99,6 +141,30 @@ contract CPMM {
         emit LiquidityAdded(provider, usdcAmount, scaled);
     }
 
+    // ─── Fee helpers ───
+
+    /// @dev Skim protocol fee from `usdcIn` straight to the fee wallet, returning the
+    ///      net amount that stays in the pool and feeds the AMM math.
+    function _takeBuyFee(address trader, uint256 usdcIn, bool isYes) internal returns (uint256 netIn) {
+        uint256 fee = (usdcIn * protocolFeeBps) / BPS;
+        if (fee > 0) {
+            IERC20(collateral).safeTransfer(feeWallet, fee);
+            emit FeeCollected(trader, fee, true, isYes);
+        }
+        return usdcIn - fee;
+    }
+
+    /// @dev Skim protocol fee from a sell's gross USDC output. The pool is the custodian
+    ///      at call time, so fees move directly from pool -> fee wallet.
+    function _takeSellFee(address trader, uint256 grossOut, bool isYes) internal returns (uint256 netOut) {
+        uint256 fee = (grossOut * protocolFeeBps) / BPS;
+        if (fee > 0) {
+            IERC20(collateral).safeTransfer(feeWallet, fee);
+            emit FeeCollected(trader, fee, false, isYes);
+        }
+        return grossOut - fee;
+    }
+
     // ─── Trading ───
 
     /// @notice Buy YES outcome tokens with USDC
@@ -107,12 +173,13 @@ contract CPMM {
     function buyYes(uint256 usdcIn) external returns (uint256 sharesOut) {
         require(usdcIn > 0, "Zero input");
 
-        // Transfer USDC from trader
+        // Pull full amount into the pool; protocol fee is then remitted to the fee wallet.
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
+        uint256 netIn = _takeBuyFee(msg.sender, usdcIn, true);
 
-        // Apply fee
-        uint256 fee = (usdcIn * feeBps) / BPS;
-        uint256 usdcAfterFee = usdcIn - fee;
+        // LP swap fee stays in the pool by being excluded from the AMM input.
+        uint256 lpFee = (netIn * feeBps) / BPS;
+        uint256 usdcAfterFee = netIn - lpFee;
 
         // Scale to 18 decimals for AMM math
         uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
@@ -143,9 +210,10 @@ contract CPMM {
         require(usdcIn > 0, "Zero input");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
+        uint256 netIn = _takeBuyFee(msg.sender, usdcIn, false);
 
-        uint256 fee = (usdcIn * feeBps) / BPS;
-        uint256 usdcAfterFee = usdcIn - fee;
+        uint256 lpFee = (netIn * feeBps) / BPS;
+        uint256 usdcAfterFee = netIn - lpFee;
         uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
 
         uint256 k = yesReserve * noReserve;
@@ -180,11 +248,14 @@ contract CPMM {
         uint256 scaledOut = noReserve - newNoReserve;
 
         // Scale back from 18 to 6 decimals
-        usdcOut = scaledOut / DECIMAL_SCALE;
+        uint256 grossOut = scaledOut / DECIMAL_SCALE;
 
-        // Apply fee
-        uint256 fee = (usdcOut * feeBps) / BPS;
-        usdcOut = usdcOut - fee;
+        // LP swap fee retained inside the pool
+        uint256 lpFee = (grossOut * feeBps) / BPS;
+        uint256 afterLpFee = grossOut - lpFee;
+
+        // Route protocol fee to the fee wallet
+        usdcOut = _takeSellFee(msg.sender, afterLpFee, true);
         require(usdcOut > 0, "Insufficient output");
 
         // Update reserves
@@ -210,10 +281,12 @@ contract CPMM {
         uint256 newYesReserve = k / newNoReserve;
 
         uint256 scaledOut = yesReserve - newYesReserve;
-        usdcOut = scaledOut / DECIMAL_SCALE;
+        uint256 grossOut = scaledOut / DECIMAL_SCALE;
 
-        uint256 fee = (usdcOut * feeBps) / BPS;
-        usdcOut = usdcOut - fee;
+        uint256 lpFee = (grossOut * feeBps) / BPS;
+        uint256 afterLpFee = grossOut - lpFee;
+
+        usdcOut = _takeSellFee(msg.sender, afterLpFee, false);
         require(usdcOut > 0, "Insufficient output");
 
         yesReserve = newYesReserve;
@@ -254,9 +327,10 @@ contract CPMM {
         require(recipient != address(0), "Zero recipient");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
+        uint256 netIn = _takeBuyFee(recipient, usdcIn, true);
 
-        uint256 fee = (usdcIn * feeBps) / BPS;
-        uint256 usdcAfterFee = usdcIn - fee;
+        uint256 lpFee = (netIn * feeBps) / BPS;
+        uint256 usdcAfterFee = netIn - lpFee;
         uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
 
         uint256 k = yesReserve * noReserve;
@@ -284,9 +358,10 @@ contract CPMM {
         require(recipient != address(0), "Zero recipient");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
+        uint256 netIn = _takeBuyFee(recipient, usdcIn, false);
 
-        uint256 fee = (usdcIn * feeBps) / BPS;
-        uint256 usdcAfterFee = usdcIn - fee;
+        uint256 lpFee = (netIn * feeBps) / BPS;
+        uint256 usdcAfterFee = netIn - lpFee;
         uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
 
         uint256 k = yesReserve * noReserve;
@@ -320,10 +395,12 @@ contract CPMM {
         uint256 newNoReserve = k / newYesReserve;
 
         uint256 scaledOut = noReserve - newNoReserve;
-        usdcOut = scaledOut / DECIMAL_SCALE;
+        uint256 grossOut = scaledOut / DECIMAL_SCALE;
 
-        uint256 fee = (usdcOut * feeBps) / BPS;
-        usdcOut = usdcOut - fee;
+        uint256 lpFee = (grossOut * feeBps) / BPS;
+        uint256 afterLpFee = grossOut - lpFee;
+
+        usdcOut = _takeSellFee(seller, afterLpFee, true);
         require(usdcOut > 0, "Insufficient output");
 
         yesReserve = newYesReserve;
@@ -351,10 +428,12 @@ contract CPMM {
         uint256 newYesReserve = k / newNoReserve;
 
         uint256 scaledOut = yesReserve - newYesReserve;
-        usdcOut = scaledOut / DECIMAL_SCALE;
+        uint256 grossOut = scaledOut / DECIMAL_SCALE;
 
-        uint256 fee = (usdcOut * feeBps) / BPS;
-        usdcOut = usdcOut - fee;
+        uint256 lpFee = (grossOut * feeBps) / BPS;
+        uint256 afterLpFee = grossOut - lpFee;
+
+        usdcOut = _takeSellFee(seller, afterLpFee, false);
         require(usdcOut > 0, "Insufficient output");
 
         yesReserve = newYesReserve;
@@ -402,6 +481,87 @@ contract CPMM {
         IERC20(collateral).safeTransfer(to, usdcOut);
 
         emit Redemption(marketId, user, to, balance, usdcOut);
+    }
+
+    // ─── Liquidity breaker ───
+
+    /// @notice Mark the pool as resolved and record which side won.
+    /// @dev Called by the factory when a market transitions to resolved so
+    ///      `getOutstandingWinningClaims` and `withdrawExcessLiquidity` know
+    ///      which outcome token's supply represents reserved payouts.
+    function onResolved(bool yesWins) external {
+        require(msg.sender == factory, "Only factory");
+        require(!resolved, "Already resolved");
+        resolved = true;
+        yesWon = yesWins;
+        emit MarketResolutionNotified(yesWins);
+    }
+
+    /// @notice USDC (6 decimals) that still needs to stay in the pool to cover
+    ///         winning-token redemptions. Each 1e18 winning share redeems for 1 USDC.
+    function getOutstandingWinningClaims() public view returns (uint256) {
+        if (!resolved) return 0;
+        address token = yesWon ? yesToken : noToken;
+        return IOutcomeToken(token).totalSupply() / DECIMAL_SCALE;
+    }
+
+    /// @notice USDC the factory can safely pull out of the pool without stranding redeemers.
+    /// @dev Reserved = claims + buffer, where buffer = claims * claimsBufferBps / BPS.
+    ///      The buffer is pure defensive headroom above the exact redemption math.
+    function getWithdrawableLiquidity() public view returns (uint256) {
+        uint256 poolBalance = IERC20(collateral).balanceOf(address(this));
+        uint256 claims = getOutstandingWinningClaims();
+        uint256 reserved = claims + (claims * claimsBufferBps) / BPS;
+        if (poolBalance > reserved) {
+            return poolBalance - reserved;
+        }
+        return 0;
+    }
+
+    /// @notice Withdraw excess collateral to the treasury. Callable once, after resolution.
+    /// @dev Gated to the factory so access control lives on the factory admin.
+    function withdrawExcessLiquidity(address treasury) external returns (uint256 amount) {
+        require(msg.sender == factory, "Only factory");
+        require(resolved, "Not resolved");
+        require(!liquidityDrained, "Already drained");
+        require(treasury != address(0), "Zero treasury");
+
+        amount = getWithdrawableLiquidity();
+        liquidityDrained = true;
+        liquidityWithdrawn = amount;
+
+        if (amount > 0) {
+            IERC20(collateral).safeTransfer(treasury, amount);
+        }
+
+        emit LiquidityWithdrawn(treasury, amount);
+    }
+
+    // ─── Admin (factory-gated) ───
+
+    /// @notice Update the protocol fee wallet. Gated to factory so admin controls live there.
+    function setFeeWallet(address newFeeWallet) external {
+        require(msg.sender == factory, "Only factory");
+        require(newFeeWallet != address(0), "Zero wallet");
+        feeWallet = newFeeWallet;
+        emit FeeWalletUpdated(newFeeWallet);
+    }
+
+    /// @notice Update the protocol fee in basis points. Capped at 10%.
+    function setProtocolFeeBps(uint256 newFeeBps) external {
+        require(msg.sender == factory, "Only factory");
+        require(newFeeBps <= MAX_PROTOCOL_FEE_BPS, "Fee too high");
+        require(feeWallet != address(0) || newFeeBps == 0, "Fee wallet required");
+        protocolFeeBps = newFeeBps;
+        emit ProtocolFeeBpsUpdated(newFeeBps);
+    }
+
+    /// @notice Update the claims buffer (bps on top of exact winning claims).
+    function setClaimsBufferBps(uint256 newBufferBps) external {
+        require(msg.sender == factory, "Only factory");
+        require(newBufferBps <= MAX_CLAIMS_BUFFER_BPS, "Buffer too high");
+        claimsBufferBps = newBufferBps;
+        emit ClaimsBufferBpsUpdated(newBufferBps);
     }
 
     // ─── Liquidity ───

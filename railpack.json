@@ -9,6 +9,6 @@
     }
   },
   "deploy": {
-    "startCommand": "cd apps/api && bun run start"
+    "startCommand": "cd apps/api && bun db:migrate && bun run start"
   }
 }

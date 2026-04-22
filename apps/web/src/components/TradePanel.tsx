@@ -36,12 +36,27 @@ interface EstimateBuyResponse {
   sharesOutRaw?: string;
   avgPrice: string;
   potentialPayout: string;
+  tradeAmount?: string;
+  protocolFee?: string;
+  protocolFeeRaw?: string;
+  netAmount?: string;
+  netAmountRaw?: string;
+  lpFeeBps?: string;
+  protocolFeeBps?: string;
 }
 
 interface EstimateSellResponse {
   usdcOut: string;
   usdcOutRaw?: string;
   avgPrice: string;
+  grossAmount?: string;
+  grossAmountRaw?: string;
+  protocolFee?: string;
+  protocolFeeRaw?: string;
+  netAmount?: string;
+  netAmountRaw?: string;
+  lpFeeBps?: string;
+  protocolFeeBps?: string;
 }
 
 interface NonceResponse {
@@ -76,7 +91,18 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const [error, setError] = useState<string | null>(null);
 
   const [estimate, setEstimate] = useState<
-    | { shares?: string; sharesRaw?: string; usdc?: string; usdcRaw?: string; avgPrice?: string }
+    | {
+        shares?: string;
+        sharesRaw?: string;
+        usdc?: string;
+        usdcRaw?: string;
+        avgPrice?: string;
+        tradeAmount?: string;
+        netAmount?: string;
+        grossAmount?: string;
+        protocolFee?: string;
+        protocolFeeBps?: string;
+      }
     | null
   >(null);
 
@@ -94,12 +120,28 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           const data = await fetchApi<EstimateBuyResponse>(
             `/trading/estimate-buy?marketId=${marketId}&side=${side.toLowerCase()}&usdcAmount=${amount}`
           );
-          setEstimate({ shares: data.sharesOut, sharesRaw: data.sharesOutRaw, avgPrice: data.avgPrice });
+          setEstimate({
+            shares: data.sharesOut,
+            sharesRaw: data.sharesOutRaw,
+            avgPrice: data.avgPrice,
+            tradeAmount: data.tradeAmount,
+            netAmount: data.netAmount,
+            protocolFee: data.protocolFee,
+            protocolFeeBps: data.protocolFeeBps,
+          });
         } else {
           const data = await fetchApi<EstimateSellResponse>(
             `/trading/estimate-sell?marketId=${marketId}&side=${side.toLowerCase()}&sharesAmount=${amount}`
           );
-          setEstimate({ usdc: data.usdcOut, usdcRaw: data.usdcOutRaw, avgPrice: data.avgPrice });
+          setEstimate({
+            usdc: data.usdcOut,
+            usdcRaw: data.usdcOutRaw,
+            avgPrice: data.avgPrice,
+            grossAmount: data.grossAmount,
+            netAmount: data.netAmount,
+            protocolFee: data.protocolFee,
+            protocolFeeBps: data.protocolFeeBps,
+          });
         }
       } catch {
         setEstimate(null);
@@ -224,6 +266,14 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
     : (mode === "BUY" && price > 0 ? num / price : 0);
   const estimatedUsdc = estimate?.usdc ? parseFloat(estimate.usdc) : 0;
   const avgPriceNum = estimate?.avgPrice ? parseFloat(estimate.avgPrice) : price;
+
+  // Fee breakdown values
+  const protocolFeeNum = estimate?.protocolFee ? parseFloat(estimate.protocolFee) : 0;
+  const netAmountNum = estimate?.netAmount ? parseFloat(estimate.netAmount) : 0;
+  const grossAmountNum = estimate?.grossAmount ? parseFloat(estimate.grossAmount) : 0;
+  const protocolFeePctLabel = estimate?.protocolFeeBps
+    ? `${(Number(estimate.protocolFeeBps) / 100).toFixed(2)}%`
+    : "";
 
   // Price impact % vs the mid-price the user saw pre-trade.
   const priceImpactPct = useMemo(() => {
@@ -521,6 +571,34 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
           {mode === "BUY" ? (
             <>
+              {num > 0 && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                    <span style={{ color: "#4c4e68" }}>Trade amount</span>
+                    <span className="mono" style={{ color: "#e4e5eb" }}>
+                      ${num.toFixed(4)}
+                    </span>
+                  </div>
+                  {protocolFeeNum > 0 && (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                        <span style={{ color: "#4c4e68" }}>
+                          Protocol fee{protocolFeePctLabel ? ` (${protocolFeePctLabel})` : ""}
+                        </span>
+                        <span className="mono" style={{ color: "#ffa500" }}>
+                          −${protocolFeeNum.toFixed(4)}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                        <span style={{ color: "#4c4e68" }}>Net trade amount</span>
+                        <span className="mono" style={{ color: "#e4e5eb" }}>
+                          ${netAmountNum.toFixed(4)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
                 <span style={{ color: "#4c4e68" }}>Shares</span>
                 <span className="mono" style={{ color: "#e4e5eb" }}>
@@ -542,12 +620,34 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
               </div>
             </>
           ) : (
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-              <span style={{ color: "#4c4e68" }}>USDC received</span>
-              <span className="mono" style={{ color: num > 0 ? "#01d243" : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
-                {num > 0 ? `$${estimatedUsdc.toFixed(4)}` : "—"}
-              </span>
-            </div>
+            <>
+              {num > 0 && grossAmountNum > 0 && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                    <span style={{ color: "#4c4e68" }}>Gross proceeds</span>
+                    <span className="mono" style={{ color: "#e4e5eb" }}>
+                      ${grossAmountNum.toFixed(4)}
+                    </span>
+                  </div>
+                  {protocolFeeNum > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
+                      <span style={{ color: "#4c4e68" }}>
+                        Protocol fee{protocolFeePctLabel ? ` (${protocolFeePctLabel})` : ""}
+                      </span>
+                      <span className="mono" style={{ color: "#ffa500" }}>
+                        −${protocolFeeNum.toFixed(4)}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <span style={{ color: "#4c4e68" }}>USDC received</span>
+                <span className="mono" style={{ color: num > 0 ? "#01d243" : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
+                  {num > 0 ? `$${estimatedUsdc.toFixed(4)}` : "—"}
+                </span>
+              </div>
+            </>
           )}
         </div>
 

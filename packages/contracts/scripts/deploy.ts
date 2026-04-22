@@ -97,6 +97,41 @@ async function main() {
   await setVaultTx.wait();
   console.log("  Vault set on factory");
 
+  // 8. Configure protocol fee + treasury on the factory (picked up by every new pool)
+  const FEE_WALLET = process.env.FEE_WALLET || "";
+  const TRADE_FEE_BPS = process.env.TRADE_FEE_BPS || "100"; // default 1%
+  const TREASURY = process.env.TREASURY || FEE_WALLET;
+
+  if (FEE_WALLET) {
+    console.log("Setting fee wallet on MarketFactory...");
+    const tx = await factory.setFeeWallet(FEE_WALLET);
+    await tx.wait();
+    console.log("  Fee wallet:", FEE_WALLET);
+
+    console.log("Setting protocol fee bps on MarketFactory...");
+    const tx2 = await factory.setProtocolFeeBps(Number(TRADE_FEE_BPS));
+    await tx2.wait();
+    console.log("  Protocol fee bps:", TRADE_FEE_BPS);
+  } else {
+    console.log("FEE_WALLET not set — skipping protocol fee configuration");
+  }
+
+  if (TREASURY) {
+    console.log("Setting treasury on MarketFactory...");
+    const tx = await factory.setTreasury(TREASURY);
+    await tx.wait();
+    console.log("  Treasury:", TREASURY);
+  } else {
+    console.log("TREASURY not set — liquidity drain will require explicit treasury override");
+  }
+
+  // 9. Configure claims buffer bps (headroom kept in pool on top of outstanding claims)
+  const CLAIMS_BUFFER_BPS = process.env.CLAIMS_BUFFER_BPS || "100"; // default 1%
+  console.log("Setting claims buffer bps on MarketFactory...");
+  const txBuffer = await factory.setClaimsBufferBps(Number(CLAIMS_BUFFER_BPS));
+  await txBuffer.wait();
+  console.log("  Claims buffer bps:", CLAIMS_BUFFER_BPS);
+
   // Print summary
   console.log("\n=== Deployment Summary ===");
   console.log("Network:              Base Mainnet (Chain ID: 8453)");

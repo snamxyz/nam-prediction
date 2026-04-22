@@ -53,6 +53,20 @@ contract MarketFactory {
     address public outcomeTokenImpl;
     address public cpmmImpl;
 
+    // ─── Protocol fee + liquidity breaker config ───
+    /// @notice Wallet that receives the per-trade protocol fee, propagated into each new pool.
+    address public feeWallet;
+    /// @notice Default protocol fee (basis points) applied to new markets.
+    uint256 public protocolFeeBps;
+    /// @notice Destination for excess liquidity drained from resolved pools.
+    address public treasury;
+    /// @notice Tracks which pools have been drained so the worker can't double-drain.
+    mapping(uint256 => bool) public marketLiquidityDrained;
+    uint256 public constant MAX_PROTOCOL_FEE_BPS = 1000; // 10% ceiling
+    /// @notice Default extra headroom retained above exact winning claims when pools are drained.
+    uint256 public claimsBufferBps;
+    uint256 public constant MAX_CLAIMS_BUFFER_BPS = 5000; // 50% ceiling — defensive, not economic
+
     // ─── UMA Oracle State ───
     address public umaOracle;
     uint64 public umaLiveness = 7200; // 2 hours default
@@ -76,6 +90,11 @@ contract MarketFactory {
     event Redeemed(uint256 indexed marketId, address indexed user, uint256 amount);
     event UmaAssertionRequested(uint256 indexed marketId, bytes32 assertionId, uint8 proposedResult);
     event UmaAssertionResolved(uint256 indexed marketId, bytes32 assertionId, bool assertedTruthfully);
+    event MarketLiquidityDrained(uint256 indexed marketId, address indexed treasury, uint256 amount);
+    event FeeWalletUpdated(address indexed newFeeWallet);
+    event ProtocolFeeBpsUpdated(uint256 newFeeBps);
+    event TreasuryUpdated(address indexed newTreasury);
+    event ClaimsBufferBpsUpdated(uint256 newBufferBps);
 
     // ─── Modifiers ───
 
@@ -101,6 +120,8 @@ contract MarketFactory {
         cpmmImpl = cpmmImpl_;
         collateral = collateral_;
         umaOracle = umaOracle_; // can be address(0) if UMA not used
+        // feeWallet / protocolFeeBps / treasury default to zero — admin must
+        // configure them via setters before new markets should charge fees.
     }
 
     // ─── Market Creation ───
@@ -151,14 +172,18 @@ contract MarketFactory {
             pool
         );
 
-        // Initialize CPMM
+        // Initialize CPMM — propagate the factory-wide fee wallet + protocol fee +
+        // claims buffer so every new pool starts with the latest protocol config.
         ICPMM(pool).initialize(
             marketId,
             yesToken,
             noToken,
             collateral,
             feeBps,
-            address(this)
+            address(this),
+            feeWallet,
+            protocolFeeBps,
+            claimsBufferBps
         );
 
         // Transfer initial USDC from creator to pool for seeding
@@ -205,6 +230,10 @@ contract MarketFactory {
 
         market.resolved = true;
         market.result = result;
+
+        // Let the pool know which side won so it can compute outstanding claims
+        // and gate the eventual liquidity drain.
+        ICPMM(market.liquidityPool).onResolved(result == 1);
 
         emit MarketResolved(marketId, result);
     }
@@ -290,6 +319,7 @@ contract MarketFactory {
             uint8 proposedResult = assertionToProposedResult[assertionId];
             market.resolved = true;
             market.result = proposedResult;
+            ICPMM(market.liquidityPool).onResolved(proposedResult == 1);
             emit MarketResolved(marketId, proposedResult);
         } else {
             // Assertion was disputed and rejected — clear so someone can propose again
@@ -352,6 +382,89 @@ contract MarketFactory {
 
     function setVault(address vault_) external onlyAdmin {
         vault = vault_;
+    }
+
+    // ─── Protocol fee admin ───
+
+    /// @notice Update the default protocol fee wallet. Only affects new markets unless
+    ///         `updatePoolFeeWallet` is also called for a specific pool.
+    function setFeeWallet(address feeWallet_) external onlyAdmin {
+        require(feeWallet_ != address(0), "Zero wallet");
+        feeWallet = feeWallet_;
+        emit FeeWalletUpdated(feeWallet_);
+    }
+
+    /// @notice Update the default protocol fee (bps). Only affects new markets unless
+    ///         `updatePoolProtocolFeeBps` is also called for a specific pool.
+    function setProtocolFeeBps(uint256 protocolFeeBps_) external onlyAdmin {
+        require(protocolFeeBps_ <= MAX_PROTOCOL_FEE_BPS, "Fee too high");
+        protocolFeeBps = protocolFeeBps_;
+        emit ProtocolFeeBpsUpdated(protocolFeeBps_);
+    }
+
+    /// @notice Update an individual pool's fee wallet (for legacy markets that
+    ///         were created before the fee wallet was configured).
+    function updatePoolFeeWallet(uint256 marketId, address feeWallet_) external onlyAdmin {
+        Market storage market = markets[marketId];
+        require(market.yesToken != address(0), "Market not found");
+        ICPMM(market.liquidityPool).setFeeWallet(feeWallet_);
+    }
+
+    /// @notice Update an individual pool's protocol fee bps.
+    function updatePoolProtocolFeeBps(uint256 marketId, uint256 protocolFeeBps_) external onlyAdmin {
+        Market storage market = markets[marketId];
+        require(market.yesToken != address(0), "Market not found");
+        ICPMM(market.liquidityPool).setProtocolFeeBps(protocolFeeBps_);
+    }
+
+    /// @notice Update the default claims buffer (bps). Only affects new markets
+    ///         unless `updatePoolClaimsBufferBps` is called for an existing pool.
+    function setClaimsBufferBps(uint256 claimsBufferBps_) external onlyAdmin {
+        require(claimsBufferBps_ <= MAX_CLAIMS_BUFFER_BPS, "Buffer too high");
+        claimsBufferBps = claimsBufferBps_;
+        emit ClaimsBufferBpsUpdated(claimsBufferBps_);
+    }
+
+    /// @notice Update an individual pool's claims buffer bps.
+    function updatePoolClaimsBufferBps(uint256 marketId, uint256 bufferBps_) external onlyAdmin {
+        Market storage market = markets[marketId];
+        require(market.yesToken != address(0), "Market not found");
+        ICPMM(market.liquidityPool).setClaimsBufferBps(bufferBps_);
+    }
+
+    // ─── Liquidity breaker ───
+
+    /// @notice Destination for excess liquidity drained after market resolution.
+    function setTreasury(address treasury_) external onlyAdmin {
+        require(treasury_ != address(0), "Zero treasury");
+        treasury = treasury_;
+        emit TreasuryUpdated(treasury_);
+    }
+
+    /// @notice Drain excess liquidity from a resolved pool to the treasury.
+    /// @dev Computes the withdrawable amount on-chain (pool balance minus reserved
+    ///      winning claims) so redeemers are always covered. Idempotent: the pool
+    ///      itself also rejects a second drain.
+    /// @param marketId The resolved market to drain.
+    /// @param treasuryOverride If non-zero, overrides the factory default treasury.
+    /// @return amount USDC transferred to the treasury (can be zero).
+    function drainMarketLiquidity(uint256 marketId, address treasuryOverride)
+        external
+        onlyAdmin
+        returns (uint256 amount)
+    {
+        Market storage market = markets[marketId];
+        require(market.yesToken != address(0), "Market not found");
+        require(market.resolved, "Not resolved");
+        require(!marketLiquidityDrained[marketId], "Already drained");
+
+        address dst = treasuryOverride != address(0) ? treasuryOverride : treasury;
+        require(dst != address(0), "No treasury");
+
+        marketLiquidityDrained[marketId] = true;
+        amount = ICPMM(market.liquidityPool).withdrawExcessLiquidity(dst);
+
+        emit MarketLiquidityDrained(marketId, dst, amount);
     }
 
     // ─── Helpers ───

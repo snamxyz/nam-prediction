@@ -53,6 +53,25 @@ async function readReserves(ammAddress: `0x${string}`): Promise<[bigint, bigint]
   return [results[0] as bigint, results[1] as bigint];
 }
 
+/// Fetch the pool's live fee configuration so estimates stay in sync with on-chain
+/// state (e.g. an admin tweaking protocolFeeBps mid-flight).
+async function readPoolFees(ammAddress: `0x${string}`): Promise<{
+  lpFeeBps: bigint;
+  protocolFeeBps: bigint;
+}> {
+  const results = await publicClient.multicall({
+    allowFailure: false,
+    contracts: [
+      { address: ammAddress, abi: CPMMABI, functionName: "feeBps" },
+      { address: ammAddress, abi: CPMMABI, functionName: "protocolFeeBps" },
+    ],
+  });
+  return {
+    lpFeeBps: results[0] as bigint,
+    protocolFeeBps: results[1] as bigint,
+  };
+}
+
 function getWalletClient() {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error("PRIVATE_KEY not set");
@@ -70,36 +89,48 @@ function getWalletClient() {
 
 // ─── AMM math helpers for estimates ───
 
-function estimateBuyShares(
+// Mirrors CPMM.buyYes/buyNo: protocol fee is skimmed first off the gross input,
+// the LP fee is then withheld from the AMM math, and the remainder drives the
+// constant-product swap.
+function estimateBuy(
   usdcIn: bigint,
-  feeBps: bigint,
+  lpFeeBps: bigint,
+  protocolFeeBps: bigint,
   yesReserve: bigint,
   noReserve: bigint,
   isYes: boolean
-): bigint {
-  const fee = (usdcIn * feeBps) / 10000n;
-  const usdcAfterFee = usdcIn - fee;
+): { sharesOut: bigint; protocolFee: bigint; netIn: bigint } {
+  const protocolFee = (usdcIn * protocolFeeBps) / 10000n;
+  const netIn = usdcIn - protocolFee;
+  const lpFee = (netIn * lpFeeBps) / 10000n;
+  const usdcAfterFee = netIn - lpFee;
   const scaledIn = usdcAfterFee * 10n ** 12n;
   const k = yesReserve * noReserve;
 
+  let sharesOut: bigint;
   if (isYes) {
     const newNoReserve = noReserve + scaledIn;
     const newYesReserve = k / newNoReserve;
-    return yesReserve - newYesReserve;
+    sharesOut = yesReserve - newYesReserve;
   } else {
     const newYesReserve = yesReserve + scaledIn;
     const newNoReserve = k / newYesReserve;
-    return noReserve - newNoReserve;
+    sharesOut = noReserve - newNoReserve;
   }
+
+  return { sharesOut, protocolFee, netIn };
 }
 
-function estimateSellUsdc(
+// Mirrors CPMM.sellYes/sellNo: AMM math first, then LP fee retained in the pool,
+// then the protocol fee is routed to the fee wallet. User receives what's left.
+function estimateSell(
   sharesIn: bigint,
-  feeBps: bigint,
+  lpFeeBps: bigint,
+  protocolFeeBps: bigint,
   yesReserve: bigint,
   noReserve: bigint,
   isYes: boolean
-): bigint {
+): { usdcOut: bigint; grossOut: bigint; protocolFee: bigint } {
   const k = yesReserve * noReserve;
 
   let scaledOut: bigint;
@@ -113,15 +144,17 @@ function estimateSellUsdc(
     scaledOut = yesReserve - newYesReserve;
   }
 
-  let usdcOut = scaledOut / 10n ** 12n;
-  const fee = (usdcOut * feeBps) / 10000n;
-  usdcOut = usdcOut - fee;
-  return usdcOut;
+  const grossOut = scaledOut / 10n ** 12n;
+  const lpFee = (grossOut * lpFeeBps) / 10000n;
+  const afterLpFee = grossOut - lpFee;
+  const protocolFee = (afterLpFee * protocolFeeBps) / 10000n;
+  const usdcOut = afterLpFee - protocolFee;
+
+  return { usdcOut, grossOut, protocolFee };
 }
 
 // ─── Signed intent helpers ───
 
-const FEE_BPS = 200n; // 2%
 const NONCE_TTL_SECONDS = 60 * 60 * 24; // 24h replay window
 
 function nonceKey(wallet: string, nonce: string) {
@@ -245,13 +278,23 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
       const m = market[0];
       const ammAddress = m.ammAddress as `0x${string}`;
 
-      const [yesReserve, noReserve] = await readReserves(ammAddress);
+      const [[yesReserve, noReserve], { lpFeeBps, protocolFeeBps }] = await Promise.all([
+        readReserves(ammAddress),
+        readPoolFees(ammAddress),
+      ]);
 
       const usdcIn = parseUnits(usdcAmount, 6);
       const isYes = side.toLowerCase() === "yes";
 
-      const sharesOut = estimateBuyShares(usdcIn, FEE_BPS, yesReserve, noReserve, isYes);
-      // Shares are 18-decimal OutcomeTokens; avg price is USDC/share.
+      const { sharesOut, protocolFee, netIn } = estimateBuy(
+        usdcIn,
+        lpFeeBps,
+        protocolFeeBps,
+        yesReserve,
+        noReserve,
+        isYes
+      );
+      // Avg price is USDC spent per share (gross input includes protocol fee).
       const avgPrice = sharesOut > 0n ? Number(usdcIn) / (Number(sharesOut) / 1e18) : 0;
 
       return {
@@ -261,6 +304,13 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           sharesOutRaw: sharesOut.toString(),
           avgPrice: avgPrice.toFixed(6),
           potentialPayout: formatUnits(sharesOut, 18), // 1 share = 1 USDC if wins
+          tradeAmount: formatUnits(usdcIn, 6),
+          protocolFee: formatUnits(protocolFee, 6),
+          protocolFeeRaw: protocolFee.toString(),
+          netAmount: formatUnits(netIn, 6),
+          netAmountRaw: netIn.toString(),
+          lpFeeBps: lpFeeBps.toString(),
+          protocolFeeBps: protocolFeeBps.toString(),
         },
       };
     },
@@ -293,13 +343,23 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
       const m = market[0];
       const ammAddress = m.ammAddress as `0x${string}`;
 
-      const [yesReserve, noReserve] = await readReserves(ammAddress);
+      const [[yesReserve, noReserve], { lpFeeBps, protocolFeeBps }] = await Promise.all([
+        readReserves(ammAddress),
+        readPoolFees(ammAddress),
+      ]);
 
       const sharesIn = parseUnits(sharesAmount, 18);
       const isYes = side.toLowerCase() === "yes";
 
-      const usdcOut = estimateSellUsdc(sharesIn, FEE_BPS, yesReserve, noReserve, isYes);
-      // Shares are 18-decimal OutcomeTokens; avg price is USDC/share.
+      const { usdcOut, grossOut, protocolFee } = estimateSell(
+        sharesIn,
+        lpFeeBps,
+        protocolFeeBps,
+        yesReserve,
+        noReserve,
+        isYes
+      );
+      // Avg price is net USDC received per share sold.
       const avgPrice = Number(sharesIn) > 0 ? (Number(usdcOut) * 1e18) / Number(sharesIn) : 0;
 
       return {
@@ -308,6 +368,14 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           usdcOut: formatUnits(usdcOut, 6),
           usdcOutRaw: usdcOut.toString(),
           avgPrice: avgPrice.toFixed(6),
+          grossAmount: formatUnits(grossOut, 6),
+          grossAmountRaw: grossOut.toString(),
+          protocolFee: formatUnits(protocolFee, 6),
+          protocolFeeRaw: protocolFee.toString(),
+          netAmount: formatUnits(usdcOut, 6),
+          netAmountRaw: usdcOut.toString(),
+          lpFeeBps: lpFeeBps.toString(),
+          protocolFeeBps: protocolFeeBps.toString(),
         },
       };
     },
@@ -507,25 +575,30 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
       try {
         if (!VAULT_ADDRESS) throw new Error("Vault not configured");
 
-        // One multicall: vault balance + both reserves.
+        // One multicall: vault balance + both reserves + both fee tiers.
         const preflight = await publicClient.multicall({
           allowFailure: false,
           contracts: [
             { address: VAULT_ADDRESS, abi: VaultABI, functionName: "balanceOf", args: [walletAddress] },
             { address: ammAddress, abi: CPMMABI, functionName: "yesReserve" },
             { address: ammAddress, abi: CPMMABI, functionName: "noReserve" },
+            { address: ammAddress, abi: CPMMABI, functionName: "feeBps" },
+            { address: ammAddress, abi: CPMMABI, functionName: "protocolFeeBps" },
           ],
         });
         const vaultBalance = preflight[0] as bigint;
         const yesReserve = preflight[1] as bigint;
         const noReserve = preflight[2] as bigint;
+        const lpFeeBps = preflight[3] as bigint;
+        const protocolFeeBps = preflight[4] as bigint;
         if (vaultBalance < usdcParsed) {
           throw new Error("Insufficient deposited balance");
         }
 
-        const expectedShares = estimateBuyShares(
+        const { sharesOut: expectedShares } = estimateBuy(
           usdcParsed,
-          FEE_BPS,
+          lpFeeBps,
+          protocolFeeBps,
           yesReserve,
           noReserve,
           isYes
@@ -692,18 +765,23 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
             { address: tokenAddress, abi: OutcomeTokenABI, functionName: "balanceOf", args: [walletAddress] },
             { address: ammAddress, abi: CPMMABI, functionName: "yesReserve" },
             { address: ammAddress, abi: CPMMABI, functionName: "noReserve" },
+            { address: ammAddress, abi: CPMMABI, functionName: "feeBps" },
+            { address: ammAddress, abi: CPMMABI, functionName: "protocolFeeBps" },
           ],
         });
         const tokenBalance = preflight[0] as bigint;
         const yesReserve = preflight[1] as bigint;
         const noReserve = preflight[2] as bigint;
+        const lpFeeBps = preflight[3] as bigint;
+        const protocolFeeBps = preflight[4] as bigint;
         if (tokenBalance < sharesParsed) {
           throw new Error("Insufficient share balance");
         }
 
-        const expectedUsdc = estimateSellUsdc(
+        const { usdcOut: expectedUsdc } = estimateSell(
           sharesParsed,
-          FEE_BPS,
+          lpFeeBps,
+          protocolFeeBps,
           yesReserve,
           noReserve,
           isYes

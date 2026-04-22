@@ -10,6 +10,7 @@ import { startResolutionService } from "./services/resolution";
 import { setupResolutionSchedule, startResolutionWorker } from "./services/queue/resolution-queue";
 import { setupHourlySchedule, startHourlyWorker } from "./services/queue/hourly-queue";
 import { setupNonceReconciliation, startNonceReconciliationWorker } from "./services/queue/nonce-reconciliation-queue";
+import { setupLiquidityDrainSchedule, startLiquidityDrainWorker } from "./services/queue/liquidity-drain-queue";
 import { initNonceManager } from "./lib/nonce-manager.instance";
 import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
@@ -109,6 +110,10 @@ startResolutionWorker();
 // Start nonce reconciliation (every 30s)
 setupNonceReconciliation().catch((err) => console.error("[BullMQ] Nonce reconciliation setup error:", err));
 startNonceReconciliationWorker();
+
+// Liquidity-breaker: drain excess USDC from resolved AMM pools to the treasury.
+setupLiquidityDrainSchedule().catch((err) => console.error("[LiquidityDrain] Schedule setup error:", err));
+startLiquidityDrainWorker();
 
 // Start dedicated BullMQ 24h market lifecycle worker (lock + resolve + create)
 if (ENABLE_24H_MARKETS) {

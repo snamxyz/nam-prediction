@@ -35,12 +35,22 @@ export const markets = pgTable(
     liquidity: numeric("liquidity", { precision: 30, scale: 6 }).notNull().default("0"),
     resolutionSource: text("resolution_source").notNull().default("admin"), // admin | api | dexscreener | uma
     resolutionConfig: jsonb("resolution_config"), // source-specific JSON config
+    // Liquidity breaker: set after the post-resolution drain job pulls excess
+    // USDC out of the pool. reservedClaims + outstandingWinningClaims are the
+    // amounts left in the pool to honour winning redemptions.
+    liquidityDrained: boolean("liquidity_drained").notNull().default(false),
+    liquidityWithdrawn: numeric("liquidity_withdrawn", { precision: 30, scale: 6 }).notNull().default("0"),
+    reservedClaims: numeric("reserved_claims", { precision: 30, scale: 6 }).notNull().default("0"),
+    outstandingWinningClaims: numeric("outstanding_winning_claims", { precision: 30, scale: 6 }).notNull().default("0"),
+    drainedAt: timestamp("drained_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
   (table) => [
     index("markets_status_end_time_idx").on(table.status, table.endTime),
     index("markets_execution_status_idx").on(table.executionMode, table.status),
+    // Used by the liquidity-breaker worker to pick up resolved-but-not-drained markets.
+    index("markets_resolved_drained_idx").on(table.resolved, table.liquidityDrained, table.resolvedAt),
   ]
 );
 

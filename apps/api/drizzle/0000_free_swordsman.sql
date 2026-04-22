@@ -7,6 +7,17 @@ CREATE TABLE "balances" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "daily_markets" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"market_id" integer,
+	"date" text NOT NULL,
+	"threshold" numeric(30, 10) NOT NULL,
+	"settlement_price" numeric(30, 10),
+	"status" text DEFAULT 'active' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "daily_markets_date_unique" UNIQUE("date")
+);
+--> statement-breakpoint
 CREATE TABLE "holdings" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"market_id" integer NOT NULL,
@@ -18,6 +29,14 @@ CREATE TABLE "holdings" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "internal_metrics" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"metric_name" text NOT NULL,
+	"value" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "internal_metrics_metric_name_unique" UNIQUE("metric_name")
+);
+--> statement-breakpoint
 CREATE TABLE "liquidity_snapshots" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"pair_address" text NOT NULL,
@@ -25,6 +44,36 @@ CREATE TABLE "liquidity_snapshots" (
 	"base_liquidity" numeric(30, 18),
 	"quote_liquidity" numeric(30, 18),
 	"timestamp" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "markets" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"on_chain_id" integer NOT NULL,
+	"question" text NOT NULL,
+	"yes_token" text NOT NULL,
+	"no_token" text NOT NULL,
+	"amm_address" text NOT NULL,
+	"execution_mode" text DEFAULT 'amm' NOT NULL,
+	"cadence" text DEFAULT 'daily' NOT NULL,
+	"status" text DEFAULT 'open' NOT NULL,
+	"lock_time" timestamp with time zone,
+	"end_time" timestamp with time zone NOT NULL,
+	"resolved" boolean DEFAULT false NOT NULL,
+	"result" integer DEFAULT 0 NOT NULL,
+	"yes_price" real DEFAULT 0.5 NOT NULL,
+	"no_price" real DEFAULT 0.5 NOT NULL,
+	"volume" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"liquidity" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"resolution_source" text DEFAULT 'admin' NOT NULL,
+	"resolution_config" jsonb,
+	"liquidity_drained" boolean DEFAULT false NOT NULL,
+	"liquidity_withdrawn" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"reserved_claims" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"outstanding_winning_claims" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"drained_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"resolved_at" timestamp with time zone,
+	CONSTRAINT "markets_on_chain_id_unique" UNIQUE("on_chain_id")
 );
 --> statement-breakpoint
 CREATE TABLE "order_fills" (
@@ -129,11 +178,57 @@ CREATE TABLE "token_pairs" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "markets" ADD COLUMN "execution_mode" text DEFAULT 'amm' NOT NULL;--> statement-breakpoint
-ALTER TABLE "markets" ADD COLUMN "cadence" text DEFAULT 'daily' NOT NULL;--> statement-breakpoint
-ALTER TABLE "markets" ADD COLUMN "status" text DEFAULT 'open' NOT NULL;--> statement-breakpoint
-ALTER TABLE "markets" ADD COLUMN "lock_time" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "markets" ADD COLUMN "resolved_at" timestamp with time zone;--> statement-breakpoint
+CREATE TABLE "trades" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"market_id" integer NOT NULL,
+	"trader" text NOT NULL,
+	"is_yes" boolean NOT NULL,
+	"is_buy" boolean NOT NULL,
+	"shares" numeric(30, 18) NOT NULL,
+	"collateral" numeric(30, 6) NOT NULL,
+	"yes_price" real DEFAULT 0.5 NOT NULL,
+	"no_price" real DEFAULT 0.5 NOT NULL,
+	"tx_hash" text NOT NULL,
+	"timestamp" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "user_positions" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"market_id" integer NOT NULL,
+	"user_address" text NOT NULL,
+	"yes_balance" numeric(30, 18) DEFAULT '0' NOT NULL,
+	"no_balance" numeric(30, 18) DEFAULT '0' NOT NULL,
+	"avg_entry_price" real DEFAULT 0 NOT NULL,
+	"pnl" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"yes_avg_price" real DEFAULT 0 NOT NULL,
+	"no_avg_price" real DEFAULT 0 NOT NULL,
+	"yes_cost_basis" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"no_cost_basis" numeric(30, 6) DEFAULT '0' NOT NULL,
+	"last_reconciled_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "users" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"privy_user_id" text NOT NULL,
+	"wallet_address" text,
+	"display_name" text,
+	"login_method" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "users_privy_user_id_unique" UNIQUE("privy_user_id")
+);
+--> statement-breakpoint
+CREATE TABLE "vault_transactions" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"user_address" text NOT NULL,
+	"type" text NOT NULL,
+	"amount" numeric(30, 6) NOT NULL,
+	"tx_hash" text NOT NULL,
+	"block_number" numeric(30, 0),
+	"timestamp" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "daily_markets" ADD CONSTRAINT "daily_markets_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "holdings" ADD CONSTRAINT "holdings_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_fills" ADD CONSTRAINT "order_fills_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_fills" ADD CONSTRAINT "order_fills_maker_order_id_orders_id_fk" FOREIGN KEY ("maker_order_id") REFERENCES "public"."orders"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -144,11 +239,16 @@ ALTER TABLE "resolution_logs" ADD CONSTRAINT "resolution_logs_market_id_markets_
 ALTER TABLE "resolution_logs" ADD CONSTRAINT "resolution_logs_source_snapshot_id_price_snapshots_id_fk" FOREIGN KEY ("source_snapshot_id") REFERENCES "public"."price_snapshots"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "risk_events" ADD CONSTRAINT "risk_events_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "settlements" ADD CONSTRAINT "settlements_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "trades" ADD CONSTRAINT "trades_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "user_positions" ADD CONSTRAINT "user_positions_market_id_markets_id_fk" FOREIGN KEY ("market_id") REFERENCES "public"."markets"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "balances_user_asset_idx" ON "balances" USING btree ("user_address","asset");--> statement-breakpoint
 CREATE INDEX "balances_user_idx" ON "balances" USING btree ("user_address");--> statement-breakpoint
 CREATE UNIQUE INDEX "holdings_user_market_idx" ON "holdings" USING btree ("market_id","user_address");--> statement-breakpoint
 CREATE INDEX "holdings_user_idx" ON "holdings" USING btree ("user_address");--> statement-breakpoint
 CREATE INDEX "liquidity_snapshots_pair_timestamp_idx" ON "liquidity_snapshots" USING btree ("pair_address","timestamp");--> statement-breakpoint
+CREATE INDEX "markets_status_end_time_idx" ON "markets" USING btree ("status","end_time");--> statement-breakpoint
+CREATE INDEX "markets_execution_status_idx" ON "markets" USING btree ("execution_mode","status");--> statement-breakpoint
+CREATE INDEX "markets_resolved_drained_idx" ON "markets" USING btree ("resolved","liquidity_drained","resolved_at");--> statement-breakpoint
 CREATE INDEX "order_fills_market_created_idx" ON "order_fills" USING btree ("market_id","created_at");--> statement-breakpoint
 CREATE INDEX "order_fills_settlement_idx" ON "order_fills" USING btree ("settlement_id");--> statement-breakpoint
 CREATE INDEX "order_fills_maker_taker_idx" ON "order_fills" USING btree ("maker_address","taker_address");--> statement-breakpoint
@@ -168,7 +268,11 @@ CREATE UNIQUE INDEX "settlements_tx_hash_idx" ON "settlements" USING btree ("tx_
 CREATE INDEX "settlements_market_status_created_idx" ON "settlements" USING btree ("market_id","status","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "token_pairs_pair_address_idx" ON "token_pairs" USING btree ("pair_address");--> statement-breakpoint
 CREATE INDEX "token_pairs_chain_active_idx" ON "token_pairs" USING btree ("chain_id","active");--> statement-breakpoint
-CREATE INDEX "markets_status_end_time_idx" ON "markets" USING btree ("status","end_time");--> statement-breakpoint
-CREATE INDEX "markets_execution_status_idx" ON "markets" USING btree ("execution_mode","status");--> statement-breakpoint
 CREATE INDEX "trades_market_timestamp_idx" ON "trades" USING btree ("market_id","timestamp");--> statement-breakpoint
-CREATE INDEX "positions_user_market_idx" ON "user_positions" USING btree ("user_address","market_id");
+CREATE UNIQUE INDEX "trades_market_tx_hash_idx" ON "trades" USING btree ("market_id","tx_hash");--> statement-breakpoint
+CREATE INDEX "trades_trader_timestamp_idx" ON "trades" USING btree ("trader","timestamp");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_market_idx" ON "user_positions" USING btree ("market_id","user_address");--> statement-breakpoint
+CREATE INDEX "positions_user_market_idx" ON "user_positions" USING btree ("user_address","market_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "vault_tx_hash_idx" ON "vault_transactions" USING btree ("tx_hash");--> statement-breakpoint
+CREATE INDEX "vault_tx_user_timestamp_idx" ON "vault_transactions" USING btree ("user_address","timestamp");--> statement-breakpoint
+CREATE INDEX "vault_tx_type_timestamp_idx" ON "vault_transactions" USING btree ("type","timestamp");

@@ -8,7 +8,10 @@ interface ICPMM {
         address noToken_,
         address collateral_,
         uint256 feeBps_,
-        address factory_
+        address factory_,
+        address feeWallet_,
+        uint256 protocolFeeBps_,
+        uint256 claimsBufferBps_
     ) external;
 
     function setVault(address vault_) external;
@@ -24,6 +27,15 @@ interface ICPMM {
     function sellNoFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut);
 
     function redeemFor(address user, bool yesWins) external returns (uint256 usdcOut);
+
+    function onResolved(bool yesWins) external;
+    function withdrawExcessLiquidity(address treasury) external returns (uint256 amount);
+    function getOutstandingWinningClaims() external view returns (uint256);
+    function getWithdrawableLiquidity() external view returns (uint256);
+    function setFeeWallet(address newFeeWallet) external;
+    function setProtocolFeeBps(uint256 newFeeBps) external;
+    function setClaimsBufferBps(uint256 newBufferBps) external;
+    function claimsBufferBps() external view returns (uint256);
 
     function addLiquidity(uint256 usdcAmount) external returns (uint256 lpShares);
     function removeLiquidity(uint256 lpShares) external;
