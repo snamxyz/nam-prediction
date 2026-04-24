@@ -133,7 +133,7 @@ export function Navbar() {
         {/* Wallet button */}
         {isAuthenticated ? (<div className="flex items-center gap-1.5">
           <button
-            onClick={logout}
+            
             className="flex items-center gap-1.5 mono"
             style={{
               padding: "6px 12px",
