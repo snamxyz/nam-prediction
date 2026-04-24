@@ -6,32 +6,13 @@ import { createPublicClient, http, decodeEventLog, formatUnits, parseUnits } fro
 import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
 import { featureFlags } from "../config/feature-flags";
-import { fetchNamPrice } from "../services/daily-market";
+import { getNamSnapshot } from "../services/nam-price-poller";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const rpcClient = createPublicClient({
   chain: base,
   transport: http(RPC_URL),
 });
-
-type NamPricePoint = {
-  ts: string;
-  priceUsd: string;
-};
-
-const NAM_PRICE_HISTORY_LIMIT = 180;
-const namPriceHistory: NamPricePoint[] = [];
-
-function pushNamPricePoint(price: number): NamPricePoint[] {
-  namPriceHistory.push({
-    ts: new Date().toISOString(),
-    priceUsd: price.toString(),
-  });
-  if (namPriceHistory.length > NAM_PRICE_HISTORY_LIMIT) {
-    namPriceHistory.splice(0, namPriceHistory.length - NAM_PRICE_HISTORY_LIMIT);
-  }
-  return namPriceHistory;
-}
 
 // Positions are stored as numeric(30,18) decimal strings. Scale to wei
 // before doing BigInt arithmetic, then format back to decimal.
@@ -118,20 +99,21 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
     };
   })
 
-  // GET /markets/nam-price — Live NAM/USDC price from DexScreener
-  .get("/nam-price", async ({ set }) => {
-    const price = await fetchNamPrice();
-    if (price === null) {
-      set.status = 502;
-      return { success: false, error: "Unable to fetch NAM price" };
+  // GET /markets/nam-price — Live NAM/USDC price from DexScreener (served from poller cache)
+  .get("/nam-price", ({ set }) => {
+    const snap = getNamSnapshot();
+    if (!snap) {
+      set.status = 503;
+      return { success: false, error: "NAM price not yet available" };
     }
-    const history = pushNamPricePoint(price);
     return {
       success: true,
       data: {
-        priceUsd: price.toString(),
+        priceUsd: snap.priceUsd,
         tokenAddress: process.env.NAM_TOKEN_ADDRESS ?? null,
-        history,
+        tokenIconUrl: snap.tokenIconUrl,
+        lastUpdatedAt: snap.lastUpdatedAt,
+        history: snap.history,
       },
     };
   })

@@ -5,14 +5,11 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useMarket, useMarketTrades } from "@/hooks/useMarkets";
 import { useMarketSocket } from "@/hooks/useMarketSocket";
+import { useNamPriceStream } from "@/hooks/useNamPriceStream";
 import { TradePanel } from "@/components/TradePanel";
 import { PriceChart } from "@/components/PriceChart";
 import { NamPriceChart } from "@/components/NamPriceChart";
 import { ProbBar } from "@/components/ProbBar";
-import { fetchApi } from "@/lib/api";
-
-type NamPricePoint = { ts: string; priceUsd: string };
-type NamPriceResponse = { priceUsd: string; tokenAddress: string | null; history: NamPricePoint[] };
 
 function useCountdown(iso?: string) {
   const [value, setValue] = useState({ h: "00", m: "00", s: "00", ended: false });
@@ -41,30 +38,8 @@ export default function MarketPage() {
   const { prices: livePrices, stats: liveStats, resolved: liveResolved, locked: liveLocked } = useMarketSocket(market?.id);
   const [chartMode, setChartMode] = useState<"price" | "prob">("price");
   const [tab, setTab] = useState<"trades" | "about">("trades");
-  const [namPrice, setNamPrice] = useState<number | null>(null);
-  const [namHistory, setNamHistory] = useState<NamPricePoint[]>([]);
+  const { price: namPrice, iconUrl: namIconUrl, history: namHistory } = useNamPriceStream();
   const countdown = useCountdown(market?.endTime);
-
-  useEffect(() => {
-    let alive = true;
-    const poll = async () => {
-      try {
-        const data = await fetchApi<NamPriceResponse>("/markets/nam-price");
-        if (!alive) return;
-        const price = Number(data.priceUsd);
-        if (Number.isFinite(price)) setNamPrice(price);
-        setNamHistory(data.history ?? []);
-      } catch {
-        // no-op on transient polling failure
-      }
-    };
-    poll();
-    const id = setInterval(poll, 5000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
 
   if (isLoading) {
     return (
@@ -183,7 +158,7 @@ export default function MarketPage() {
                   ))}
                 </div>
               </div>
-              {chartMode === "price" ? <NamPriceChart points={namHistory} threshold={priceToBeat} /> : <PriceChart trades={trades || []} />}
+              {chartMode === "price" ? <NamPriceChart points={namHistory} threshold={priceToBeat} tokenIconUrl={namIconUrl} /> : <PriceChart trades={trades || []} />}
             </div>
           )}
 

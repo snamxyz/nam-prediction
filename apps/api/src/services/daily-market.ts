@@ -31,11 +31,16 @@ function getPublicClient() {
   });
 }
 
+export type NamPriceData = {
+  price: number;
+  iconUrl: string | null;
+};
+
 /**
- * Fetch current NAM/USDC price from DexScreener.
- * Returns the price in USD or null if unavailable.
+ * Fetch current NAM/USDC price from DexScreener, with token icon URL.
+ * Returns null if the price is unavailable.
  */
-export async function fetchNamPrice(): Promise<number | null> {
+export async function fetchNamPriceEnriched(): Promise<NamPriceData | null> {
   const pairAddress = process.env.DEXSCREENER_PAIR_ADDRESS;
   if (!pairAddress) {
     console.warn("[DailyMarket] DEXSCREENER_PAIR_ADDRESS not set");
@@ -51,11 +56,23 @@ export async function fetchNamPrice(): Promise<number | null> {
     const pair = data.pair;
     if (!pair?.priceUsd) return null;
 
-    return Number(pair.priceUsd);
+    return {
+      price: Number(pair.priceUsd),
+      iconUrl: (pair.info?.imageUrl as string | undefined) ?? null,
+    };
   } catch (err) {
     console.error("[DailyMarket] Failed to fetch NAM price:", err);
     return null;
   }
+}
+
+/**
+ * Fetch current NAM/USDC price from DexScreener.
+ * Returns the price in USD or null if unavailable.
+ */
+export async function fetchNamPrice(): Promise<number | null> {
+  const result = await fetchNamPriceEnriched();
+  return result?.price ?? null;
 }
 
 /**

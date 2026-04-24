@@ -14,6 +14,7 @@ import { setupLiquidityDrainSchedule, startLiquidityDrainWorker } from "./servic
 import { initNonceManager } from "./lib/nonce-manager.instance";
 import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
+import { startNamPricePoller } from "./services/nam-price-poller";
 import { createServer } from "http";
 
 const ENABLE_24H_MARKETS = (() => {
@@ -91,6 +92,9 @@ httpServer.listen(PORT, () => {
     `[Features] AMM=${featureFlags.enableAmmTrading} CLOB=${featureFlags.enableClobTrading} default=${featureFlags.defaultMarketExecutionMode}`
   );
 });
+
+// Start NAM price poller (feeds WebSocket updates + HTTP cache)
+startNamPricePoller();
 
 // Start background services
 initNonceManager()

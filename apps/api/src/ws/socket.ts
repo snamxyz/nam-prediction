@@ -13,6 +13,7 @@ const CHANNELS = {
   MARKET_UPDATE: "market:update",
   USER_BALANCE: "user:balance",
   USER_SHARES: "user:shares",
+  NAM_PRICE: "nam:price",
 } as const;
 
 export function getIO(): SocketIOServer {
@@ -98,6 +99,11 @@ function subscribeToRedis() {
           if (data.wallet) {
             io.to(`user:${data.wallet.toLowerCase()}`).emit(channel, data);
           }
+          break;
+
+        case CHANNELS.NAM_PRICE:
+          // Broadcast NAM price updates to all connected clients
+          io.emit("nam:price", data);
           break;
       }
     } catch (err) {
