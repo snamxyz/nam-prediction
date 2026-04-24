@@ -1,9 +1,11 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
 import { markets, users, trades, userPositions, vaultTransactions } from "../db/schema";
-import { eq, desc, count, sum, gte, lt, and, sql, ne } from "drizzle-orm";
+import { eq, desc, count, sum, gte, lt, and, sql, ne, lte } from "drizzle-orm";
 import { resolveMarketOnChain } from "../services/resolution";
 import { processDailyResolution } from "../services/queue/resolution-queue";
+import { processHourlyTick } from "../services/queue/hourly-queue";
+import { createNextHourlyMarket } from "../services/hourly-market";
 import { verifyAdminToken } from "../middleware/admin";
 
 // ─── Helper: 403 shorthand ───
@@ -290,6 +292,88 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
       query: t.Object({
         limit: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
+      }),
+    }
+  )
+
+  // ─── POST /admin/24h/tick — Manually trigger one hourly lifecycle tick ───
+  .post(
+    "/24h/tick",
+    async ({ headers, set }) => {
+      const claims = await verifyAdminToken(headers.authorization);
+      if (!claims) { set.status = 403; return forbidden(); }
+
+      try {
+        await processHourlyTick();
+        return { success: true, data: { message: "Hourly tick processed" } };
+      } catch (err: any) {
+        set.status = 500;
+        return { success: false, error: err.message };
+      }
+    }
+  )
+
+  // ─── POST /admin/24h/create — Manually create the next 24h market ───
+  // Body: { force?: boolean, comparison?: ">=" | "<=", threshold?: number }
+  // force=true marks any unresolved 24h markets past their endTime as cancelled
+  // in the DB so the active-market guard is cleared before creating the new one.
+  .post(
+    "/24h/create",
+    async ({ headers, body, set }) => {
+      const claims = await verifyAdminToken(headers.authorization);
+      if (!claims) { set.status = 403; return forbidden(); }
+
+      try {
+        if (body.force) {
+          const now = new Date();
+          const stuck = await db
+            .select({ id: markets.id, onChainId: markets.onChainId })
+            .from(markets)
+            .where(
+              and(
+                eq(markets.cadence, "24h"),
+                eq(markets.resolved, false),
+                lte(markets.endTime, now),
+              )
+            );
+
+          if (stuck.length > 0) {
+            await db
+              .update(markets)
+              .set({ resolved: true, status: "resolved", resolvedAt: now })
+              .where(
+                and(
+                  eq(markets.cadence, "24h"),
+                  eq(markets.resolved, false),
+                  lte(markets.endTime, now),
+                )
+              );
+            console.log(
+              `[Admin] Force-resolved ${stuck.length} stuck 24h market(s): ${stuck.map((m) => m.onChainId).join(", ")}`
+            );
+          }
+        }
+
+        const comparison = body.comparison ?? ">=";
+        const { onChainId } = await createNextHourlyMarket(
+          comparison as ">=" | "<=",
+          body.threshold ?? undefined,
+        );
+
+        return {
+          success: true,
+          data: { onChainId, message: `24h market created on-chain (id=${onChainId})` },
+        };
+      } catch (err: any) {
+        set.status = 500;
+        return { success: false, error: err.message };
+      }
+    },
+    {
+      body: t.Object({
+        force: t.Optional(t.Boolean()),
+        comparison: t.Optional(t.Union([t.Literal(">="), t.Literal("<=")])),
+        threshold: t.Optional(t.Number()),
       }),
     }
   );

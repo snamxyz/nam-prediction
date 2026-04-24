@@ -245,9 +245,33 @@ export async function processHourlyTick(): Promise<void> {
 
     // 3. Create the next market if none is active.
     //    This covers cold starts AND the post-resolution rollover within the same tick.
+    //    Also handles the case where the current market is stuck unresolved for more than
+    //    30 minutes past its endTime (e.g., DexScreener is down or on-chain resolution keeps
+    //    failing). In that case we cancel the stuck market in DB and roll over.
     //    (After a successful resolve, the indexer will flip `resolved=true`; we also
     //    check `hasActiveHourlyMarket()` to avoid races where the DB still shows it unresolved.)
-    if (active.length === 0 || resolvedThisTick) {
+    const STUCK_GRACE_MS = 30 * 60 * 1000; // 30 minutes past endTime → force rollover
+    const currentIsStuck =
+      active.length > 0 &&
+      !resolvedThisTick &&
+      Date.now() >= new Date(active[0].endTime).getTime() + STUCK_GRACE_MS;
+
+    if (currentIsStuck) {
+      const stuck = active[0];
+      const minutesStuck = Math.round((Date.now() - new Date(stuck.endTime).getTime()) / 60_000);
+      console.error(
+        `[HourlyQueue] Market #${stuck.onChainId} is ${minutesStuck}m past endTime with no on-chain resolution — cancelling and rolling over`
+      );
+      // Mark as cancelled in DB so hasActiveHourlyMarket() unblocks.
+      // Note: on-chain the market remains unresolved; admins must handle redemptions manually.
+      await db
+        .update(markets)
+        .set({ resolved: true, result: 0, status: "cancelled", resolvedAt: new Date() })
+        .where(eq(markets.id, stuck.id));
+      await publishEvent("market:cancelled", { marketId: stuck.id, onChainId: stuck.onChainId });
+    }
+
+    if (active.length === 0 || resolvedThisTick || currentIsStuck) {
       const stillActive = await hasActiveHourlyMarket();
       if (!stillActive) {
         try {
