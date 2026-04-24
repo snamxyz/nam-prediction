@@ -10,6 +10,7 @@ import { TradePanel } from "@/components/TradePanel";
 import { PriceChart } from "@/components/PriceChart";
 import { NamPriceChart } from "@/components/NamPriceChart";
 import { ProbBar } from "@/components/ProbBar";
+import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react";
 
 function useCountdown(iso?: string) {
   const [value, setValue] = useState({ h: "00", m: "00", s: "00", ended: false });
@@ -78,7 +79,7 @@ export default function MarketPage() {
         onMouseEnter={(e) => (e.currentTarget.style.color = "#e4e5eb")}
         onMouseLeave={(e) => (e.currentTarget.style.color = "#4c4e68")}
       >
-        ← Back to Markets
+        <ArrowLeft className="w-3.5 h-3.5" /> Back to Markets
       </Link>
 
       <div className="market-grid" style={{ display: "grid", gridTemplateColumns: "1fr 350px", gap: 16, alignItems: "start" }}>
@@ -124,8 +125,8 @@ export default function MarketPage() {
                     <div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 5, display: "flex", gap: 6, alignItems: "center" }}>
                       Current Price
                       {priceDelta != null && (
-                        <span className="mono" style={{ fontSize: 9, fontWeight: 700, color: priceDelta >= 0 ? "#01d243" : "#f0324c", background: priceDelta >= 0 ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)", padding: "1px 5px", borderRadius: 4 }}>
-                          {priceDelta >= 0 ? "▲" : "▼"} ${Math.abs(priceDelta).toFixed(5)}
+                        <span className="mono" style={{ fontSize: 9, fontWeight: 700, color: priceDelta >= 0 ? "#01d243" : "#f0324c", background: priceDelta >= 0 ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)", padding: "1px 5px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 2 }}>
+                          {priceDelta >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />} ${Math.abs(priceDelta).toFixed(5)}
                         </span>
                       )}
                     </div>

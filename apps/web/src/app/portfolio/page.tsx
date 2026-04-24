@@ -12,6 +12,7 @@ import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
 import { toast } from "sonner";
 import type { PositionWithMarket } from "@/hooks/usePortfolio";
+import { Wallet, TrendingUp, Trophy, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 
 const DUST = 1e-6;
 
@@ -100,34 +101,38 @@ export default function PortfolioPage() {
         }}
       >
         <div className="card" style={{ padding: 18 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.07em",
-              color: "#4c4e68",
-              marginBottom: 4,
-            }}
-          >
-            Active Value
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                color: "#4c4e68",
+              }}
+            >
+              Active Value
+            </div>
+            <Wallet className="w-3.5 h-3.5" style={{ color: "#4c4e68" }} />
           </div>
           <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>
             ${totalActiveValue.toFixed(2)}
           </div>
         </div>
         <div className="card" style={{ padding: 18 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.07em",
-              color: "#4c4e68",
-              marginBottom: 4,
-            }}
-          >
-            Unrealised P&L
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                color: "#4c4e68",
+              }}
+            >
+              Unrealised P&L
+            </div>
+            <TrendingUp className="w-3.5 h-3.5" style={{ color: totalPnl >= 0 ? "#01d243" : "#f0324c" }} />
           </div>
           <div
             className="mono"
@@ -137,17 +142,19 @@ export default function PortfolioPage() {
           </div>
         </div>
         <div className="card" style={{ padding: 18 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.07em",
-              color: "#4c4e68",
-              marginBottom: 4,
-            }}
-          >
-            Win Rate
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                color: "#4c4e68",
+              }}
+            >
+              Win Rate
+            </div>
+            <Trophy className="w-3.5 h-3.5" style={{ color: "#4c4e68" }} />
           </div>
           <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>
             {resolvedWithResult.length > 0 ? `${winRate}%` : "—"}
@@ -202,9 +209,12 @@ export default function PortfolioPage() {
               color: "#000",
               border: "none",
               cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            Deposit
+            <ArrowDownToLine className="w-3.5 h-3.5" /> Deposit
           </button>
           <button
             onClick={() => {
@@ -220,9 +230,12 @@ export default function PortfolioPage() {
               color: "#e4e5eb",
               border: "1px solid rgba(255,255,255,0.07)",
               cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            Withdraw
+            <ArrowUpFromLine className="w-3.5 h-3.5" /> Withdraw
           </button>
         </div>
       </div>

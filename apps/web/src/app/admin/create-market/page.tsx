@@ -6,6 +6,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagm
 import { parseUnits, stringToHex } from "viem";
 import { MarketFactoryABI, ERC20ABI, ResolutionSourceId } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS, USDC_ADDRESS } from "@/lib/contracts";
+import { UserCircle, Link2, TrendingUp } from "lucide-react";
 
 type SourceOption = "admin" | "api" | "dexscreener";
 
@@ -177,20 +178,20 @@ export default function CreateMarketPage() {
           </label>
           <div className="grid grid-cols-3 gap-2">
             {([
-              { value: "admin", label: "Admin", icon: "👤" },
-              { value: "api", label: "Backend API", icon: "🔗" },
-              { value: "dexscreener", label: "NAM Price", icon: "📈" },
+              { value: "admin", label: "Admin", Icon: UserCircle },
+              { value: "api", label: "Backend API", Icon: Link2 },
+              { value: "dexscreener", label: "NAM Price", Icon: TrendingUp },
             ] as const).map((opt) => (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => setResolutionSource(opt.value)}
-                className="py-2.5 px-3 rounded-lg text-sm font-medium transition text-left inner-border"
+                className="py-2.5 px-3 rounded-lg text-sm font-medium transition text-left inner-border flex items-center gap-2"
                 style={resolutionSource === opt.value
                   ? { background: "rgba(1,210,67,0.15)", color: "#01d243", borderColor: "rgba(1,210,67,0.25)" }
                   : { background: "rgba(31,32,40,0.50)", color: "#717182" }}
               >
-                {opt.icon} {opt.label}
+                <opt.Icon className="w-4 h-4 flex-shrink-0" /> {opt.label}
               </button>
             ))}
           </div>

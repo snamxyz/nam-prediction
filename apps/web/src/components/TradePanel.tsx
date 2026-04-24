@@ -16,6 +16,7 @@ import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { toast } from "sonner";
+import { AlertTriangle } from "lucide-react";
 
 const QUICK = [1, 5, 10, 100];
 const SELL_PERCENTS = [25, 50, 100] as const;
@@ -664,7 +665,10 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
               border: "1px solid rgba(255,165,0,0.20)",
             }}
           >
-            ⚠ High price impact ({priceImpactPct.toFixed(2)}%). Consider a smaller trade size.
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+              High price impact ({priceImpactPct.toFixed(2)}%). Consider a smaller trade size.
+            </span>
           </p>
         )}
 

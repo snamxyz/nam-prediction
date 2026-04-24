@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLatestHourlyMarket } from "@/hooks/useMarkets";
 import { ProbBar } from "@/components/ProbBar";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { ArrowRight } from "lucide-react";
 
 function useCountdown(targetDate: string | null | undefined) {
   const [timeLeft, setTimeLeft] = useState("");
@@ -247,11 +248,14 @@ export function HourlyMarketHero() {
             background: "#01d243",
             color: "#000",
             fontSize: 13,
-            fontWeight: 700,
-            letterSpacing: "0.01em",
-          }}
-        >
-          Trade Now →
+          fontWeight: 700,
+          letterSpacing: "0.01em",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+          Trade Now <ArrowRight className="w-4 h-4" />
         </Link>
       </div>
     </div>

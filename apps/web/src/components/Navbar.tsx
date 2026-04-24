@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { LogOut } from "lucide-react";
 
 export function Navbar() {
   const { login, logout, isAuthenticated, walletAddress } = useAuth();
@@ -130,7 +131,7 @@ export function Navbar() {
         </div>
 
         {/* Wallet button */}
-        {isAuthenticated ? (
+        {isAuthenticated ? (<div className="flex items-center gap-1.5">
           <button
             onClick={logout}
             className="flex items-center gap-1.5 mono"
@@ -143,17 +144,21 @@ export function Navbar() {
               color: "#e4e5eb",
             }}
           >
-            <div
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: "#01d243",
-                flexShrink: 0,
-              }}
-            />
             {truncatedAddress}
           </button>
+          <button
+            onClick={logout}
+            className="flex items-center gap-1.5 mono bg-red-500/5 border-red-500/10 border"
+            style={{
+              padding: "6px 12px",
+              borderRadius: 8,
+              fontSize: 12,
+              color: "#e4e5eb",
+            }}
+          >
+            <LogOut className="w-4 h-4 text-red-500" />
+          </button>
+          </div>
         ) : (
           <button
             onClick={login}
