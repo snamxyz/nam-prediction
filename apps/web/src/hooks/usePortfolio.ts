@@ -6,7 +6,8 @@ import { useEffect, useRef } from "react";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { usePrivy } from "@privy-io/react-auth";
 
-export interface PositionWithMarket {
+export interface BinaryPositionWithMarket {
+  positionType?: "binary";
   id: number;
   marketId: number;
   onChainId: number;
@@ -36,6 +37,32 @@ export interface PositionWithMarket {
   pnl: string;
   lastReconciledAt: string | null;
 }
+
+export interface RangePortfolioPosition {
+  positionType: "range";
+  id: number;
+  marketId: number;
+  onChainId: number | null;
+  marketType: "receipts" | "nam-distribution" | string;
+  question: string;
+  resolved: boolean;
+  status: string;
+  winningRangeIndex: number | null;
+  ranges: { index: number; label: string }[];
+  rangePrices: number[];
+  rangeIndex: number;
+  rangeLabel: string;
+  rangeBalance: string;
+  rangeAvgPrice: number;
+  rangeCostBasis: string;
+  rangeCurrentPrice: number;
+  rangeCurrentValue: string;
+  rangePnl: string;
+  rangePnlPct: string;
+  pnl: string;
+}
+
+export type PositionWithMarket = BinaryPositionWithMarket | RangePortfolioPosition;
 
 const RECONCILE_INTERVAL_MS = 15_000;
 

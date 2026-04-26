@@ -16,6 +16,26 @@ import { Wallet, TrendingUp, Trophy, ArrowDownToLine, ArrowUpFromLine } from "lu
 
 const DUST = 1e-6;
 
+function isRangePosition(
+  pos: PositionWithMarket
+): pos is Extract<PositionWithMarket, { positionType: "range" }> {
+  return pos.positionType === "range";
+}
+
+function hasPortfolioShares(pos: PositionWithMarket) {
+  if (isRangePosition(pos)) return Number(pos.rangeBalance || "0") >= DUST;
+  return Number(pos.yesBalance || "0") >= DUST || Number(pos.noBalance || "0") >= DUST;
+}
+
+function getPortfolioValue(pos: PositionWithMarket) {
+  if (isRangePosition(pos)) return Number(pos.rangeCurrentValue || "0");
+  return Number(pos.yesCurrentValue || "0") + Number(pos.noCurrentValue || "0");
+}
+
+function getPortfolioPnl(pos: PositionWithMarket) {
+  return Number(pos.pnl || "0");
+}
+
 export default function PortfolioPage() {
   const { isConnected, address } = useAccount();
   const { login } = usePrivy();
@@ -54,23 +74,23 @@ export default function PortfolioPage() {
 
   const activePositions = positions?.filter((p) => !p.resolved) ?? [];
   const resolvedPositions = positions?.filter((p) => p.resolved) ?? [];
-  const activeWithShares = activePositions.filter(
-    (p) => Number(p.yesBalance || "0") >= DUST || Number(p.noBalance || "0") >= DUST
-  );
+  const activeWithShares = activePositions.filter(hasPortfolioShares);
 
   const totalActiveValue = activeWithShares.reduce(
-    (s, p) => s + Number(p.yesCurrentValue || "0") + Number(p.noCurrentValue || "0"),
+    (s, p) => s + getPortfolioValue(p),
     0
   );
-  const totalPnl = activeWithShares.reduce((s, p) => s + Number(p.pnl || "0"), 0);
+  const totalPnl = activeWithShares.reduce((s, p) => s + getPortfolioPnl(p), 0);
 
   const resolvedWithResult = resolvedPositions.filter(
-    (p) => p.result === 1 || p.result === 2
+    (p) => isRangePosition(p) ? p.winningRangeIndex != null : p.result === 1 || p.result === 2
   );
   const wins = resolvedWithResult.filter(
     (p) =>
-      (p.result === 1 && Number(p.yesBalance || "0") >= DUST) ||
-      (p.result === 2 && Number(p.noBalance || "0") >= DUST)
+      isRangePosition(p)
+        ? p.rangeIndex === p.winningRangeIndex && Number(p.rangeBalance || "0") >= DUST
+        : (p.result === 1 && Number(p.yesBalance || "0") >= DUST) ||
+          (p.result === 2 && Number(p.noBalance || "0") >= DUST)
   ).length;
   const winRate =
     resolvedWithResult.length > 0
@@ -316,7 +336,7 @@ export default function PortfolioPage() {
               )}
             </div>
             {activeWithShares.map((pos) => (
-              <PositionTableRow key={pos.id} pos={pos} address={address} />
+              <PositionTableRow key={`${pos.positionType ?? "binary"}-${pos.id}`} pos={pos} address={address} />
             ))}
           </div>
         )}
@@ -378,7 +398,7 @@ export default function PortfolioPage() {
             </div>
             {resolvedPositions.map((pos) => (
               <PositionTableRow
-                key={pos.id}
+                key={`${pos.positionType ?? "binary"}-${pos.id}`}
                 pos={pos}
                 address={address}
                 resolved
@@ -454,6 +474,7 @@ function PositionTableRow({
   }, [isSuccess, address, queryClient]);
 
   const handleRedeem = () => {
+    if (isRangePosition(pos)) return;
     if (!MARKET_FACTORY_ADDRESS) return;
     const id = `redeem-${pos.onChainId}-${Date.now()}`;
     toastIdRef.current = id;
@@ -465,6 +486,133 @@ function PositionTableRow({
       args: [BigInt(pos.onChainId)],
     });
   };
+
+  if (isRangePosition(pos)) {
+    const balance = Number(pos.rangeBalance || "0");
+    const currentValue = Number(pos.rangeCurrentValue || "0");
+    const pnl = Number(pos.rangePnl || "0");
+    const marketHref =
+      pos.marketType === "receipts" || pos.marketType === "nam-distribution"
+        ? `/markets/${pos.marketType}`
+        : "/portfolio";
+    const isWinningRange =
+      pos.resolved &&
+      pos.winningRangeIndex != null &&
+      pos.rangeIndex === pos.winningRangeIndex;
+    const winnerLabel =
+      pos.winningRangeIndex != null
+        ? pos.ranges.find((range) => range.index === pos.winningRangeIndex)?.label ??
+          `Range ${pos.winningRangeIndex}`
+        : "Pending";
+
+    return (
+      <Link href={marketHref}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+            gap: 8,
+            padding: "10px 0",
+            borderBottom: "1px solid rgba(255,255,255,0.04)",
+            cursor: "pointer",
+            transition: "background 0.12s",
+            alignItems: "center",
+          }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = "rgba(255,255,255,0.02)")
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = "transparent")
+          }
+        >
+          <div
+            style={{
+              fontSize: 12,
+              color: "#e4e5eb",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {pos.question}
+          </div>
+          <div>
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "2px 7px",
+                borderRadius: 4,
+                background: "rgba(108,122,255,0.10)",
+                color: "#6c7aff",
+              }}
+            >
+              {pos.rangeLabel}
+            </span>
+          </div>
+          <div
+            className="mono"
+            style={{ fontSize: 12, color: "#e4e5eb" }}
+          >
+            {balance.toFixed(2)}
+          </div>
+          {!resolved ? (
+            <>
+              <div
+                className="mono"
+                style={{ fontSize: 12, color: "#4c4e68" }}
+              >
+                {(pos.rangeAvgPrice * 100).toFixed(1)}¢
+              </div>
+              <div
+                className="mono"
+                style={{ fontSize: 12, color: "#e4e5eb" }}
+              >
+                ${currentValue.toFixed(2)}
+              </div>
+              <div
+                className="mono"
+                style={{
+                  fontSize: 12,
+                  color: pnl >= 0 ? "#01d243" : "#f0324c",
+                }}
+              >
+                {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isWinningRange ? "#01d243" : "#f0324c",
+                }}
+              >
+                {winnerLabel} won
+              </div>
+              <div
+                className="mono"
+                style={{ fontSize: 12, color: "#e4e5eb" }}
+              >
+                ${currentValue.toFixed(2)}
+              </div>
+              <div>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: isWinningRange ? "#01d243" : "#f0324c",
+                  }}
+                >
+                  {isWinningRange ? "Won" : "Lost"}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </Link>
+    );
+  }
 
   const yesBal = Number(pos.yesBalance || "0");
   const noBal = Number(pos.noBalance || "0");

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
-import { userPositions, markets, trades } from "../db/schema";
+import { userPositions, markets, trades, rangePositions, rangeMarkets, rangeTrades } from "../db/schema";
 import { eq, and, desc } from "drizzle-orm";
 
 const DUST = 1e-9; // shares below this are ignored
@@ -21,6 +21,15 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
         .innerJoin(markets, eq(userPositions.marketId, markets.id))
         .where(eq(userPositions.userAddress, addr));
 
+      const rangeRows = await db
+        .select({
+          position: rangePositions,
+          market: rangeMarkets,
+        })
+        .from(rangePositions)
+        .innerJoin(rangeMarkets, eq(rangePositions.rangeMarketId, rangeMarkets.id))
+        .where(eq(rangePositions.userAddress, addr));
+
       // Fetch latest trade timestamp per market so we can sort by recency.
       // We do this lazily only for markets in the result set.
       const marketIds = [...new Set(rows.map((r) => r.market.id))];
@@ -39,7 +48,23 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
         }
       }
 
-      const mapped = rows
+      const rangeMarketIds = [...new Set(rangeRows.map((r) => r.market.id))];
+      const latestRangeTrades = rangeMarketIds.length
+        ? await db
+            .select({ marketId: rangeTrades.rangeMarketId, ts: rangeTrades.timestamp })
+            .from(rangeTrades)
+            .where(eq(rangeTrades.trader, addr))
+            .orderBy(desc(rangeTrades.timestamp))
+        : [];
+
+      const latestByRangeMarket = new Map<number, Date>();
+      for (const t of latestRangeTrades) {
+        if (!latestByRangeMarket.has(t.marketId)) {
+          latestByRangeMarket.set(t.marketId, t.ts);
+        }
+      }
+
+      const binaryMapped = rows
         .map((p) => {
           const { position: pos, market: m } = p;
 
@@ -68,6 +93,7 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
               : 0;
 
           return {
+            positionType: "binary" as const,
             // identity
             id: pos.id,
             marketId: pos.marketId,
@@ -96,19 +122,67 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
             avgEntryPrice: pos.avgEntryPrice,
             pnl: (yesPnl + noPnl).toFixed(6),
             lastReconciledAt: pos.lastReconciledAt,
+            sortTs: latestByMarket.get(pos.marketId)?.getTime() ?? 0,
           };
         })
         .filter(Boolean);
 
+      const rangeMapped = rangeRows
+        .map((p) => {
+          const { position: pos, market: m } = p;
+          const balance = Number(pos.balance || "0");
+          if (balance < DUST) return null;
+
+          const ranges = m.ranges as { index: number; label: string }[];
+          const prices = m.rangePrices as number[];
+          const range = ranges.find((r) => r.index === pos.rangeIndex) ?? ranges[pos.rangeIndex];
+          const currentPrice = m.resolved
+            ? pos.rangeIndex === m.winningRangeIndex ? 1 : 0
+            : prices[pos.rangeIndex] ?? 0;
+          const currentValue = balance * currentPrice;
+          const costBasis = Number(pos.costBasis || "0");
+          const pnl = currentValue - costBasis;
+          const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+
+          return {
+            positionType: "range" as const,
+            id: pos.id,
+            marketId: pos.rangeMarketId,
+            onChainId: m.onChainMarketId,
+            marketType: m.marketType,
+            question: m.question,
+            resolved: m.resolved,
+            status: m.status,
+            winningRangeIndex: m.winningRangeIndex,
+            ranges,
+            rangePrices: prices,
+            rangeIndex: pos.rangeIndex,
+            rangeLabel: range?.label ?? `Range ${pos.rangeIndex}`,
+            rangeBalance: pos.balance,
+            rangeAvgPrice: pos.avgEntryPrice,
+            rangeCostBasis: pos.costBasis,
+            rangeCurrentPrice: currentPrice,
+            rangeCurrentValue: currentValue.toFixed(6),
+            rangePnl: pnl.toFixed(6),
+            rangePnlPct: pnlPct.toFixed(2),
+            pnl: pnl.toFixed(6),
+            sortTs: latestByRangeMarket.get(pos.rangeMarketId)?.getTime() ?? 0,
+          };
+        })
+        .filter(Boolean);
+
+      const mapped = [...binaryMapped, ...rangeMapped];
+
       // Sort: unresolved markets first, then by most recent user trade descending.
       mapped.sort((a, b) => {
         if (a!.resolved !== b!.resolved) return a!.resolved ? 1 : -1;
-        const aTs = latestByMarket.get(a!.marketId)?.getTime() ?? 0;
-        const bTs = latestByMarket.get(b!.marketId)?.getTime() ?? 0;
-        return bTs - aTs;
+        return (b!.sortTs ?? 0) - (a!.sortTs ?? 0);
       });
 
-      return { data: mapped, success: true };
+      return {
+        data: mapped.map(({ sortTs, ...position }) => position),
+        success: true,
+      };
     },
     { params: t.Object({ user: t.String() }) }
   );

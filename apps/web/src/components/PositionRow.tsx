@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
 import { toast } from "sonner";
-import type { PositionWithMarket } from "@/hooks/usePortfolio";
+import type { BinaryPositionWithMarket } from "@/hooks/usePortfolio";
 
 const DUST = 1e-6;
 
@@ -147,7 +147,7 @@ function PositionLeg({
   );
 }
 
-interface PositionRowProps extends PositionWithMarket {}
+interface PositionRowProps extends BinaryPositionWithMarket {}
 
 export function PositionRow(props: PositionRowProps) {
   const { address } = useAccount();

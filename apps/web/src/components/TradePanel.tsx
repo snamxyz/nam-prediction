@@ -13,7 +13,7 @@ import {
 } from "@nam-prediction/shared";
 import { useAuth } from "@/hooks/useAuth";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
-import { usePortfolio } from "@/hooks/usePortfolio";
+import { usePortfolio, type BinaryPositionWithMarket, type PositionWithMarket } from "@/hooks/usePortfolio";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
@@ -23,6 +23,10 @@ const SELL_PERCENTS = [25, 50, 100] as const;
 const DUST = 1e-6;
 const SLIPPAGE_PRESETS = [0.5, 1, 2, 5];
 const WARN_PRICE_IMPACT_PCT = 5;
+
+function isBinaryPosition(pos: PositionWithMarket): pos is BinaryPositionWithMarket {
+  return (pos.positionType ?? "binary") === "binary";
+}
 
 interface TradePanelProps {
   marketId: number;
@@ -76,7 +80,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const queryClient = useQueryClient();
 
   const position = useMemo(
-    () => positions?.find((p) => p.marketId === marketId),
+    () => positions?.find((p): p is BinaryPositionWithMarket => isBinaryPosition(p) && p.marketId === marketId),
     [positions, marketId]
   );
   const yesSharesStr = position?.yesBalance ?? "0";
