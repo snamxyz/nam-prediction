@@ -4,10 +4,13 @@ import { useState } from "react";
 import { StatsBar } from "@/components/StatsBar";
 import { HourlyMarketHero } from "@/components/HourlyMarketHero";
 import { MarketCard } from "@/components/MarketCard";
+import { RangeMarketCard } from "@/components/RangeMarketCard";
 import { useMarkets } from "@/hooks/useMarkets";
+import { useActiveRangeMarkets } from "@/hooks/useRangeMarkets";
 
 export default function HomePage() {
   const { data: markets } = useMarkets();
+  const { data: rangeMarkets = [] } = useActiveRangeMarkets();
   const [tab, setTab] = useState<"all" | "open" | "resolved">("all");
 
   const nonHourly = markets?.filter((m) => m.cadence !== "24h") ?? [];
@@ -43,6 +46,37 @@ export default function HomePage() {
 
       <StatsBar />
       <HourlyMarketHero />
+
+      {/* Range markets section */}
+      {rangeMarkets.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 600, color: "#e4e5eb", margin: 0 }}>
+              Range Markets
+            </h2>
+            <span style={{
+              fontSize: 10, fontWeight: 700, color: "#6c7aff",
+              background: "rgba(108,122,255,0.12)", padding: "2px 8px",
+              borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.08em",
+            }}>
+              LMSR · Live
+            </span>
+          </div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
+            gap: 12,
+          }}>
+            {rangeMarkets.map((m) => (
+              <RangeMarketCard
+                key={m.id}
+                market={m}
+                href={m.marketType === "receipts" ? "/markets/receipts" : "/markets/nam-distribution"}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tab filters */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>

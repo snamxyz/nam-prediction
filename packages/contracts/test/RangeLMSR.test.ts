@@ -1,0 +1,349 @@
+import { ethers } from "hardhat";
+import { expect } from "chai";
+import type { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+
+const PRECISION = 10n ** 18n;
+const USDC_DECIMALS = 6n;
+const USDC_UNIT = 10n ** USDC_DECIMALS;
+
+// ABI snippets reused in multiple tests
+const ERC20_MINI_ABI = [
+  "function mint(address to, uint256 amount) external",
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function balanceOf(address) view returns (uint256)",
+];
+
+const OUTCOME_TOKEN_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+  "function approve(address, uint256) returns (bool)",
+];
+
+async function deployMockUSDC(deployer: SignerWithAddress) {
+  const Token = await ethers.getContractFactory(
+    "contracts/mocks/MockUSDC.sol:MockUSDC",
+    deployer
+  );
+  const contract = await Token.deploy();
+  await contract.waitForDeployment();
+  return contract;
+}
+
+/**
+ * Returns a fresh endTime far enough ahead to survive cumulative evm_increaseTime
+ * calls without needing to snapshot/restore.
+ */
+function futureEndTime(offsetSeconds = 86400 * 365): bigint {
+  return BigInt(Math.floor(Date.now() / 1000) + offsetSeconds);
+}
+
+async function deployRangeStack(
+  deployer: SignerWithAddress,
+  usdcAddr: string,
+  numRanges = 4,
+  seedLiquidityUsdc = 100n * USDC_UNIT,
+  feeBps = 0n,
+  protocolFeeBps = 0n
+) {
+  const RangeOutcomeTokenFactory = await ethers.getContractFactory("RangeOutcomeToken");
+  const rangeTokenImpl = await RangeOutcomeTokenFactory.deploy();
+  await rangeTokenImpl.waitForDeployment();
+
+  const RangeLMSRFactory = await ethers.getContractFactory("RangeLMSR");
+  const rangeLmsrImpl = await RangeLMSRFactory.deploy();
+  await rangeLmsrImpl.waitForDeployment();
+
+  const FactoryFactory = await ethers.getContractFactory("RangeMarketFactory");
+  const factory = await FactoryFactory.deploy(
+    await rangeTokenImpl.getAddress(),
+    await rangeLmsrImpl.getAddress(),
+    usdcAddr,
+    deployer.address,   // feeWallet
+    protocolFeeBps,
+    100n,               // claimsBufferBps
+    deployer.address    // treasury
+  );
+  await factory.waitForDeployment();
+
+  // Mint & approve seed liquidity
+  const usdcContract = await ethers.getContractAt(ERC20_MINI_ABI, usdcAddr, deployer);
+  await (usdcContract as any).mint(deployer.address, seedLiquidityUsdc * 20n);
+  await (usdcContract as any).approve(await factory.getAddress(), seedLiquidityUsdc);
+
+  const labels = Array.from({ length: numRanges }, (_, i) => `Range-${i}`);
+  const endTime = futureEndTime();
+
+  const tx = await (factory as any).createRangeMarket(
+    "Test Range Market",
+    endTime,
+    seedLiquidityUsdc,
+    feeBps,
+    labels
+  );
+  const receipt = await tx.wait();
+
+  // Parse event
+  let poolAddress = "";
+  let rangeTokenAddresses: string[] = [];
+  for (const log of receipt!.logs) {
+    try {
+      const parsed = (factory as any).interface.parseLog(log as any);
+      if (parsed?.name === "RangeMarketCreated") {
+        poolAddress = parsed.args.cpmmPool;
+        rangeTokenAddresses = [...parsed.args.rangeTokens];
+        break;
+      }
+    } catch { /* ignore non-matching logs */ }
+  }
+  if (!poolAddress) throw new Error("RangeMarketCreated event not found");
+
+  const pool = await ethers.getContractAt("RangeLMSR", poolAddress);
+  const tokens = await Promise.all(
+    rangeTokenAddresses.map((addr) => ethers.getContractAt(OUTCOME_TOKEN_ABI, addr))
+  );
+
+  // marketId is 0-indexed; rangeMarketCount was incremented during createRangeMarket
+  const marketId = (await (factory as any).rangeMarketCount()) - 1n;
+
+  return { factory, pool, tokens, poolAddress, rangeTokenAddresses, usdcContract, marketId };
+}
+
+// ─── Test suite ──────────────────────────────────────────────────────────────
+
+describe("RangeLMSR — full LMSR range market stack", function () {
+  this.timeout(120_000);
+
+  let deployer: SignerWithAddress;
+  let trader: SignerWithAddress;
+  let usdcAddr: string;
+  let usdcContract: Awaited<ReturnType<typeof ethers.getContractAt>>;
+
+  before(async () => {
+    [deployer, trader] = await ethers.getSigners();
+    const usdc = await deployMockUSDC(deployer);
+    usdcAddr = await usdc.getAddress();
+    usdcContract = await ethers.getContractAt(ERC20_MINI_ABI, usdcAddr, deployer);
+    // Seed both signers with plenty of USDC
+    await (usdcContract as any).mint(deployer.address, 1_000_000n * USDC_UNIT);
+    await (usdcContract as any).mint(trader.address, 1_000_000n * USDC_UNIT);
+  });
+
+  // ─── 1. Deployment ───────────────────────────────────────────────────────
+
+  it("deploys RangeMarketFactory with correct config", async function () {
+    const { factory } = await deployRangeStack(deployer, usdcAddr);
+    expect(await (factory as any).admin()).to.equal(deployer.address);
+    expect(await (factory as any).collateral()).to.equal(usdcAddr);
+  });
+
+  // ─── 2. Initial equal probabilities ──────────────────────────────────────
+
+  it("creates market with equal initial prices", async function () {
+    const numRanges = 4;
+    const { pool } = await deployRangeStack(deployer, usdcAddr, numRanges);
+    const prices: bigint[] = await (pool as any).getPrices();
+    expect(prices.length).to.equal(numRanges);
+    const expected = PRECISION / BigInt(numRanges);
+    for (const p of prices) {
+      // Allow 1 % relative tolerance
+      const delta = expected / 100n;
+      expect(p).to.be.closeTo(expected, delta);
+    }
+  });
+
+  // ─── 3. Buy raises selected range probability ─────────────────────────────
+
+  it("buy raises selected range probability", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const pricesBefore: bigint[] = await (pool as any).getPrices();
+
+    await (usdcContract as any).approve(await (pool as any).getAddress(), 10n * USDC_UNIT);
+    await (pool as any).buy(0n, 10n * USDC_UNIT);
+
+    const pricesAfter: bigint[] = await (pool as any).getPrices();
+    expect(pricesAfter[0]).to.be.gt(pricesBefore[0]);
+  });
+
+  // ─── 4. Probabilities sum to 1 after trades ───────────────────────────────
+
+  it("probabilities always sum to ~1e18 after trades", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+
+    await (usdcContract as any).approve(await (pool as any).getAddress(), 50n * USDC_UNIT);
+    await (pool as any).buy(1n, 20n * USDC_UNIT);
+    await (pool as any).buy(2n, 15n * USDC_UNIT);
+    await (pool as any).buy(3n, 10n * USDC_UNIT);
+
+    const prices: bigint[] = await (pool as any).getPrices();
+    const total = prices.reduce((a, b) => a + b, 0n);
+    expect(total).to.be.closeTo(PRECISION, PRECISION / 1000n);
+  });
+
+  // ─── 5. Sell lowers range probability ────────────────────────────────────
+
+  it("sell lowers range probability", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+
+    const buyAmount = 20n * USDC_UNIT;
+    await (usdcContract as any).approve(poolAddr, buyAmount);
+    await (pool as any).buy(0n, buyAmount);
+
+    const pricesMid: bigint[] = await (pool as any).getPrices();
+
+    // Get the outcome token for range 0 via rangeTokens(0)
+    const tokenAddr: string = await (pool as any).rangeTokens(0n);
+    const token = await ethers.getContractAt(OUTCOME_TOKEN_ABI, tokenAddr, deployer);
+    const bal: bigint = await (token as any).balanceOf(deployer.address);
+    expect(bal).to.be.gt(0n);
+
+    await (token as any).approve(poolAddr, bal / 2n);
+    await (pool as any).sell(0n, bal / 2n);
+
+    const pricesAfter: bigint[] = await (pool as any).getPrices();
+    expect(pricesAfter[0]).to.be.lt(pricesMid[0]);
+  });
+
+  // ─── 6. quoteBuy ─────────────────────────────────────────────────────────
+
+  it("quoteBuy returns correct shares estimate for USDC input", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const usdcIn = USDC_UNIT / 100n; // $0.01 at the initial 25c price ~= 0.04 tokens
+    const sharesOut: bigint = await (pool as any).quoteBuy(0n, usdcIn);
+    const expectedShares = (usdcIn * PRECISION) / (USDC_UNIT / 4n);
+    expect(sharesOut).to.be.closeTo(expectedShares, expectedShares / 100n);
+  });
+
+  it("buy spends the budget at the probability price instead of refunding most of it", async function () {
+    const { pool, usdcContract } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+    const usdcIn = USDC_UNIT / 100n; // $0.01
+    const quotedShares: bigint = await (pool as any).quoteBuy(0n, usdcIn);
+    const expectedShares = (usdcIn * PRECISION) / (USDC_UNIT / 4n);
+
+    await (usdcContract as any).approve(poolAddr, usdcIn);
+    const poolBalanceBefore: bigint = await (usdcContract as any).balanceOf(poolAddr);
+    await (pool as any).buy(0n, usdcIn);
+    const poolBalanceAfter: bigint = await (usdcContract as any).balanceOf(poolAddr);
+
+    const tokenAddr: string = await (pool as any).rangeTokens(0n);
+    const token = await ethers.getContractAt(OUTCOME_TOKEN_ABI, tokenAddr, deployer);
+    const bal: bigint = await (token as any).balanceOf(deployer.address);
+
+    expect(bal).to.equal(quotedShares);
+    expect(bal).to.be.closeTo(expectedShares, expectedShares / 100n);
+    expect(poolBalanceAfter - poolBalanceBefore).to.be.closeTo(usdcIn, 1n);
+  });
+
+  // ─── 7. buyFor – recipient receives tokens ────────────────────────────────
+
+  it("buyFor routes purchase to recipient and returns shares", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+
+    const usdcIn = USDC_UNIT / 100n;
+    const quotedShares: bigint = await (pool as any).quoteBuy(0n, usdcIn);
+    await (usdcContract as any).approve(poolAddr, usdcIn);
+    await (pool as any).buyFor(0n, usdcIn, trader.address);
+
+    const tokenAddr: string = await (pool as any).rangeTokens(0n);
+    const token = await ethers.getContractAt(OUTCOME_TOKEN_ABI, tokenAddr);
+    const bal: bigint = await (token as any).balanceOf(trader.address);
+    expect(bal).to.equal(quotedShares);
+  });
+
+  it("buyFor reverts when minSharesOut is above the LMSR quote", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+    const usdcIn = USDC_UNIT / 100n;
+    const quotedShares: bigint = await (pool as any).quoteBuy(0n, usdcIn);
+
+    await (usdcContract as any).approve(poolAddr, usdcIn);
+    await expect(
+      (pool as any)["buyFor(uint256,uint256,address,uint256)"](
+        0n,
+        usdcIn,
+        trader.address,
+        quotedShares + 1n
+      )
+    ).to.be.revertedWith("Slippage: insufficient shares");
+  });
+
+  // ─── 8. Resolution blocks further trading ────────────────────────────────
+
+  it("resolution sets winning range and blocks further trading", async function () {
+    const { pool, factory, marketId } = await deployRangeStack(deployer, usdcAddr);
+
+    // Advance time past market end (market endTime is ~1 year from now but
+    // we simply call resolve directly from admin — factory checks resolved state)
+    await (factory as any).resolveRangeMarket(marketId, 1n);
+
+    // Further buys should revert (market is resolved)
+    await (usdcContract as any).approve(await (pool as any).getAddress(), 10n * USDC_UNIT);
+    await expect((pool as any).buy(0n, 10n * USDC_UNIT)).to.be.reverted;
+  });
+
+  // ─── 9. Redemption – winning tokens pay USDC ─────────────────────────────
+
+  it("redeemRange pays out USDC for winning tokens", async function () {
+    const { pool, factory, marketId } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+
+    // Buy winning range (2)
+    const buyAmount = 20n * USDC_UNIT;
+    await (usdcContract as any).approve(poolAddr, buyAmount);
+    await (pool as any).buy(2n, buyAmount);
+
+    await (factory as any).resolveRangeMarket(marketId, 2n);
+
+    const balBefore: bigint = await (usdcContract as any).balanceOf(deployer.address);
+    await (factory as any).redeemRange(marketId, 2n);
+    const balAfter: bigint = await (usdcContract as any).balanceOf(deployer.address);
+    expect(balAfter).to.be.gt(balBefore);
+  });
+
+  // ─── 10. Redemption – losing tokens revert ───────────────────────────────
+
+  it("redeemRange reverts for losing range tokens", async function () {
+    const { pool, factory, marketId } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+
+    // Buy losing range (0)
+    const buyAmount = 20n * USDC_UNIT;
+    await (usdcContract as any).approve(poolAddr, buyAmount);
+    await (pool as any).buy(0n, buyAmount);
+
+    await (factory as any).resolveRangeMarket(marketId, 2n); // 2 wins
+
+    await expect((factory as any).redeemRange(marketId, 0n)).to.be.reverted;
+  });
+
+  // ─── 11. Low-liquidity: prices still move ────────────────────────────────
+
+  it("low-liquidity scenario: prices still move with small b", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr, 4, 10n * USDC_UNIT);
+    const pricesBefore: bigint[] = await (pool as any).getPrices();
+    const poolAddr = await (pool as any).getAddress();
+
+    await (usdcContract as any).approve(poolAddr, 5n * USDC_UNIT);
+    await (pool as any).buy(0n, 5n * USDC_UNIT);
+
+    const pricesAfter: bigint[] = await (pool as any).getPrices();
+    expect(pricesAfter[0]).to.be.gt(pricesBefore[0]);
+  });
+
+  // ─── 12. Invalid range index reverts ─────────────────────────────────────
+
+  it("invalid range index reverts on buy", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+    await (usdcContract as any).approve(poolAddr, 10n * USDC_UNIT);
+    await expect((pool as any).buy(99n, 10n * USDC_UNIT)).to.be.reverted;
+  });
+
+  // ─── 13. Factory isPool ───────────────────────────────────────────────────
+
+  it("factory.isPool registers the deployed pool", async function () {
+    const { factory, poolAddress } = await deployRangeStack(deployer, usdcAddr);
+    expect(await (factory as any).isPool(poolAddress)).to.equal(true);
+  });
+});

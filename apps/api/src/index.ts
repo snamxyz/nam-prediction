@@ -4,6 +4,7 @@ import { portfolioRoutes } from "./routes/portfolio";
 import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { tradingRoutes } from "./routes/trading";
+import { rangeMarketRoutes } from "./routes/range-markets";
 import { startIndexer } from "./services/indexer";
 import { startPositionReconciler } from "./services/position-reconciler";
 import { startResolutionService } from "./services/resolution";
@@ -11,14 +12,21 @@ import { setupResolutionSchedule, startResolutionWorker } from "./services/queue
 import { setupHourlySchedule, startHourlyWorker } from "./services/queue/hourly-queue";
 import { setupNonceReconciliation, startNonceReconciliationWorker } from "./services/queue/nonce-reconciliation-queue";
 import { setupLiquidityDrainSchedule, startLiquidityDrainWorker } from "./services/queue/liquidity-drain-queue";
+
 import { initNonceManager } from "./lib/nonce-manager.instance";
 import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
 import { startNamPricePoller } from "./services/nam-price-poller";
 import { createServer } from "http";
+import { setupRangeMarketSchedule, startRangeMarketWorker } from "./services/queue/range-market-queue";
 
 const ENABLE_24H_MARKETS = (() => {
   const v = (process.env.ENABLE_24H_MARKETS || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+})();
+
+const ENABLE_RANGE_MARKETS = (() => {
+  const v = (process.env.ENABLE_RANGE_MARKETS || "true").trim().toLowerCase();
   return ["1", "true", "yes", "on"].includes(v);
 })();
 
@@ -48,7 +56,8 @@ const app = new Elysia()
   .use(tradingRoutes)
   .use(portfolioRoutes)
   .use(adminRoutes)
-  .use(authRoutes);
+  .use(authRoutes)
+  .use(rangeMarketRoutes);
   // NOTE: no `.listen(PORT)` here — Elysia's native server would bind the
   // port and swallow the HTTP upgrade requests that Socket.IO needs. We
   // host HTTP + WebSocket together through the Node http.Server below so
@@ -125,6 +134,14 @@ if (ENABLE_24H_MARKETS) {
   startHourlyWorker();
 } else {
   console.log("[24h] 24h markets disabled (set ENABLE_24H_MARKETS=true to enable)");
+}
+
+// Start range market lifecycle worker (daily receipts + NAM distribution markets)
+if (ENABLE_RANGE_MARKETS) {
+  setupRangeMarketSchedule().catch((err) => console.error("[RangeMarket] Schedule setup error:", err));
+  startRangeMarketWorker();
+} else {
+  console.log("[RangeMarket] Range markets disabled (set ENABLE_RANGE_MARKETS=false to disable)");
 }
 
 export type App = typeof app;

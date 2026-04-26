@@ -13,6 +13,18 @@ interface IMarketFactoryView {
     function isPool(address pool) external view returns (bool);
 }
 
+/// @dev Minimal interface for the LMSR range pool's delegated-trade entrypoints.
+interface IRangeLMSR {
+    function buyFor(uint256 rangeIndex, uint256 usdcIn, address recipient) external returns (uint256 sharesOut);
+    function buyFor(
+        uint256 rangeIndex,
+        uint256 usdcIn,
+        address recipient,
+        uint256 minSharesOut
+    ) external returns (uint256 sharesOut);
+    function sellFor(uint256 rangeIndex, uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+}
+
 /// @title Vault — Router for per-user escrows (fund segregation by design)
 /// @notice Each depositing user gets their own EIP-1167 minimal-proxy `UserEscrow`
 ///         contract. The router never custodies user collateral: deposits land
@@ -35,6 +47,10 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     address public escrowImpl;   // UserEscrow implementation for cloning
     address public marketFactory; // Optional: pool whitelist source
 
+    /// @notice Extra whitelist for range LMSR pools (not created by MarketFactory).
+    ///         Admin-managed; set to true when a new range pool is deployed.
+    mapping(address => bool) public whitelistedPools;
+
     /// @inheritdoc IVaultRouter
     mapping(address => address) public override escrowOf;
     /// @inheritdoc IVaultRouter
@@ -48,6 +64,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     event OperatorChanged(address indexed operator);
     event AdminChanged(address indexed admin);
     event MarketFactoryChanged(address indexed factory);
+    event PoolWhitelisted(address indexed pool, bool whitelisted);
 
     // ─── Modifiers ───
     modifier onlyAdmin() {
@@ -168,6 +185,62 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
 
+    // ─── Range Operator Functions ───
+
+    /// @notice Buy range outcome tokens on behalf of a user against a whitelisted LMSR pool.
+    /// @param pool       RangeLMSR pool address.
+    /// @param rangeIndex Outcome index to buy.
+    /// @param usdcAmount USDC to spend (6 decimals).
+    /// @param user       User on whose behalf the trade is executed.
+    function executeRangeBuy(
+        address pool,
+        uint256 rangeIndex,
+        uint256 usdcAmount,
+        address user
+    ) external onlyOperator nonReentrant {
+        address escrow = _requireEscrow(user);
+        _requireWhitelistedPool(pool);
+
+        UserEscrow(escrow).buyRangeFor(pool, rangeIndex, usdcAmount, user);
+
+        emit BalanceUpdated(user, UserEscrow(escrow).balance());
+    }
+
+    /// @notice Buy range outcome tokens with a minimum shares-out slippage guard.
+    function executeRangeBuy(
+        address pool,
+        uint256 rangeIndex,
+        uint256 usdcAmount,
+        address user,
+        uint256 minSharesOut
+    ) external onlyOperator nonReentrant {
+        address escrow = _requireEscrow(user);
+        _requireWhitelistedPool(pool);
+
+        UserEscrow(escrow).buyRangeFor(pool, rangeIndex, usdcAmount, user, minSharesOut);
+
+        emit BalanceUpdated(user, UserEscrow(escrow).balance());
+    }
+
+    /// @notice Sell range outcome tokens on behalf of a user; USDC proceeds land in the escrow.
+    /// @param pool       RangeLMSR pool address.
+    /// @param rangeIndex Outcome index to sell.
+    /// @param sharesIn   Shares to burn (18 decimals).
+    /// @param user       User on whose behalf the trade is executed.
+    function executeRangeSell(
+        address pool,
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address user
+    ) external onlyOperator nonReentrant {
+        address escrow = _requireEscrow(user);
+        _requireWhitelistedPool(pool);
+
+        UserEscrow(escrow).sellRangeFor(pool, rangeIndex, sharesIn, user);
+
+        emit BalanceUpdated(user, UserEscrow(escrow).balance());
+    }
+
     // ─── Admin Functions ───
 
     function setOperator(address newOperator) external onlyAdmin {
@@ -188,6 +261,13 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     function setMarketFactory(address factory_) external onlyAdmin {
         marketFactory = factory_;
         emit MarketFactoryChanged(factory_);
+    }
+
+    /// @notice Whitelist or de-whitelist a range LMSR pool.
+    ///         Called by admin (or operator) after each new range market is deployed.
+    function whitelistPool(address pool, bool flag) external onlyAdmin {
+        whitelistedPools[pool] = flag;
+        emit PoolWhitelisted(pool, flag);
     }
 
     // ─── Views ───
@@ -226,6 +306,9 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     }
 
     function _requireWhitelistedPool(address pool) internal view {
+        // Allow range pools explicitly whitelisted by admin
+        if (whitelistedPools[pool]) return;
+        // Fall through to MarketFactory whitelist for binary CPMM pools
         address factory = marketFactory;
         if (factory == address(0)) return; // Whitelist disabled (local/testing)
         require(IMarketFactoryView(factory).isPool(pool), "Pool not whitelisted");

@@ -390,6 +390,84 @@ export const riskEvents = pgTable(
   ]
 );
 
+// ─── Range Markets ───
+export const rangeMarkets = pgTable(
+  "range_markets",
+  {
+    id: serial("id").primaryKey(),
+    marketType: text("market_type").notNull(), // "receipts" | "nam-distribution"
+    date: text("date").notNull(),              // YYYY-MM-DD resolution date (unique per type)
+    question: text("question").notNull(),
+    // JSON arrays stored as jsonb
+    ranges: jsonb("ranges").notNull(),                  // RangeOutcome[]
+    rangeTokenAddresses: jsonb("range_token_addresses").notNull(), // string[]
+    rangePrices: jsonb("range_prices").notNull(),        // number[] — current probabilities
+    rangeCpmmAddress: text("range_cpmm_address"),        // on-chain LMSR pool address
+    onChainMarketId: integer("on_chain_market_id"),      // on-chain market ID from factory
+    totalLiquidity: numeric("total_liquidity", { precision: 30, scale: 6 }).notNull().default("0"),
+    status: text("status").notNull().default("creating"), // creating | active | resolved | cancelled
+    resolved: boolean("resolved").notNull().default(false),
+    winningRangeIndex: integer("winning_range_index"),
+    endTime: timestamp("end_time", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("range_markets_type_status_idx").on(table.marketType, table.status),
+    index("range_markets_end_time_idx").on(table.endTime),
+    index("range_markets_type_date_idx").on(table.marketType, table.date),
+  ]
+);
+
+// ─── Range Trades ───
+export const rangeTrades = pgTable(
+  "range_trades",
+  {
+    id: serial("id").primaryKey(),
+    rangeMarketId: integer("range_market_id")
+      .notNull()
+      .references(() => rangeMarkets.id),
+    trader: text("trader").notNull(),
+    rangeIndex: integer("range_index").notNull(),
+    isBuy: boolean("is_buy").notNull(),
+    shares: numeric("shares", { precision: 30, scale: 18 }).notNull(),
+    collateral: numeric("collateral", { precision: 30, scale: 6 }).notNull(),
+    pricesSnapshot: jsonb("prices_snapshot"), // number[] — prices after this trade
+    txHash: text("tx_hash").notNull(),
+    timestamp: timestamp("timestamp", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("range_trades_market_timestamp_idx").on(table.rangeMarketId, table.timestamp),
+    uniqueIndex("range_trades_market_tx_hash_idx").on(table.rangeMarketId, table.txHash),
+    index("range_trades_trader_timestamp_idx").on(table.trader, table.timestamp),
+  ]
+);
+
+// ─── Range Positions ───
+export const rangePositions = pgTable(
+  "range_positions",
+  {
+    id: serial("id").primaryKey(),
+    rangeMarketId: integer("range_market_id")
+      .notNull()
+      .references(() => rangeMarkets.id),
+    userAddress: text("user_address").notNull(),
+    rangeIndex: integer("range_index").notNull(),
+    balance: numeric("balance", { precision: 30, scale: 18 }).notNull().default("0"),
+    avgEntryPrice: real("avg_entry_price").notNull().default(0),
+    costBasis: numeric("cost_basis", { precision: 30, scale: 6 }).notNull().default("0"),
+    pnl: numeric("pnl", { precision: 30, scale: 6 }).notNull().default("0"),
+  },
+  (table) => [
+    uniqueIndex("range_positions_market_user_range_idx").on(
+      table.rangeMarketId,
+      table.userAddress,
+      table.rangeIndex
+    ),
+    index("range_positions_user_market_idx").on(table.userAddress, table.rangeMarketId),
+  ]
+);
+
 // ─── Type exports ───
 export type MarketRow = typeof markets.$inferSelect;
 export type TradeRow = typeof trades.$inferSelect;
@@ -408,3 +486,6 @@ export type LiquiditySnapshotRow = typeof liquiditySnapshots.$inferSelect;
 export type ResolutionLogRow = typeof resolutionLogs.$inferSelect;
 export type RiskEventRow = typeof riskEvents.$inferSelect;
 export type VaultTransactionRow = typeof vaultTransactions.$inferSelect;
+export type RangeMarketRow = typeof rangeMarkets.$inferSelect;
+export type RangeTradeRow = typeof rangeTrades.$inferSelect;
+export type RangePositionRow = typeof rangePositions.$inferSelect;

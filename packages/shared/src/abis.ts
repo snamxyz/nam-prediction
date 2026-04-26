@@ -706,4 +706,312 @@ export const VaultABI = [
       { name: "newBalance", type: "uint256", indexed: false },
     ],
   },
+  // Range-market operator entrypoints
+  {
+    type: "function",
+    name: "executeRangeBuy",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcAmount", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "executeRangeBuy",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcAmount", type: "uint256" },
+      { name: "user", type: "address" },
+      { name: "minSharesOut", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "executeRangeSell",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "user", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "whitelistPool",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "flag", type: "bool" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "whitelistedPools",
+    inputs: [{ name: "pool", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
 ] as const;
+
+// ─── RangeMarketFactory ABI ───
+
+export const RangeMarketFactoryABI = [
+  {
+    type: "function",
+    name: "createRangeMarket",
+    inputs: [
+      { name: "question", type: "string" },
+      { name: "endTime", type: "uint256" },
+      { name: "liquidityUsdc", type: "uint256" },
+      { name: "feeBps", type: "uint256" },
+      { name: "rangeLabels", type: "string[]" },
+    ],
+    outputs: [{ name: "marketId", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "resolveRangeMarket",
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "winningRangeIndex_", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "redeemRange",
+    inputs: [
+      { name: "marketId", type: "uint256" },
+      { name: "rangeIndex", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "drainLiquidity",
+    inputs: [{ name: "marketId", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getMarket",
+    inputs: [{ name: "marketId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "pool", type: "address" },
+          { name: "rangeTokens", type: "address[]" },
+          { name: "question", type: "string" },
+          { name: "endTime", type: "uint256" },
+          { name: "resolved", type: "bool" },
+          { name: "winningRangeIndex", type: "uint256" },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isPool",
+    inputs: [{ name: "pool", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "event",
+    name: "RangeMarketCreated",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "cpmmPool", type: "address", indexed: true },
+      { name: "rangeTokens", type: "address[]", indexed: false },
+      { name: "question", type: "string", indexed: false },
+      { name: "endTime", type: "uint256", indexed: false },
+      { name: "rangeLabels", type: "string[]", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "RangeMarketResolved",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "winningRangeIndex", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
+// ─── RangeLMSR (and RangeCPMM-compatible) ABI ───
+
+export const RangeLMSRABI = [
+  {
+    type: "function",
+    name: "buy",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcIn", type: "uint256" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "buy",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcIn", type: "uint256" },
+      { name: "minSharesOut", type: "uint256" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "sell",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "buyFor",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcIn", type: "uint256" },
+      { name: "recipient", type: "address" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "buyFor",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcIn", type: "uint256" },
+      { name: "recipient", type: "address" },
+      { name: "minSharesOut", type: "uint256" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "sellFor",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "seller", type: "address" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getPrices",
+    inputs: [],
+    outputs: [{ name: "prices", type: "uint256[]" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "quoteBuy",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "usdcAmount", type: "uint256" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "quoteShareCost",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesWanted", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcCost", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getRangeToken",
+    inputs: [{ name: "rangeIndex", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "numRanges",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "b",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "resolved",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "winningRangeIndex",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getCollateralBalance",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "event",
+    name: "RangeTrade",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "trader", type: "address", indexed: true },
+      { name: "rangeIndex", type: "uint256", indexed: true },
+      { name: "isBuy", type: "bool", indexed: false },
+      { name: "shares", type: "uint256", indexed: false },
+      { name: "collateralAmount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "MarketResolutionNotified",
+    inputs: [
+      { name: "winningRangeIndex", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
+
+// RangeCPMMABI is an alias — both have identical external interfaces for the shared functions
+export const RangeCPMMABI = RangeLMSRABI;

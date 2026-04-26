@@ -6,6 +6,18 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/ICPMM.sol";
 
+/// @dev Minimal interface for the LMSR range pool's delegated-trade entrypoints.
+interface IRangeLMSRPool {
+    function buyFor(uint256 rangeIndex, uint256 usdcIn, address recipient) external returns (uint256 sharesOut);
+    function buyFor(
+        uint256 rangeIndex,
+        uint256 usdcIn,
+        address recipient,
+        uint256 minSharesOut
+    ) external returns (uint256 sharesOut);
+    function sellFor(uint256 rangeIndex, uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+}
+
 /// @title UserEscrow — Per-user collateral escrow with strict segregation
 /// @notice One instance (as a minimal EIP-1167 clone) is deployed per depositing user.
 ///         USDC for a given user is held ONLY by that user's escrow and can never
@@ -134,6 +146,61 @@ contract UserEscrow is ReentrancyGuard {
         require(sharesIn > 0, "Zero input");
         require(seller == owner, "Seller must be owner");
         usdcOut = ICPMM(pool).sellNoFor(sharesIn, seller);
+        emit TradeExecuted(pool, false, false, sharesIn, usdcOut);
+    }
+
+    // ─── Range (LMSR) Router-Dispatched Trades ───
+
+    /// @notice Buy range outcome tokens using this escrow's collateral, minting to the owner.
+    /// @param pool       RangeLMSR pool address.
+    /// @param rangeIndex Outcome index to buy.
+    /// @param usdcIn     USDC to spend (6 decimals).
+    /// @param recipient  Must equal the escrow owner.
+    function buyRangeFor(
+        address pool,
+        uint256 rangeIndex,
+        uint256 usdcIn,
+        address recipient
+    ) external onlyRouter nonReentrant returns (uint256 sharesOut) {
+        require(usdcIn > 0, "Zero input");
+        require(recipient == owner, "Recipient must be owner");
+        IERC20(collateral).forceApprove(pool, usdcIn);
+        sharesOut = IRangeLMSRPool(pool).buyFor(rangeIndex, usdcIn, recipient);
+        IERC20(collateral).forceApprove(pool, 0);
+        emit TradeExecuted(pool, false, true, usdcIn, sharesOut);
+    }
+
+    /// @notice Buy range outcome tokens with a minimum shares-out slippage guard.
+    function buyRangeFor(
+        address pool,
+        uint256 rangeIndex,
+        uint256 usdcIn,
+        address recipient,
+        uint256 minSharesOut
+    ) external onlyRouter nonReentrant returns (uint256 sharesOut) {
+        require(usdcIn > 0, "Zero input");
+        require(recipient == owner, "Recipient must be owner");
+        IERC20(collateral).forceApprove(pool, usdcIn);
+        sharesOut = IRangeLMSRPool(pool).buyFor(rangeIndex, usdcIn, recipient, minSharesOut);
+        IERC20(collateral).forceApprove(pool, 0);
+        emit TradeExecuted(pool, false, true, usdcIn, sharesOut);
+    }
+
+    /// @notice Sell range outcome tokens; USDC proceeds land back in this escrow.
+    /// @param pool       RangeLMSR pool address.
+    /// @param rangeIndex Outcome index to sell.
+    /// @param sharesIn   Shares to burn (18 decimals).
+    /// @param seller     Must equal the escrow owner.
+    function sellRangeFor(
+        address pool,
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address seller
+    ) external onlyRouter nonReentrant returns (uint256 usdcOut) {
+        require(sharesIn > 0, "Zero input");
+        require(seller == owner, "Seller must be owner");
+        // RangeLMSR.sellFor burns from seller and sends USDC to msg.sender (this escrow)
+        usdcOut = IRangeLMSRPool(pool).sellFor(rangeIndex, sharesIn, seller);
         emit TradeExecuted(pool, false, false, sharesIn, usdcOut);
     }
 

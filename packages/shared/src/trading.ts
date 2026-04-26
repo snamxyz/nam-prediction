@@ -47,3 +47,37 @@ export interface TradeIntent {
   nonce: bigint;
   deadline: bigint;
 }
+
+// ─── Range market trade intent ───
+// `amount` is USDC (6 decimals) for BUY intents and shares (18 decimals) for SELL intents.
+// `minOutput` is the slippage floor, in the opposite unit:
+//   - BUY:  minimum shares (18 decimals)
+//   - SELL: minimum USDC   (6 decimals)
+
+export const RANGE_TRADE_INTENT_PRIMARY_TYPE = "RangeTradeIntent" as const;
+
+export const RANGE_TRADE_INTENT_TYPES = {
+  RangeTradeIntent: [
+    { name: "trader", type: "address" },
+    { name: "marketId", type: "uint256" },
+    { name: "cpmmAddress", type: "address" },
+    { name: "rangeIndex", type: "uint256" },
+    { name: "isBuy", type: "bool" },
+    { name: "amount", type: "uint256" },
+    { name: "minOutput", type: "uint256" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+} as const;
+
+export interface RangeTradeIntent {
+  trader: `0x${string}`;
+  marketId: bigint;
+  cpmmAddress: `0x${string}`;
+  rangeIndex: bigint;
+  isBuy: boolean;
+  amount: bigint;
+  minOutput: bigint;
+  nonce: bigint;
+  deadline: bigint;
+}

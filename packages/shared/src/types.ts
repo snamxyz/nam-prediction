@@ -254,6 +254,58 @@ export interface RiskEvent {
   createdAt: string;
 }
 
+// ─── Range market types ───
+
+export interface RangeOutcome {
+  index: number;
+  min: number | null;
+  max: number | null;
+  label: string;
+}
+
+export interface RangeMarket {
+  id: number;
+  marketType: string;          // "receipts" | "nam-distribution"
+  date: string;                // YYYY-MM-DD resolution date
+  question: string;
+  ranges: RangeOutcome[];
+  rangeTokenAddresses: string[];
+  rangePrices: number[];       // current probabilities (0–1 each, sum to 1)
+  rangeCpmmAddress: string | null;  // on-chain LMSR pool address
+  onChainMarketId: number | null;
+  totalLiquidity: string;
+  status: string;              // "creating" | "active" | "resolved" | "cancelled"
+  resolved: boolean;
+  winningRangeIndex: number | null;
+  endTime: string;             // ISO timestamp
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+export interface RangePosition {
+  id: number;
+  rangeMarketId: number;
+  userAddress: string;
+  rangeIndex: number;
+  balance: string;       // decimal shares string (18 decimals)
+  avgEntryPrice: number; // probability at time of purchase
+  costBasis: string;     // total USDC spent
+  pnl: string;
+}
+
+export interface RangeTrade {
+  id: number;
+  rangeMarketId: number;
+  trader: string;
+  rangeIndex: number;
+  isBuy: boolean;
+  shares: string;
+  collateral: string;
+  pricesSnapshot: number[];
+  txHash: string;
+  timestamp: string;
+}
+
 // ─── API response wrappers ───
 export interface ApiResponse<T> {
   data: T;
