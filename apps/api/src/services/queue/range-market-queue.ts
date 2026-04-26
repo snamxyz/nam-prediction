@@ -30,6 +30,8 @@ const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
 const RANGE_MARKET_LIQUIDITY = Number(process.env.RANGE_MARKET_LIQUIDITY) || 1000;
 // When false, markets are created and resolved in DB only (no on-chain txs).
 const RANGE_MARKET_ONCHAIN = process.env.RANGE_MARKET_ONCHAIN !== "false";
+const CREATING_RETRY_AFTER_MS =
+  Number(process.env.RANGE_MARKET_CREATING_RETRY_AFTER_MS) || 30 * 60 * 1000;
 
 // ─── Range definitions ───
 
@@ -135,16 +137,42 @@ async function createRangeMarketOnChain(
 ): Promise<void> {
   if (!FACTORY_ADDRESS) throw new Error("RANGE_FACTORY_ADDRESS not set");
 
-  // Skip only if market already exists in a non-failed state
+  // Skip only if market already exists in a non-failed state. A stale "creating"
+  // row can be left behind if the worker dies before the catch block runs.
   const existing = await db
-    .select({ id: rangeMarkets.id, status: rangeMarkets.status })
+    .select({
+      id: rangeMarkets.id,
+      status: rangeMarkets.status,
+      createdAt: rangeMarkets.createdAt,
+      rangeCpmmAddress: rangeMarkets.rangeCpmmAddress,
+      onChainMarketId: rangeMarkets.onChainMarketId,
+    })
     .from(rangeMarkets)
     .where(and(eq(rangeMarkets.marketType, marketType), eq(rangeMarkets.date, date)))
     .limit(1);
 
-  if (existing.length > 0 && !["cancelled", "failed"].includes(existing[0].status)) {
-    console.log(`[RangeMarketQueue] ${marketType} market for ${date} already exists (${existing[0].status}) — skipping`);
-    return;
+  if (existing.length > 0) {
+    const row = existing[0];
+    const creatingAgeMs = Date.now() - row.createdAt.getTime();
+    const isRetryableStatus = ["cancelled", "failed"].includes(row.status);
+    const isStaleCreating =
+      row.status === "creating" &&
+      creatingAgeMs > CREATING_RETRY_AFTER_MS &&
+      !row.rangeCpmmAddress &&
+      row.onChainMarketId == null;
+
+    if (!isRetryableStatus && !isStaleCreating) {
+      console.log(`[RangeMarketQueue] ${marketType} market for ${date} already exists (${row.status}) — skipping`);
+      return;
+    }
+
+    if (isStaleCreating) {
+      console.warn(
+        `[RangeMarketQueue] Retrying stale ${marketType}/${date} creation row after ${Math.round(
+          creatingAgeMs / 60000
+        )} minutes`
+      );
+    }
   }
 
   const initialPrices = ranges.map(() => 1 / ranges.length);
