@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLatestHourlyMarket } from "@/hooks/useMarkets";
 import { ProbBar } from "@/components/ProbBar";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { formatMarketQuestion, getOutcomeLabels } from "@/lib/marketDisplay";
 import { ArrowRight } from "lucide-react";
 
 function useCountdown(targetDate: string | null | undefined) {
@@ -56,6 +57,8 @@ export function HourlyMarketHero() {
   const yp = (market.yesPrice * 100).toFixed(1);
   const np = (market.noPrice * 100).toFixed(1);
   const volume = Number(market.volume);
+  const outcomeLabels = getOutcomeLabels(market);
+  const question = formatMarketQuestion(market);
 
   return (
     <div
@@ -126,7 +129,7 @@ export function HourlyMarketHero() {
           letterSpacing: "-0.01em",
         }}
       >
-        {market.question}
+        {question}
       </h2>
 
       {/* Large probability display */}
@@ -161,7 +164,7 @@ export function HourlyMarketHero() {
               fontWeight: 700,
             }}
           >
-            YES %
+            {outcomeLabels.yes} %
           </div>
         </div>
         <div style={{ background: "rgba(255,255,255,0.07)", margin: "12px 0" }} />
@@ -188,7 +191,7 @@ export function HourlyMarketHero() {
               fontWeight: 700,
             }}
           >
-            NO %
+            {outcomeLabels.no} %
           </div>
         </div>
       </div>

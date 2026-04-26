@@ -35,6 +35,14 @@ function subBigIntStrings(a: string, b: string): string {
   return formatUnits(r < 0n ? 0n : r, 18);
 }
 
+function formatMarketDate(date: Date): string {
+  return date.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export const marketRoutes = new Elysia({ prefix: "/markets" })
   // GET /markets — List all markets
   .get("/", async () => {
@@ -77,8 +85,13 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         .where(eq(markets.resolved, false))
         .orderBy(desc(markets.createdAt));
 
+      const dailyDisplayDate = formatMarketDate(new Date(`${daily[0].date}T00:00:00.000Z`));
       for (const m of allUnresolved) {
-        if (m.question.includes(daily[0].date) && m.resolutionSource === "dexscreener") {
+        const marketDate = m.endTime.toISOString().split("T")[0];
+        if (
+          m.resolutionSource === "dexscreener" &&
+          (marketDate === daily[0].date || m.question.includes(dailyDisplayDate))
+        ) {
           market = m;
           // Link it
           await db

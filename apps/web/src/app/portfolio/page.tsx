@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePortfolio } from "@/hooks/usePortfolio";
+import { usePortfolio, usePortfolioSummary } from "@/hooks/usePortfolio";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { VaultModal } from "@/components/VaultModal";
 import { MarketFactoryABI } from "@nam-prediction/shared";
@@ -40,6 +40,7 @@ export default function PortfolioPage() {
   const { isConnected, address } = useAccount();
   const { login } = usePrivy();
   const { data: positions, isLoading } = usePortfolio();
+  const { data: portfolioSummary } = usePortfolioSummary();
   const { usdcBalance, isLoading: isBalanceLoading } = useVaultBalance();
   const [vaultOpen, setVaultOpen] = useState(false);
   const [vaultTab, setVaultTab] = useState<"deposit" | "withdraw">("deposit");
@@ -81,6 +82,7 @@ export default function PortfolioPage() {
     0
   );
   const totalPnl = activeWithShares.reduce((s, p) => s + getPortfolioPnl(p), 0);
+  const realisedPnl = Number(portfolioSummary?.realisedPnl || "0");
 
   const resolvedWithResult = resolvedPositions.filter(
     (p) => isRangePosition(p) ? p.winningRangeIndex != null : p.result === 1 || p.result === 2
@@ -115,7 +117,7 @@ export default function PortfolioPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
+          gridTemplateColumns: "repeat(4, 1fr)",
           gap: 12,
           marginBottom: 20,
         }}
@@ -159,6 +161,28 @@ export default function PortfolioPage() {
             style={{ fontSize: 21, color: totalPnl >= 0 ? "#01d243" : "#f0324c" }}
           >
             {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
+          </div>
+        </div>
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.07em",
+                color: "#4c4e68",
+              }}
+            >
+              Realised P&L
+            </div>
+            <TrendingUp className="w-3.5 h-3.5" style={{ color: realisedPnl >= 0 ? "#01d243" : "#f0324c" }} />
+          </div>
+          <div
+            className="mono"
+            style={{ fontSize: 21, color: realisedPnl >= 0 ? "#01d243" : "#f0324c" }}
+          >
+            {realisedPnl >= 0 ? "+" : ""}${realisedPnl.toFixed(2)}
           </div>
         </div>
         <div className="card" style={{ padding: 18 }}>

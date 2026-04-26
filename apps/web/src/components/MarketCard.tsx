@@ -6,6 +6,7 @@ import type { Market, Trade } from "@nam-prediction/shared";
 import { fetchApi } from "@/lib/api";
 import { ProbBar } from "@/components/ProbBar";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { formatMarketQuestion, getOutcomeLabels } from "@/lib/marketDisplay";
 
 function formatTimeRemaining(endTime: string): string {
   const now = Date.now();
@@ -31,6 +32,8 @@ export function MarketCard({ market }: { market: Market }) {
   const { price: namPrice } = useNamPrice();
   const yesPct = Math.round(market.yesPrice * 100);
   const noPct = 100 - yesPct;
+  const outcomeLabels = getOutcomeLabels(market);
+  const question = formatMarketQuestion(market);
 
   const prefetchMarket = () => {
     const id = market.id;
@@ -77,7 +80,7 @@ export function MarketCard({ market }: { market: Market }) {
             marginBottom: 18,
           }}
         >
-          {market.question}
+          {question}
         </p>
 
         {/* Split probability block */}
@@ -117,7 +120,7 @@ export function MarketCard({ market }: { market: Market }) {
                 fontWeight: 700,
               }}
             >
-              YES %
+              {outcomeLabels.yes} %
             </span>
           </div>
           <div
@@ -152,7 +155,7 @@ export function MarketCard({ market }: { market: Market }) {
                 fontWeight: 700,
               }}
             >
-              NO %
+              {outcomeLabels.no} %
             </span>
           </div>
         </div>
@@ -185,7 +188,7 @@ export function MarketCard({ market }: { market: Market }) {
                 color: market.result === 1 ? "#01d243" : "#f0324c",
               }}
             >
-              {market.result === 1 ? "YES" : "NO"} resolved
+              {market.result === 1 ? outcomeLabels.yesShort : outcomeLabels.noShort} resolved
             </span>
           ) : (
             <span style={{ fontSize: 11, color: "#4c4e68" }}>

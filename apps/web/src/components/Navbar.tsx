@@ -132,8 +132,8 @@ export function Navbar() {
 
         {/* Wallet button */}
         {isAuthenticated ? (<div className="flex items-center gap-1.5">
-          <button
-            
+          <Link
+            href="/wallet"
             className="flex items-center gap-1.5 mono"
             style={{
               padding: "6px 12px",
@@ -145,7 +145,7 @@ export function Navbar() {
             }}
           >
             {truncatedAddress}
-          </button>
+          </Link>
           <button
             onClick={logout}
             className="flex items-center gap-1.5 mono bg-red-500/5 border-red-500/10 border"

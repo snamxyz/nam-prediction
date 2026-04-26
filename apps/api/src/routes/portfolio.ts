@@ -6,6 +6,61 @@ import { eq, and, desc } from "drizzle-orm";
 const DUST = 1e-9; // shares below this are ignored
 
 export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
+  // GET /portfolio/:user/summary — Aggregated user stats that should include
+  // markets even after redeemed balances have been zeroed out.
+  .get(
+    "/:user/summary",
+    async ({ params }) => {
+      const addr = params.user.toLowerCase();
+
+      const resolvedTrades = await db
+        .select({
+          marketId: trades.marketId,
+          isYes: trades.isYes,
+          isBuy: trades.isBuy,
+          shares: trades.shares,
+          collateral: trades.collateral,
+          result: markets.result,
+        })
+        .from(trades)
+        .innerJoin(markets, eq(trades.marketId, markets.id))
+        .where(and(eq(trades.trader, addr), eq(markets.resolved, true)));
+
+      let realisedPnl = 0;
+      const remainingByMarket = new Map<number, { result: number; yes: number; no: number }>();
+
+      for (const trade of resolvedTrades) {
+        const collateral = Number(trade.collateral || "0");
+        const shares = Number(trade.shares || "0");
+        realisedPnl += trade.isBuy ? -collateral : collateral;
+
+        const current =
+          remainingByMarket.get(trade.marketId) ?? {
+            result: trade.result,
+            yes: 0,
+            no: 0,
+          };
+        const delta = trade.isBuy ? shares : -shares;
+        if (trade.isYes) current.yes += delta;
+        else current.no += delta;
+        remainingByMarket.set(trade.marketId, current);
+      }
+
+      for (const position of remainingByMarket.values()) {
+        if (position.result === 1) realisedPnl += Math.max(0, position.yes);
+        if (position.result === 2) realisedPnl += Math.max(0, position.no);
+      }
+
+      return {
+        data: {
+          realisedPnl: realisedPnl.toFixed(6),
+        },
+        success: true,
+      };
+    },
+    { params: t.Object({ user: t.String() }) }
+  )
+
   // GET /portfolio/:user — User positions across all markets with per-side PnL
   .get(
     "/:user",
@@ -125,7 +180,7 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
             sortTs: latestByMarket.get(pos.marketId)?.getTime() ?? 0,
           };
         })
-        .filter(Boolean);
+        .filter((position) => position !== null);
 
       const rangeMapped = rangeRows
         .map((p) => {
@@ -169,7 +224,7 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
             sortTs: latestByRangeMarket.get(pos.rangeMarketId)?.getTime() ?? 0,
           };
         })
-        .filter(Boolean);
+        .filter((position) => position !== null);
 
       const mapped = [...binaryMapped, ...rangeMapped];
 

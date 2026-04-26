@@ -64,6 +64,10 @@ export interface RangePortfolioPosition {
 
 export type PositionWithMarket = BinaryPositionWithMarket | RangePortfolioPosition;
 
+export interface PortfolioSummary {
+  realisedPnl: string;
+}
+
 const RECONCILE_INTERVAL_MS = 15_000;
 
 export function usePortfolio() {
@@ -107,4 +111,15 @@ export function usePortfolio() {
   }, [address]);
 
   return query;
+}
+
+export function usePortfolioSummary() {
+  const { address } = useAccount();
+
+  return useQuery<PortfolioSummary>({
+    queryKey: ["portfolio-summary", address],
+    queryFn: () => fetchApi<PortfolioSummary>(`/portfolio/${address}/summary`),
+    enabled: !!address,
+    refetchInterval: RECONCILE_INTERVAL_MS,
+  });
 }

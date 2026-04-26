@@ -97,23 +97,14 @@ function formatDate(date: Date): string {
 }
 
 /**
- * Format a date as e.g. "22nd April 2026".
+ * Format a date as e.g. "April 25".
  */
-function formatOrdinalDate(date: Date): string {
-  const day = date.getUTCDate();
-  const month = date.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
-  const year = date.getUTCFullYear();
-  const suffix =
-    day % 100 >= 11 && day % 100 <= 13
-      ? "th"
-      : day % 10 === 1
-      ? "st"
-      : day % 10 === 2
-      ? "nd"
-      : day % 10 === 3
-      ? "rd"
-      : "th";
-  return `${day}${suffix} ${month} ${year}`;
+function formatMarketDate(date: Date): string {
+  return date.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 /**
@@ -142,7 +133,7 @@ export async function createDailyMarket(threshold: number): Promise<void> {
     return;
   }
 
-  const question = `Will NAM Price be Up or Down on ${formatOrdinalDate(endTime)}`;
+  const question = `NAM Up or Down on ${formatMarketDate(endTime)}?`;
   const liquidityUsdc = parseUnits(String(DAILY_MARKET_LIQUIDITY), 6);
 
   // Resolution source = 2 (dexscreener), encode config as JSON bytes
@@ -211,7 +202,7 @@ export async function createDailyMarket(threshold: number): Promise<void> {
       .orderBy(desc(markets.createdAt));
 
     for (const m of recentMarkets) {
-      if (m.question.includes(formatOrdinalDate(endTime)) && m.resolutionSource === "dexscreener") {
+      if (m.question.includes(formatMarketDate(endTime)) && m.resolutionSource === "dexscreener") {
         linkedMarketId = m.id;
         break;
       }

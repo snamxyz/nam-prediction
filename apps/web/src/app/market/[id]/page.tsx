@@ -10,6 +10,7 @@ import { TradePanel } from "@/components/TradePanel";
 import { PriceChart } from "@/components/PriceChart";
 import { NamPriceChart } from "@/components/NamPriceChart";
 import { ProbBar } from "@/components/ProbBar";
+import { formatMarketQuestion, getOutcomeLabels } from "@/lib/marketDisplay";
 import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react";
 
 function useCountdown(iso?: string) {
@@ -70,6 +71,8 @@ export default function MarketPage() {
   const threshold = typeof resolutionConfig?.threshold === "number" ? resolutionConfig.threshold : null;
   const priceToBeat = threshold ?? null;
   const priceDelta = namPrice == null || priceToBeat == null ? null : namPrice - priceToBeat;
+  const outcomeLabels = getOutcomeLabels(market);
+  const marketQuestion = formatMarketQuestion(market);
 
   return (
     <div className="fade-up" style={{ maxWidth: 1400, margin: "0 auto" }}>
@@ -94,12 +97,12 @@ export default function MarketPage() {
                   {!isResolved && <span className="live-dot" />}
                   <span className="mono" style={{ fontSize: 10, color: "#4c4e68" }}>{market.cadence ?? "daily"} cadence</span>
                 </div>
-                <h1 style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.4, letterSpacing: "-0.01em", maxWidth: 580 }}>{market.question}</h1>
+                <h1 style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.4, letterSpacing: "-0.01em", maxWidth: 580 }}>{marketQuestion}</h1>
               </div>
               <div style={{ flexShrink: 0 }}>
                 {isResolved ? (
                   <div style={{ padding: "6px 14px", borderRadius: 8, background: market.result === 1 ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)", border: `1px solid ${market.result === 1 ? "#01d243" : "#f0324c"}` }}>
-                    <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: market.result === 1 ? "#01d243" : "#f0324c" }}>{market.result === 1 ? "YES" : "NO"}</span>
+                    <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: market.result === 1 ? "#01d243" : "#f0324c" }}>{market.result === 1 ? outcomeLabels.yesShort : outcomeLabels.noShort}</span>
                   </div>
                 ) : (
                   <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
@@ -137,8 +140,8 @@ export default function MarketPage() {
                 </div>
               )}
               <div style={{ marginLeft: "auto", display: "flex", gap: 20 }}>
-                <div><div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 5 }}>YES chance</div><div className="mono" style={{ color: "#01d243", fontSize: 14 }}>{yesPct.toFixed(1)}%</div></div>
-                <div><div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 5 }}>NO chance</div><div className="mono" style={{ color: "#f0324c", fontSize: 14 }}>{noPct.toFixed(1)}%</div></div>
+                <div><div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 5 }}>{outcomeLabels.yes} %</div><div className="mono" style={{ color: "#01d243", fontSize: 14 }}>{yesPct.toFixed(1)}%</div></div>
+                <div><div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 5 }}>{outcomeLabels.no} %</div><div className="mono" style={{ color: "#f0324c", fontSize: 14 }}>{noPct.toFixed(1)}%</div></div>
                 <div><div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 5 }}>Volume</div><div className="mono" style={{ fontSize: 14 }}>${liveVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div></div>
                 <div><div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 5 }}>Liquidity</div><div className="mono" style={{ fontSize: 14 }}>${Number(market.liquidity).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div></div>
               </div>
@@ -159,7 +162,7 @@ export default function MarketPage() {
                   ))}
                 </div>
               </div>
-              {chartMode === "price" ? <NamPriceChart points={namHistory} threshold={priceToBeat} tokenIconUrl={namIconUrl} /> : <PriceChart trades={trades || []} />}
+              {chartMode === "price" ? <NamPriceChart points={namHistory} threshold={priceToBeat} tokenIconUrl={namIconUrl} /> : <PriceChart trades={trades || []} marketCreatedAt={market.createdAt} outcomeLabel={outcomeLabels.yes} />}
             </div>
           )}
 
@@ -178,7 +181,7 @@ export default function MarketPage() {
                 </div>
                 {(trades ?? []).slice(0, 8).map((trade, i, arr) => (
                   <div key={trade.id} style={{ display: "grid", gridTemplateColumns: "110px 1fr 80px 80px 80px", gap: 10, padding: "11px 0", borderBottom: i < arr.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 4, width: "fit-content", letterSpacing: "0.04em", background: trade.isYes ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)", color: trade.isYes ? "#01d243" : "#f0324c" }}>{trade.isBuy ? "BUY" : "SELL"} {trade.isYes ? "YES" : "NO"}</span>
+                    <span style={{ fontSize: 9, fontWeight: 700, padding: "3px 8px", borderRadius: 4, width: "fit-content", letterSpacing: "0.04em", background: trade.isYes ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)", color: trade.isYes ? "#01d243" : "#f0324c" }}>{trade.isBuy ? "BUY" : "SELL"} {trade.isYes ? outcomeLabels.yesShort : outcomeLabels.noShort}</span>
                     <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>{trade.trader.slice(0, 6)}…{trade.trader.slice(-4)}</span>
                     <span className="mono" style={{ fontSize: 11 }}>{Number(trade.shares).toFixed(1)}</span>
                     <span className="mono" style={{ fontSize: 11 }}>${Number(trade.collateral).toFixed(2)}</span>
@@ -207,7 +210,7 @@ export default function MarketPage() {
 
         <div className="market-right" style={{ position: "sticky", top: 70 }}>
           {!isResolved && !isLocked ? (
-            <TradePanel marketId={market.id} onChainMarketId={market.onChainId} ammAddress={market.ammAddress as `0x${string}`} yesPrice={currentYesPrice} noPrice={currentNoPrice} />
+            <TradePanel marketId={market.id} onChainMarketId={market.onChainId} ammAddress={market.ammAddress as `0x${string}`} yesPrice={currentYesPrice} noPrice={currentNoPrice} outcomeLabels={outcomeLabels} />
           ) : isLocked && !isResolved ? (
             <div className="card" style={{ padding: 28, textAlign: "center" }}>
               <p style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Market Locked</p>
@@ -216,7 +219,7 @@ export default function MarketPage() {
           ) : (
             <div className="card" style={{ padding: 28, textAlign: "center" }}>
               <p style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#4c4e68", marginBottom: 16 }}>Market Resolved</p>
-              <p className="mono" style={{ fontSize: 52, fontWeight: 500, color: market.result === 1 ? "#01d243" : "#f0324c", lineHeight: 1, marginBottom: 14 }}>{market.result === 1 ? "YES" : "NO"}</p>
+              <p className="mono" style={{ fontSize: 52, fontWeight: 500, color: market.result === 1 ? "#01d243" : "#f0324c", lineHeight: 1, marginBottom: 14 }}>{market.result === 1 ? outcomeLabels.yesShort : outcomeLabels.noShort}</p>
               <p style={{ fontSize: 12, color: "#4c4e68", marginTop: 8 }}>Go to Portfolio to redeem your winnings</p>
             </div>
           )}
@@ -224,8 +227,8 @@ export default function MarketPage() {
           <div className="card" style={{ padding: "14px 16px", marginTop: 10 }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: "#4c4e68", marginBottom: 12 }}>Market Info</div>
             {[
-              ["Yes price", `${(currentYesPrice * 100).toFixed(1)}¢`, "#01d243"],
-              ["No price", `${(currentNoPrice * 100).toFixed(1)}¢`, "#f0324c"],
+              [`${outcomeLabels.yes} price`, `${(currentYesPrice * 100).toFixed(1)}¢`, "#01d243"],
+              [`${outcomeLabels.no} price`, `${(currentNoPrice * 100).toFixed(1)}¢`, "#f0324c"],
               ["Volume", `$${liveVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "#e4e5eb"],
               ["Liquidity", `$${Number(market.liquidity).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "#e4e5eb"],
               ["Created", new Date(market.createdAt).toLocaleString(), "#4c4e68"],

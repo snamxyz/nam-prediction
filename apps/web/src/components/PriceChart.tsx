@@ -12,6 +12,8 @@ import type { Trade } from "@nam-prediction/shared";
 
 interface PriceChartProps {
   trades: Trade[];
+  marketCreatedAt?: string;
+  outcomeLabel?: string;
 }
 
 interface ChartPoint {
@@ -19,17 +21,24 @@ interface ChartPoint {
   yesProbability: number;
 }
 
-export function PriceChart({ trades }: PriceChartProps) {
-  const data: ChartPoint[] = trades
+function formatChartTime(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES" }: PriceChartProps) {
+  const tradePoints: ChartPoint[] = trades
     .slice()
     .reverse()
     .map((t) => ({
-      time: new Date(t.timestamp).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: formatChartTime(t.timestamp),
       yesProbability: +((t.yesPrice ?? 0.5) * 100).toFixed(1),
     }));
+  const data: ChartPoint[] = marketCreatedAt
+    ? [{ time: formatChartTime(marketCreatedAt), yesProbability: 50 }, ...tradePoints]
+    : tradePoints;
 
   if (data.length === 0) {
     return (
@@ -94,7 +103,7 @@ export function PriceChart({ trades }: PriceChartProps) {
               color: "#e4e5eb",
               fontFamily: "'DM Mono', monospace",
             }}
-            formatter={(v: number) => [`${v.toFixed(1)}%`, "YES"]}
+            formatter={(v: number) => [`${v.toFixed(1)}%`, outcomeLabel]}
           />
           <Area
             type="monotone"

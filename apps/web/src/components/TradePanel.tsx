@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { usePortfolio, type BinaryPositionWithMarket, type PositionWithMarket } from "@/hooks/usePortfolio";
 import { fetchApi, authedPostApi } from "@/lib/api";
+import type { OutcomeDisplayLabels } from "@/lib/marketDisplay";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 
@@ -34,6 +35,7 @@ interface TradePanelProps {
   ammAddress: `0x${string}`;
   yesPrice: number;
   noPrice: number;
+  outcomeLabels?: OutcomeDisplayLabels;
 }
 
 interface EstimateBuyResponse {
@@ -70,7 +72,7 @@ interface NonceResponse {
   suggestedDeadline: string;
 }
 
-export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, noPrice }: TradePanelProps) {
+export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, noPrice, outcomeLabels }: TradePanelProps) {
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login } = useAuth();
   const { getAccessToken } = usePrivy();
@@ -264,6 +266,9 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const price = side === "YES" ? yesPrice : noPrice;
   const isYes = side === "YES";
   const C = isYes ? "#01d243" : "#f0324c";
+  const labels = outcomeLabels ?? { yes: "Yes", no: "No", yesShort: "YES", noShort: "NO" };
+  const sideLabel = isYes ? labels.yes : labels.no;
+  const sideShortLabel = isYes ? labels.yesShort : labels.noShort;
 
   // Display values
   const estimatedShares = estimate?.shares
@@ -361,7 +366,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           })}
         </div>
 
-        {/* Yes / No toggle */}
+        {/* Outcome toggle */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 18 }}>
           {(["YES", "NO"] as const).map((s) => {
             const active = side === s;
@@ -383,7 +388,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                   transition: "all 0.12s",
                 }}
               >
-                {s === "YES" ? "Yes" : "No"} {formatCents(sidePrice)}
+                {s === "YES" ? labels.yes : labels.no} {formatCents(sidePrice)}
               </button>
             );
           })}
@@ -398,7 +403,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             <p style={{ fontSize: 11, color: "#4c4e68" }}>
               Owned:{" "}
               <span style={{ color: ownedShares > 0 ? C : "#4c4e68", fontWeight: 600 }}>
-                {formatShares(ownedShares)} {side}
+                {formatShares(ownedShares)} {sideShortLabel}
               </span>
             </p>
           )}
@@ -618,7 +623,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                 </span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: "#4c4e68" }}>Payout if {side} wins</span>
+                <span style={{ color: "#4c4e68" }}>Payout if {sideLabel} wins</span>
                 <span className="mono" style={{ color: "rgba(228,229,235,0.80)" }}>
                   {num > 0 ? `$${potentialPayout.toFixed(2)}` : "—"}
                 </span>
@@ -730,7 +735,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             {isLoading
               ? "Processing…"
               : num > 0
-              ? `${mode === "BUY" ? "Buy" : "Sell"} ${side} · ${mode === "BUY" ? `$${num.toFixed(2)}` : `${num} shares`}`
+              ? `${mode === "BUY" ? "Buy" : "Sell"} ${sideLabel} · ${mode === "BUY" ? `$${num.toFixed(2)}` : `${num} shares`}`
               : "Enter an amount"}
           </button>
         )}
@@ -745,7 +750,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             {yesShares >= DUST && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(1,210,67,0.12)", color: "#01d243" }}>YES</span>
+                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(1,210,67,0.12)", color: "#01d243" }}>{labels.yesShort}</span>
                   <span className="mono" style={{ color: "#e4e5eb" }}>{yesShares.toFixed(4)} shares</span>
                   <span className="mono" style={{ color: "#4c4e68" }}>@ {(yesAvgDisplay * 100).toFixed(1)}¢</span>
                 </div>
@@ -760,7 +765,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             {noShares >= DUST && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(240,50,76,0.12)", color: "#f0324c" }}>NO</span>
+                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(240,50,76,0.12)", color: "#f0324c" }}>{labels.noShort}</span>
                   <span className="mono" style={{ color: "#e4e5eb" }}>{noShares.toFixed(4)} shares</span>
                   <span className="mono" style={{ color: "#4c4e68" }}>@ {(noAvgDisplay * 100).toFixed(1)}¢</span>
                 </div>

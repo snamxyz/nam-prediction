@@ -6,3 +6,6 @@ export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
 
 export const VAULT_ADDRESS = (process.env.NEXT_PUBLIC_VAULT_ADDRESS ||
   "") as `0x${string}`;
+
+export const NAM_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_NAM_TOKEN_ADDRESS ||
+  "") as `0x${string}`;
