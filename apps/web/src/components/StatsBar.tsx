@@ -2,16 +2,22 @@
 
 import { useMarkets } from "@/hooks/useMarkets";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { useRangeMarkets } from "@/hooks/useRangeMarkets";
 import { BarChart2, Clock, Layers, TrendingUp } from "lucide-react";
 
 export function StatsBar() {
   const { data: markets } = useMarkets();
+  const { data: rangeMarkets = [] } = useRangeMarkets();
   const { price: namPrice } = useNamPrice();
 
   const totalVolume = markets
     ? markets.reduce((s, m) => s + Number(m.volume), 0)
     : 0;
-  const openMarkets = markets ? markets.filter((m) => !m.resolved).length : 0;
+  const openBinaryMarkets = markets?.filter((m) => !m.resolved) ?? [];
+  const openRangeMarkets = rangeMarkets.filter(
+    (m) => !m.resolved && m.status === "active"
+  );
+  const openMarkets = openBinaryMarkets.length + openRangeMarkets.length;
 
   const formatVolume = (n: number) => {
     if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
