@@ -60,34 +60,33 @@ export function PrivyWalletCard() {
   return (
     <div className="glass-card p-6">
       <div className="flex items-center gap-2 mb-5">
-        <Wallet className="w-5 h-5" style={{ color: "#01d243" }} />
-        <h2 className="text-base font-semibold" style={{ color: "#e8e9ed" }}>
+        <Wallet className="w-5 h-5 text-yes" />
+        <h2 className="text-base font-semibold text-[#e8e9ed]">
           Wallet Balance
         </h2>
       </div>
 
       {/* Address row */}
-      <div
-        className="flex items-center justify-between px-4 py-3 rounded-lg mb-3"
-        style={{ background: "rgba(31,32,40,0.60)" }}
-      >
+      <div className="mb-3 flex items-center justify-between rounded-lg bg-[#1f2028]/60 px-4 py-3">
         <div>
-          <p className="text-[11px] mb-0.5" style={{ color: "#717182" }}>Your wallet address</p>
-          <p className="text-xs font-mono" style={{ color: "#e8e9ed" }}>{truncate(privyAddress)}</p>
+          <p className="mb-0.5 text-[11px] text-[#717182]">Your wallet address</p>
+          <p className="font-mono text-xs text-[#e8e9ed]">{truncate(privyAddress)}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={handleCopy}
-            className="p-1.5 rounded transition-all"
-            style={{ color: copied ? "#01d243" : "#717182" }}
+            className={`rounded p-1.5 transition-all ${
+              copied ? "text-yes" : "text-[#717182]"
+            }`}
             title="Copy address"
           >
             {copied ? <CheckCheck className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           </button>
           <button
             onClick={() => setShowQr(!showQr)}
-            className="p-1.5 rounded transition-all"
-            style={{ color: showQr ? "#01d243" : "#717182" }}
+            className={`rounded p-1.5 transition-all ${
+              showQr ? "text-yes" : "text-[#717182]"
+            }`}
             title="Show QR code"
           >
             <QrCode className="w-4 h-4" />
@@ -97,19 +96,19 @@ export function PrivyWalletCard() {
 
       {/* Balances */}
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="px-4 py-3 rounded-lg" style={{ background: "rgba(31,32,40,0.60)" }}>
-          <p className="text-[11px] mb-1" style={{ color: "#717182" }}>USDC (off-vault)</p>
-          <p className="text-lg font-semibold" style={{ color: "#e8e9ed" }}>${usdcBalance}</p>
+        <div className="rounded-lg bg-[#1f2028]/60 px-4 py-3">
+          <p className="mb-1 text-[11px] text-[#717182]">USDC (off-vault)</p>
+          <p className="text-lg font-semibold text-[#e8e9ed]">${usdcBalance}</p>
         </div>
-        <div className="px-4 py-3 rounded-lg" style={{ background: "rgba(31,32,40,0.60)" }}>
-          <p className="text-[11px] mb-1" style={{ color: "#717182" }}>ETH (for gas)</p>
-          <p className="text-lg font-semibold" style={{ color: "#e8e9ed" }}>{ethBalance}</p>
+        <div className="rounded-lg bg-[#1f2028]/60 px-4 py-3">
+          <p className="mb-1 text-[11px] text-[#717182]">ETH (for gas)</p>
+          <p className="text-lg font-semibold text-[#e8e9ed]">{ethBalance}</p>
         </div>
       </div>
 
       {/* QR code (collapsible) */}
       {showQr && (
-        <div className="mt-4 flex flex-col items-center gap-3 py-4 rounded-lg" style={{ background: "rgba(31,32,40,0.60)" }}>
+        <div className="mt-4 flex flex-col items-center gap-3 rounded-lg bg-[#1f2028]/60 py-4">
           <div className="p-3 rounded-lg bg-white">
             <QRCodeSVG
               value={privyAddress}
@@ -119,13 +118,12 @@ export function PrivyWalletCard() {
               level="M"
             />
           </div>
-          <p className="text-[11px] text-center px-4" style={{ color: "#717182" }}>
-            Scan to deposit. Send <strong style={{ color: "#e8e9ed" }}>USDC on Base</strong> only — other tokens or networks may be lost.
+          <p className="px-4 text-center text-[11px] text-[#717182]">
+            Scan to deposit. Send <strong className="text-[#e8e9ed]">USDC on Base</strong> only — other tokens or networks may be lost.
           </p>
           <button
             onClick={() => setShowQr(false)}
-            className="flex items-center gap-1 text-xs"
-            style={{ color: "#717182" }}
+            className="flex items-center gap-1 text-xs text-[#717182]"
           >
             <ChevronUp className="w-3.5 h-3.5" /> Hide QR
           </button>
@@ -135,8 +133,7 @@ export function PrivyWalletCard() {
       {!showQr && (
         <button
           onClick={() => setShowQr(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs transition-all"
-          style={{ background: "rgba(31,32,40,0.50)", color: "#717182" }}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#1f2028]/50 py-2 text-xs text-[#717182] transition-all"
         >
           <QrCode className="w-3.5 h-3.5" />
           Show deposit QR code

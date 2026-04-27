@@ -54,107 +54,29 @@ export function MarketCard({ market }: { market: Market }) {
       onFocus={prefetchMarket}
     >
       <div
-        className="card"
-        style={{
-          padding: 20,
-          cursor: "pointer",
-          transition: "all 0.14s",
-          borderRadius: 12,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = "#111320";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = "#0d0e14";
-          e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)";
-        }}
+        className="card cursor-pointer rounded-xl p-5 transition-all duration-150 hover:border-white/[0.12] hover:bg-[var(--surface-hover)]"
       >
         {/* Question */}
-        <p
-          style={{
-            fontSize: 13,
-            fontWeight: 500,
-            lineHeight: 1.55,
-            color: "#e4e5eb",
-            marginBottom: 18,
-          }}
-        >
+        <p className="mb-[18px] text-[13px] font-medium leading-[1.55] text-[var(--foreground)]">
           {question}
         </p>
 
         {/* Split probability block */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0,
-            marginBottom: 14,
-            borderRadius: 8,
-            overflow: "hidden",
-            border: "1px solid rgba(255,255,255,0.04)",
-          }}
-        >
-          <div
-            style={{
-              flex: 1,
-              textAlign: "center",
-              padding: "10px 0",
-              background: "#01d24309",
-            }}
-          >
-            <span
-              className="mono"
-              style={{ fontSize: 26, fontWeight: 500, color: "#01d243" }}
-            >
+        <div className="mb-3.5 flex items-center gap-0 overflow-hidden rounded-lg border border-white/[0.04]">
+          <div className="flex-1 bg-yes/[0.04] py-2.5 text-center">
+            <span className="mono text-[26px] font-medium text-yes">
               {yesPct}
             </span>
-            <span
-              style={{
-                fontSize: 10,
-                color: "#4c4e68",
-                display: "block",
-                marginTop: 1,
-                letterSpacing: "0.07em",
-                textTransform: "uppercase",
-                fontWeight: 700,
-              }}
-            >
+            <span className="mt-px block text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
               {outcomeLabels.yes} %
             </span>
           </div>
-          <div
-            style={{
-              width: 1,
-              height: 48,
-              background: "rgba(255,255,255,0.04)",
-            }}
-          />
-          <div
-            style={{
-              flex: 1,
-              textAlign: "center",
-              padding: "10px 0",
-              background: "#f0324c07",
-            }}
-          >
-            <span
-              className="mono"
-              style={{ fontSize: 26, fontWeight: 500, color: "#f0324c" }}
-            >
+          <div className="h-12 w-px bg-white/[0.04]" />
+          <div className="flex-1 bg-no/[0.03] py-2.5 text-center">
+            <span className="mono text-[26px] font-medium text-no">
               {noPct}
             </span>
-            <span
-              style={{
-                fontSize: 10,
-                color: "#4c4e68",
-                display: "block",
-                marginTop: 1,
-                letterSpacing: "0.07em",
-                textTransform: "uppercase",
-                fontWeight: 700,
-              }}
-            >
+            <span className="mt-px block text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
               {outcomeLabels.no} %
             </span>
           </div>
@@ -163,35 +85,21 @@ export function MarketCard({ market }: { market: Market }) {
         <ProbBar yes={yesPct} height={3} />
 
         {/* Footer */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            marginTop: 12,
-            paddingTop: 12,
-            borderTop: "1px solid rgba(255,255,255,0.04)",
-          }}
-        >
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>
+        <div className="mt-3 flex justify-between border-t border-white/[0.04] pt-3">
+          <div className="flex items-center gap-3">
+            <span className="mono text-[11px] text-[var(--muted)]">
               {formatVolume(market.volume)} vol
             </span>
-            <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>
+            <span className="mono text-[11px] text-[var(--muted)]">
               NAM {namPrice !== null ? `$${namPrice.toFixed(5)}` : "—"}
             </span>
           </div>
           {market.resolved ? (
-            <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: market.result === 1 ? "#01d243" : "#f0324c",
-              }}
-            >
+            <span className={`text-[11px] font-bold ${market.result === 1 ? "text-yes" : "text-no"}`}>
               {market.result === 1 ? outcomeLabels.yesShort : outcomeLabels.noShort} resolved
             </span>
           ) : (
-            <span style={{ fontSize: 11, color: "#4c4e68" }}>
+            <span className="text-[11px] text-[var(--muted)]">
               {formatTimeRemaining(market.endTime)}
             </span>
           )}

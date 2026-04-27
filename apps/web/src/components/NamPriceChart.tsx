@@ -39,8 +39,8 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
 
   if (data.length < 2) {
     return (
-      <div style={{ height: H, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <p style={{ fontSize: 12, color: "#4c4e68" }}>Waiting for NAM price data…</p>
+      <div className="flex h-[200px] items-center justify-center">
+        <p className="text-xs text-[var(--muted)]">Waiting for NAM price data…</p>
       </div>
     );
   }
@@ -143,16 +143,9 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
       ref={svgRef}
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
-      style={{ width: "100%", height: H, display: "block" }}
+      className="block h-[200px] w-full"
     >
       <defs>
-        <style>{`
-          @keyframes namDotPulse {
-            0%,100% { r: 4px; }
-            50%      { r: 6.5px; }
-          }
-          .nam-live-dot { animation: namDotPulse 2.4s ease-in-out infinite; }
-        `}</style>
         <linearGradient id="namFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.20" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
@@ -302,7 +295,7 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
       <rect
         x={PL} y={PT} width={cw} height={ch}
         fill="transparent"
-        style={{ cursor: "crosshair" }}
+        className="cursor-crosshair"
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoveredTs(null)}
       />

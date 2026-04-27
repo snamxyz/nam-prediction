@@ -5,14 +5,18 @@ import { usePathname } from "next/navigation";
 import { useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNamPrice } from "@/hooks/useNamPrice";
-import { LogOut } from "lucide-react";
+import { LogOut, Moon, Sun } from "lucide-react";
+import { useTheme } from "@/components/ThemeProvider";
 
 export function Navbar() {
   const { login, logout, isAuthenticated, walletAddress } = useAuth();
   const pathname = usePathname();
   const { price } = useNamPrice();
+  const { theme, toggleTheme } = useTheme();
   const prevPriceRef = useRef<number | null>(null);
-  const up = price !== null && (prevPriceRef.current === null || price >= prevPriceRef.current);
+  const up =
+    price !== null &&
+    (prevPriceRef.current === null || price >= prevPriceRef.current);
   if (price !== null && price !== prevPriceRef.current) prevPriceRef.current = price;
 
   const truncatedAddress = walletAddress
@@ -26,51 +30,28 @@ export function Navbar() {
 
   return (
     <header
-      className="sticky top-0 z-50 w-full"
-      style={{
-        background: "#07080cf2",
-        backdropFilter: "blur(16px)",
-        borderBottom: "1px solid rgba(255,255,255,0.07)",
-      }}
+      className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_95%,transparent)] backdrop-blur-2xl"
     >
-      <div
-        className="mx-auto flex items-center"
-        style={{ maxWidth: 1280, padding: "0 24px", height: 54 }}
-      >
+      <div className="mx-auto flex h-[54px] max-w-[1280px] items-center px-6">
         {/* Logo */}
         <Link
           href="/"
-          className="flex items-center gap-2 shrink-0"
-          style={{ marginRight: 32 }}
+          className="mr-8 flex shrink-0 items-center gap-2"
         >
           <svg width="22" height="16" viewBox="0 0 22 16" fill="none">
             <polyline
               points="1,13 5,4 9,10 13,6 17,2 21,13"
-              stroke="#01d243"
+              stroke="var(--accent)"
               strokeWidth="1.8"
               strokeLinejoin="round"
               strokeLinecap="round"
               fill="none"
             />
           </svg>
-          <span
-            style={{
-              fontSize: 14,
-              fontWeight: 700,
-              letterSpacing: "-0.02em",
-              color: "#e4e5eb",
-            }}
-          >
+          <span className="text-sm font-bold tracking-[-0.02em] text-[var(--foreground)]">
             NAM
           </span>
-          <span
-            style={{
-              fontSize: 11,
-              color: "#4c4e68",
-              fontWeight: 500,
-              marginTop: 1,
-            }}
-          >
+          <span className="mt-px text-[11px] font-medium text-[var(--muted)]">
             Predict
           </span>
         </Link>
@@ -84,15 +65,11 @@ export function Navbar() {
               <Link
                 key={href}
                 href={href}
-                style={{
-                  padding: "6px 13px",
-                  borderRadius: 7,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  background: isActive ? "#111320" : "transparent",
-                  color: isActive ? "#e4e5eb" : "#4c4e68",
-                  transition: "all 0.12s",
-                }}
+                className={`rounded-[7px] px-[13px] py-1.5 text-[13px] font-medium transition-all duration-150 ${
+                  isActive
+                    ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                    : "text-[var(--muted)]"
+                }`}
               >
                 {label}
               </Link>
@@ -101,75 +78,54 @@ export function Navbar() {
         </nav>
 
         {/* NAM price chip */}
-        <div
-          className="flex items-center gap-1.5"
-          style={{
-            padding: "5px 12px",
-            borderRadius: 7,
-            background: "#111320",
-            border: "1px solid rgba(255,255,255,0.07)",
-            marginRight: 12,
-          }}
-        >
+        <div className="mr-3 flex items-center gap-1.5 rounded-[7px] border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-[5px]">
           <span className="live-dot" />
-          <span
-            className="mono"
-            style={{ fontSize: 11, color: "#4c4e68" }}
-          >
+          <span className="mono text-[11px] text-[var(--muted)]">
             NAM/USDC
           </span>
           <span
-            className="mono"
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: up ? "#01d243" : "#f0324c",
-            }}
+            className={`mono text-xs font-medium ${
+              up ? "text-[var(--yes)]" : "text-[var(--no)]"
+            }`}
           >
             {price !== null ? `$${price.toFixed(5)}` : "$—"}
           </span>
         </div>
 
+        <button
+          type="button"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          className="mr-3 flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]"
+        >
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+        </button>
+
         {/* Wallet button */}
-        {isAuthenticated ? (<div className="flex items-center gap-1.5">
-          <Link
-            href="/wallet"
-            className="flex items-center gap-1.5 mono"
-            style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              background: "#0d0e14",
-              border: "1px solid rgba(255,255,255,0.07)",
-              fontSize: 12,
-              color: "#e4e5eb",
-            }}
-          >
-            {truncatedAddress}
-          </Link>
-          <button
-            onClick={logout}
-            className="flex items-center gap-1.5 mono bg-red-500/5 border-red-500/10 border"
-            style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              color: "#e4e5eb",
-            }}
-          >
-            <LogOut className="w-4 h-4 text-red-500" />
-          </button>
+        {isAuthenticated ? (
+          <div className="flex items-center gap-1.5">
+            <Link
+              href="/wallet"
+              className="mono flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)]"
+            >
+              {truncatedAddress}
+            </Link>
+            <button
+              onClick={logout}
+              className="mono flex items-center gap-1.5 rounded-lg border border-red-500/10 bg-red-500/5 px-3 py-1.5 text-xs text-[var(--foreground)]"
+            >
+              <LogOut className="w-4 h-4 text-red-500" />
+            </button>
           </div>
         ) : (
           <button
             onClick={login}
-            style={{
-              padding: "7px 16px",
-              borderRadius: 8,
-              background: "#01d243",
-              color: "#000",
-              fontSize: 13,
-              fontWeight: 700,
-            }}
+            className="rounded-lg bg-[var(--accent)] px-4 py-[7px] text-[13px] font-bold text-black"
           >
             Connect Wallet
           </button>

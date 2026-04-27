@@ -42,33 +42,15 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES" }: Pr
 
   if (data.length === 0) {
     return (
-      <div
-        className="card"
-        style={{
-          padding: 20,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: 200,
-        }}
-      >
-        <p style={{ fontSize: 12, color: "#4c4e68" }}>No trades yet</p>
+      <div className="card flex h-[200px] items-center justify-center p-5">
+        <p className="text-xs text-[var(--muted)]">No trades yet</p>
       </div>
     );
   }
 
   return (
-    <div className="card" style={{ padding: 20 }}>
-      <h3
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          textTransform: "uppercase",
-          letterSpacing: "0.09em",
-          color: "#4c4e68",
-          marginBottom: 16,
-        }}
-      >
+    <div className="card p-5">
+      <h3 className="mb-4 text-[10px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
         Probabilities
       </h3>
       <ResponsiveContainer width="100%" height={200}>
@@ -95,15 +77,16 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES" }: Pr
             width={34}
           />
           <Tooltip
-            contentStyle={{
-              background: "#0d0e14",
-              border: "1px solid rgba(255,255,255,0.07)",
-              borderRadius: 8,
-              fontSize: 11,
-              color: "#e4e5eb",
-              fontFamily: "'DM Mono', monospace",
+            content={({ active, payload }) => {
+              const value = payload?.[0]?.value;
+              if (!active || typeof value !== "number") return null;
+
+              return (
+                <div className="mono rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[11px] text-[var(--foreground)]">
+                  {outcomeLabel}: {value.toFixed(1)}%
+                </div>
+              );
             }}
-            formatter={(v: number) => [`${v.toFixed(1)}%`, outcomeLabel]}
           />
           <Area
             type="monotone"

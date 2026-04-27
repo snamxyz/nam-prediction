@@ -12,6 +12,24 @@ const RANGE_COLORS = [
   "#38bdf8",
 ];
 
+const RANGE_TEXT_CLASSES = [
+  "text-[#6c7aff]",
+  "text-[#01d243]",
+  "text-[#f0a832]",
+  "text-[#f0324c]",
+  "text-[#a78bfa]",
+  "text-[#38bdf8]",
+];
+
+const RANGE_BG_CLASSES = [
+  "bg-[#6c7aff]/15",
+  "bg-[#01d243]/15",
+  "bg-[#f0a832]/15",
+  "bg-[#f0324c]/15",
+  "bg-[#a78bfa]/15",
+  "bg-[#38bdf8]/15",
+];
+
 function timeUntil(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now();
   if (ms <= 0) return "Ended";
@@ -32,205 +50,109 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
   const prices = market.rangePrices as number[];
   const total = prices.reduce((a, b) => a + b, 0) || 1;
 
-  const typeColor = market.marketType === "receipts" ? "#6c7aff" : "#f0a832";
+  const isReceiptsMarket = market.marketType === "receipts";
+  const typeTextClass = isReceiptsMarket ? "text-[#6c7aff]" : "text-[#f0a832]";
+  const typeBgClass = isReceiptsMarket ? "bg-[#6c7aff]/15" : "bg-[#f0a832]/15";
+  const typeHoverClass = isReceiptsMarket
+    ? "hover:border-[#6c7aff]/35"
+    : "hover:border-[#f0a832]/35";
   const typeLabel =
     market.marketType === "receipts" ? "Receipts" : "NAM Distribution";
 
   return (
-    <Link href={href} style={{ textDecoration: "none" }}>
+    <Link href={href} className="no-underline">
       <div
-        className="card"
-        style={{
-          padding: "20px 22px",
-          cursor: "pointer",
-          transition: "border-color 0.15s, transform 0.1s",
-        }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLDivElement).style.borderColor = typeColor + "55";
-          (e.currentTarget as HTMLDivElement).style.transform = "translateY(-1px)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLDivElement).style.borderColor = "";
-          (e.currentTarget as HTMLDivElement).style.transform = "";
-        }}
+        className={`card cursor-pointer px-[22px] py-5 transition duration-150 hover:-translate-y-px ${typeHoverClass}`}
       >
         {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                color: typeColor,
-                background: typeColor + "18",
-                padding: "2px 8px",
-                borderRadius: 4,
-              }}
-            >
+        <div className="mb-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ${typeBgClass} ${typeTextClass}`}>
               {typeLabel}
             </span>
             {market.resolved ? (
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: "#01d243",
-                  background: "rgba(1,210,67,0.08)",
-                  padding: "2px 8px",
-                  borderRadius: 4,
-                }}
-              >
+              <span className="rounded bg-yes/[0.08] px-2 py-0.5 text-[10px] font-bold text-yes">
                 RESOLVED
               </span>
             ) : (
-              <span
-                style={{
-                  fontSize: 10,
-                  color: "#8081a0",
-                  background: "rgba(255,255,255,0.04)",
-                  padding: "2px 8px",
-                  borderRadius: 4,
-                }}
-              >
+              <span className="rounded bg-white/[0.04] px-2 py-0.5 text-[10px] text-[#8081a0]">
                 {timeUntil(market.endTime)}
               </span>
             )}
           </div>
-          <span style={{ fontSize: 11, color: "#4c4e68" }}>{market.date}</span>
+          <span className="text-[11px] text-[var(--muted)]">{market.date}</span>
         </div>
 
         {/* Question */}
-        <p
-          style={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: "#e4e5eb",
-            marginBottom: 16,
-            lineHeight: 1.4,
-          }}
-        >
+        <p className="mb-4 text-sm font-semibold leading-[1.4] text-[var(--foreground)]">
           {market.question}
         </p>
 
         {/* Range probability bars */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {ranges.map((range, i) => {
             const rawPrice = prices[i] ?? 0;
             const displayPrice = total > 0 ? rawPrice / total : 1 / ranges.length;
             const pct = (displayPrice * 100).toFixed(1);
             const color = RANGE_COLORS[i % RANGE_COLORS.length];
+            const colorClass = RANGE_TEXT_CLASSES[i % RANGE_TEXT_CLASSES.length];
+            const bgClass = RANGE_BG_CLASSES[i % RANGE_BG_CLASSES.length];
             const isWinner =
               market.resolved && market.winningRangeIndex === i;
+            const barPct = Math.min(100, parseFloat(pct));
 
             return (
               <div key={range.index}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 4,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: color,
-                        flexShrink: 0,
-                      }}
-                    />
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <svg className="h-2 w-2 shrink-0" viewBox="0 0 8 8" aria-hidden="true">
+                      <circle cx="4" cy="4" r="4" fill={color} />
+                    </svg>
                     <span
-                      style={{
-                        fontSize: 12,
-                        color: isWinner ? color : "#8081a0",
-                        fontWeight: isWinner ? 700 : 400,
-                      }}
+                      className={`text-xs ${
+                        isWinner ? `${colorClass} font-bold` : "font-normal text-[#8081a0]"
+                      }`}
                     >
                       {range.label}
                     </span>
                     {isWinner && (
-                      <span
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color,
-                          background: color + "20",
-                          padding: "1px 5px",
-                          borderRadius: 3,
-                        }}
-                      >
+                      <span className={`rounded-[3px] px-[5px] py-px text-[9px] font-bold ${bgClass} ${colorClass}`}>
                         WIN
                       </span>
                     )}
                   </div>
                   <span
-                    className="mono"
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: isWinner ? color : "#e4e5eb",
-                    }}
+                    className={`mono text-xs font-semibold ${
+                      isWinner ? colorClass : "text-[var(--foreground)]"
+                    }`}
                   >
                     {pct}¢
                   </span>
                 </div>
-                <div
-                  style={{
-                    height: 3,
-                    borderRadius: 3,
-                    background: "rgba(255,255,255,0.05)",
-                    overflow: "hidden",
-                  }}
+                <svg
+                  className="block h-[3px] w-full overflow-hidden rounded-full bg-white/[0.05]"
+                  viewBox="0 0 100 1"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
                 >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${Math.min(100, parseFloat(pct))}%`,
-                      background: color,
-                      borderRadius: 3,
-                      transition: "width 0.4s ease",
-                      opacity: market.resolved && !isWinner ? 0.3 : 1,
-                    }}
+                  <rect
+                    width={barPct}
+                    height="1"
+                    fill={color}
+                    opacity={market.resolved && !isWinner ? 0.3 : 1}
                   />
-                </div>
+                </svg>
               </div>
             );
           })}
         </div>
 
         {/* Footer */}
-        <div
-          style={{
-            marginTop: 14,
-            paddingTop: 12,
-            borderTop: "1px solid rgba(255,255,255,0.04)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span style={{ fontSize: 11, color: "#4c4e68" }}>
+        <div className="mt-3.5 flex items-center justify-between border-t border-white/[0.04] pt-3">
+          <span className="text-[11px] text-[var(--muted)]">
             {ranges.length} outcomes · LMSR
           </span>
-          <span
-            style={{
-              fontSize: 11,
-              color: typeColor,
-              fontWeight: 600,
-            }}
-          >
+          <span className={`text-[11px] font-semibold ${typeTextClass}`}>
             Trade →
           </span>
         </div>

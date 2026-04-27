@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { fetchApi } from "@/lib/api";
 import { useSocket } from "./useSocket";
-import type { RangeMarket, RangePosition } from "@nam-prediction/shared";
+import type { RangeMarket, RangePosition, RangeTrade } from "@nam-prediction/shared";
 
 // ─── Data hooks ───
 
@@ -46,6 +46,15 @@ export function useRangePositions(marketId: number | undefined, userAddress: str
       fetchApi<RangePosition[]>(`/range-markets/${marketId}/positions/${userAddress}`),
     enabled: marketId != null && !!userAddress,
     refetchInterval: 15_000,
+  });
+}
+
+export function useRangeTrades(marketId: number | undefined) {
+  return useQuery<RangeTrade[]>({
+    queryKey: ["range-trades", marketId],
+    queryFn: () => fetchApi<RangeTrade[]>(`/range-markets/${marketId}/trades`),
+    enabled: marketId != null,
+    refetchInterval: 10_000,
   });
 }
 

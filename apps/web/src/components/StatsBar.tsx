@@ -33,37 +33,23 @@ export function StatsBar() {
   ];
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
-        gap: 10,
-        marginBottom: 28,
-      }}
-    >
+    <div className="mb-7 grid grid-cols-4 gap-2.5">
       {stats.map((s) => (
-        <div key={s.label} className="card" style={{ padding: "14px 18px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-            <div
-              style={{
-                fontSize: 10,
-                color: "#4c4e68",
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                fontWeight: 700,
-              }}
-            >
+        <div key={s.label} className="card px-[18px] py-3.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <div className="text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
               {s.label}
             </div>
-            <s.Icon className="w-3.5 h-3.5" style={{ color: s.accent ? "#01d243" : "#4c4e68" }} />
+            <s.Icon
+              className={`h-3.5 w-3.5 ${
+                s.accent ? "text-yes" : "text-[var(--muted)]"
+              }`}
+            />
           </div>
           <div
-            className="mono"
-            style={{
-              fontSize: 21,
-              fontWeight: 500,
-              color: s.accent ? "#01d243" : "#e4e5eb",
-            }}
+            className={`mono text-[21px] font-medium ${
+              s.accent ? "text-yes" : "text-[var(--foreground)]"
+            }`}
           >
             {s.value}
           </div>

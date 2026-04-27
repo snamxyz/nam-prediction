@@ -46,8 +46,8 @@ export function HourlyMarketHero() {
 
   if (isLoading) {
     return (
-      <div style={{ marginBottom: 24 }}>
-        <div className="card" style={{ padding: 28, height: 320 }} />
+      <div className="mb-6">
+        <div className="card h-80 p-7" />
       </div>
     );
   }
@@ -61,136 +61,45 @@ export function HourlyMarketHero() {
   const question = formatMarketQuestion(market);
 
   return (
-    <div
-      className="card fade-up"
-      style={{ padding: 28, marginBottom: 24, position: "relative", overflow: "hidden" }}
-    >
+    <div className="card fade-up relative mb-6 overflow-hidden p-7">
       {/* Background accent glows */}
-      <div
-        style={{
-          position: "absolute",
-          top: -80,
-          left: -80,
-          width: 400,
-          height: 400,
-          background: "radial-gradient(circle, #01d24307 0%, transparent 65%)",
-          pointerEvents: "none",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          top: -80,
-          right: -80,
-          width: 400,
-          height: 400,
-          background: "radial-gradient(circle, #f0324c05 0%, transparent 65%)",
-          pointerEvents: "none",
-        }}
-      />
+      <div className="pointer-events-none absolute -left-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#01d24307_0%,transparent_65%)]" />
+      <div className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#f0324c05_0%,transparent_65%)]" />
 
       {/* Top row */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 18,
-        }}
-      >
+      <div className="mb-[18px] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="live-dot" />
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-              color: "#4c4e68",
-            }}
-          >
+          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
             24-Hour Market
           </span>
         </div>
-        <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>
+        <span className="mono text-[11px] text-[var(--muted)]">
           {countdown} remaining
         </span>
       </div>
 
       {/* Question */}
-      <h2
-        style={{
-          fontSize: 20,
-          fontWeight: 600,
-          color: "#e4e5eb",
-          marginBottom: 28,
-          lineHeight: 1.4,
-          maxWidth: 700,
-          letterSpacing: "-0.01em",
-        }}
-      >
+      <h2 className="mb-7 max-w-[700px] text-xl font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
         {question}
       </h2>
 
       {/* Large probability display */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1px 1fr",
-          marginBottom: 22,
-          gap: 0,
-        }}
-      >
-        <div style={{ textAlign: "center", padding: "18px 24px" }}>
-          <div
-            className="mono"
-            style={{
-              fontSize: 60,
-              fontWeight: 500,
-              color: "#01d243",
-              lineHeight: 1,
-              letterSpacing: "-0.03em",
-            }}
-          >
+      <div className="mb-[22px] grid grid-cols-[1fr_1px_1fr] gap-0">
+        <div className="px-6 py-[18px] text-center">
+          <div className="mono text-[60px] font-medium leading-none tracking-[-0.03em] text-yes">
             {yp}
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: "#4c4e68",
-              marginTop: 6,
-              letterSpacing: "0.09em",
-              textTransform: "uppercase",
-              fontWeight: 700,
-            }}
-          >
+          <div className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
             {outcomeLabels.yes} %
           </div>
         </div>
-        <div style={{ background: "rgba(255,255,255,0.07)", margin: "12px 0" }} />
-        <div style={{ textAlign: "center", padding: "18px 24px" }}>
-          <div
-            className="mono"
-            style={{
-              fontSize: 60,
-              fontWeight: 500,
-              color: "#f0324c",
-              lineHeight: 1,
-              letterSpacing: "-0.03em",
-            }}
-          >
+        <div className="my-3 bg-white/[0.07]" />
+        <div className="px-6 py-[18px] text-center">
+          <div className="mono text-[60px] font-medium leading-none tracking-[-0.03em] text-no">
             {np}
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: "#4c4e68",
-              marginTop: 6,
-              letterSpacing: "0.09em",
-              textTransform: "uppercase",
-              fontWeight: 700,
-            }}
-          >
+          <div className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
             {outcomeLabels.no} %
           </div>
         </div>
@@ -199,64 +108,28 @@ export function HourlyMarketHero() {
       <ProbBar yes={parseFloat(yp)} height={4} />
 
       {/* Footer */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginTop: 20,
-        }}
-      >
+      <div className="mt-5 flex items-center justify-between">
         <div className="flex gap-5">
           <div>
-            <div
-              style={{
-                fontSize: 10,
-                color: "#4c4e68",
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                fontWeight: 700,
-                marginBottom: 3,
-              }}
-            >
+            <div className="mb-[3px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
               Volume
             </div>
-            <div className="mono" style={{ fontSize: 13, color: "#e4e5eb" }}>
+            <div className="mono text-[13px] text-[var(--foreground)]">
               {formatVolume(volume)}
             </div>
           </div>
           <div>
-            <div
-              style={{
-                fontSize: 10,
-                color: "#4c4e68",
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                fontWeight: 700,
-                marginBottom: 3,
-              }}
-            >
+            <div className="mb-[3px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
               NAM Price
             </div>
-            <div className="mono" style={{ fontSize: 13, color: "#e4e5eb" }}>
+            <div className="mono text-[13px] text-[var(--foreground)]">
               {namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—"}
             </div>
           </div>
         </div>
         <Link
           href={`/market/${market.id}`}
-          style={{
-            padding: "10px 22px",
-            borderRadius: 8,
-            background: "#01d243",
-            color: "#000",
-            fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: "0.01em",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-        }}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-yes px-[22px] py-2.5 text-[13px] font-bold tracking-[0.01em] text-black"
       >
           Trade Now <ArrowRight className="w-4 h-4" />
         </Link>

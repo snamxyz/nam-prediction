@@ -8,14 +8,30 @@ export const metadata: Metadata = {
   description: "Decentralized prediction market on Base",
 };
 
+const themeScript = `
+(() => {
+  try {
+    const storedTheme = window.localStorage.getItem("nam-theme");
+    const systemTheme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : systemTheme;
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  } catch {
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.style.colorScheme = "dark";
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
@@ -25,7 +41,13 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>
-          <div className="min-h-screen" style={{ background: "#07080c", color: "#e4e5eb" }}>
+          <div
+            className="min-h-screen"
+            style={{
+              background: "var(--background)",
+              color: "var(--foreground)",
+            }}
+          >
             <Navbar />
             <main className="max-w-[1280px] mx-auto px-6 py-8 relative">
               {children}

@@ -25,8 +25,8 @@ export function VaultTransactionHistory() {
   return (
     <div className="glass-card p-6">
       <div className="flex items-center gap-2 mb-5">
-        <History className="w-5 h-5" style={{ color: "#01d243" }} />
-        <h2 className="text-base font-semibold" style={{ color: "#e8e9ed" }}>
+        <History className="w-5 h-5 text-yes" />
+        <h2 className="text-base font-semibold text-[#e8e9ed]">
           Vault Transactions
         </h2>
       </div>
@@ -37,12 +37,11 @@ export function VaultTransactionHistory() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className="px-3 py-1 rounded-lg text-xs transition-all"
-            style={
+            className={`rounded-lg px-3 py-1 text-xs transition-all ${
               tab === t
-                ? { background: "rgba(1,210,67,0.15)", color: "#01d243" }
-                : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-            }
+                ? "bg-yes/15 text-yes"
+                : "bg-[#1f2028]/50 text-[#717182]"
+            }`}
           >
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
@@ -52,13 +51,13 @@ export function VaultTransactionHistory() {
       {isLoading && (
         <div className="space-y-2">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-12 rounded-lg animate-pulse" style={{ background: "rgba(31,32,40,0.45)" }} />
+            <div key={i} className="h-12 animate-pulse rounded-lg bg-[#1f2028]/45" />
           ))}
         </div>
       )}
 
       {!isLoading && filtered.length === 0 && (
-        <p className="text-xs text-center py-8" style={{ color: "#717182" }}>
+        <p className="py-8 text-center text-xs text-[#717182]">
           No {tab === "all" ? "" : tab} transactions yet
         </p>
       )}
@@ -67,36 +66,35 @@ export function VaultTransactionHistory() {
         <div className="space-y-2">
           {filtered.map((tx) => {
             const isDeposit = tx.type === "deposit";
-            const C = isDeposit ? "#01d243" : "#ff4757";
+            const colorClass = isDeposit ? "text-yes" : "text-[#ff4757]";
+            const bgClass = isDeposit ? "bg-yes/10" : "bg-[#ff4757]/10";
             const amount = parseFloat(tx.amount).toFixed(2);
             return (
               <div
                 key={tx.id}
-                className="flex items-center justify-between px-4 py-3 rounded-lg"
-                style={{ background: "rgba(31,32,40,0.45)" }}
+                className="flex items-center justify-between rounded-lg bg-[#1f2028]/45 px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                    style={{ background: `${C}18` }}
+                    className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${bgClass}`}
                   >
                     {isDeposit ? (
-                      <ArrowDownLeft className="w-4 h-4" style={{ color: C }} />
+                      <ArrowDownLeft className={`h-4 w-4 ${colorClass}`} />
                     ) : (
-                      <ArrowUpRight className="w-4 h-4" style={{ color: C }} />
+                      <ArrowUpRight className={`h-4 w-4 ${colorClass}`} />
                     )}
                   </div>
                   <div>
-                    <p className="text-xs font-semibold" style={{ color: "#e8e9ed" }}>
+                    <p className="text-xs font-semibold text-[#e8e9ed]">
                       {isDeposit ? "Deposit" : "Withdrawal"}
                     </p>
-                    <p className="text-[11px]" style={{ color: "#717182" }}>
+                    <p className="text-[11px] text-[#717182]">
                       {timeAgo(tx.timestamp)}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold" style={{ color: C }}>
+                  <span className={`text-sm font-semibold ${colorClass}`}>
                     {isDeposit ? "+" : "−"}${amount}
                   </span>
                   <a
@@ -105,7 +103,7 @@ export function VaultTransactionHistory() {
                     rel="noopener noreferrer"
                     className="transition-opacity hover:opacity-70"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" style={{ color: "#717182" }} />
+                    <ExternalLink className="h-3.5 w-3.5 text-[#717182]" />
                   </a>
                 </div>
               </div>

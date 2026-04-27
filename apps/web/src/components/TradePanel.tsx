@@ -265,7 +265,8 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const num = parseFloat(amount) || 0;
   const price = side === "YES" ? yesPrice : noPrice;
   const isYes = side === "YES";
-  const C = isYes ? "#01d243" : "#f0324c";
+  const sideAccentClass = isYes ? "text-yes" : "text-no";
+  const sideButtonClass = isYes ? "bg-yes text-black" : "bg-no text-white";
   const labels = outcomeLabels ?? { yes: "Yes", no: "No", yesShort: "YES", noShort: "NO" };
   const sideLabel = isYes ? labels.yes : labels.no;
   const sideShortLabel = isYes ? labels.yesShort : labels.noShort;
@@ -325,40 +326,35 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   };
 
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
+    <div className="card overflow-hidden">
       {/* Header */}
-      <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: "#e4e5eb" }}>Trade</h3>
+      <div className="border-b border-white/[0.04] px-5 py-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Trade</h3>
           {isAuthenticated && (
-            <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>
-              Balance: <span style={{ color: "#01d243" }}>${parseFloat(usdcBalance).toFixed(2)}</span>
+            <span className="mono text-[11px] text-[var(--muted)]">
+              Balance: <span className="text-yes">${parseFloat(usdcBalance).toFixed(2)}</span>
             </span>
           )}
         </div>
       </div>
 
-      <div style={{ padding: "16px 20px 20px" }}>
+      <div className="px-5 pb-5 pt-4">
         {/* Buy / Sell mode toggle */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
+        <div className="mb-3.5 grid grid-cols-2 gap-1.5">
           {(["BUY", "SELL"] as const).map((m) => {
             const active = mode === m;
-            const mc = m === "BUY" ? "#01d243" : "#f0324c";
             return (
               <button
                 key={m}
                 onClick={() => { setMode(m); setAmount(""); setEstimate(null); setError(null); }}
-                style={{
-                  padding: "8px 0",
-                  borderRadius: 8,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  border: `1px solid ${active ? mc + "4d" : "rgba(255,255,255,0.04)"}`,
-                  background: active ? mc + "18" : "#111320",
-                  color: active ? mc : "#4c4e68",
-                  cursor: "pointer",
-                  transition: "all 0.12s",
-                }}
+                className={`cursor-pointer rounded-lg border py-2 text-[11px] font-bold transition-all duration-150 ${
+                  active
+                    ? m === "BUY"
+                      ? "border-yes/30 bg-yes/10 text-yes"
+                      : "border-no/30 bg-no/10 text-no"
+                    : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                }`}
               >
                 {m}
               </button>
@@ -367,26 +363,21 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         </div>
 
         {/* Outcome toggle */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 18 }}>
+        <div className="mb-[18px] grid grid-cols-2 gap-1.5">
           {(["YES", "NO"] as const).map((s) => {
             const active = side === s;
-            const sc = s === "YES" ? "#01d243" : "#f0324c";
             const sidePrice = s === "YES" ? yesPrice : noPrice;
             return (
               <button
                 key={s}
                 onClick={() => setSide(s)}
-                style={{
-                  padding: "10px 0",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  border: `1px solid ${active ? sc + "4d" : "rgba(255,255,255,0.04)"}`,
-                  background: active ? sc + "22" : "#111320",
-                  color: active ? sc : "#4c4e68",
-                  cursor: "pointer",
-                  transition: "all 0.12s",
-                }}
+                className={`cursor-pointer rounded-lg border py-2.5 text-[13px] font-semibold transition-all duration-150 ${
+                  active
+                    ? s === "YES"
+                      ? "border-yes/30 bg-yes/15 text-yes"
+                      : "border-no/30 bg-no/15 text-no"
+                    : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                }`}
               >
                 {s === "YES" ? labels.yes : labels.no} {formatCents(sidePrice)}
               </button>
@@ -395,22 +386,22 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         </div>
 
         {/* Amount */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <p style={{ fontSize: 11, color: "#4c4e68" }}>
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[11px] text-[var(--muted)]">
             {mode === "BUY" ? "Amount (USDC)" : "Shares to Sell"}
           </p>
           {mode === "SELL" && isAuthenticated && (
-            <p style={{ fontSize: 11, color: "#4c4e68" }}>
+            <p className="text-[11px] text-[var(--muted)]">
               Owned:{" "}
-              <span style={{ color: ownedShares > 0 ? C : "#4c4e68", fontWeight: 600 }}>
+              <span className={`font-semibold ${ownedShares > 0 ? sideAccentClass : "text-[var(--muted)]"}`}>
                 {formatShares(ownedShares)} {sideShortLabel}
               </span>
             </p>
           )}
         </div>
-        <div style={{ position: "relative", marginBottom: 10 }}>
+        <div className="relative mb-2.5">
           {mode === "BUY" && (
-            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#4c4e68" }}>$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-[var(--muted)]">$</span>
           )}
           <input
             type="number"
@@ -418,27 +409,15 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             placeholder="0"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="mono"
-            style={{
-              width: "100%",
-              borderRadius: 8,
-              paddingRight: 14,
-              paddingTop: 10,
-              paddingBottom: 10,
-              paddingLeft: mode === "BUY" ? 28 : 14,
-              fontSize: 13,
-              textAlign: "right",
-              outline: "none",
-              background: "#111320",
-              color: "#e4e5eb",
-              border: "1px solid rgba(255,255,255,0.04)",
-            }}
+            className={`mono w-full rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] py-2.5 pr-3.5 text-right text-[13px] text-[var(--foreground)] outline-none ${
+              mode === "BUY" ? "pl-7" : "pl-3.5"
+            }`}
           />
         </div>
 
         {/* Quick sell percentages */}
         {mode === "SELL" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <div className="mb-3.5 flex gap-1.5">
             {SELL_PERCENTS.map((p) => {
               const disabled = ownedShares <= 0;
               const label = p === 100 ? "MAX" : `${p}%`;
@@ -447,27 +426,11 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                   key={p}
                   onClick={() => setSellPercent(p)}
                   disabled={disabled}
-                  style={{
-                    flex: 1,
-                    padding: "6px 0",
-                    borderRadius: 6,
-                    fontSize: 11,
-                    background: "#111320",
-                    color: disabled ? "rgba(76,78,104,0.50)" : "#4c4e68",
-                    cursor: disabled ? "not-allowed" : "pointer",
-                    border: "1px solid rgba(255,255,255,0.04)",
-                    transition: "all 0.12s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (disabled) return;
-                    e.currentTarget.style.background = "#1a1c2a";
-                    e.currentTarget.style.color = "#e4e5eb";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (disabled) return;
-                    e.currentTarget.style.background = "#111320";
-                    e.currentTarget.style.color = "#4c4e68";
-                  }}
+                  className={`flex-1 rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] transition-all duration-150 ${
+                    disabled
+                      ? "cursor-not-allowed text-[var(--muted)]/50"
+                      : "cursor-pointer text-[var(--muted)] hover:bg-[#1a1c2a] hover:text-[var(--foreground)]"
+                  }`}
                 >
                   {label}
                 </button>
@@ -478,55 +441,19 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
         {/* Quick amounts (buy only) */}
         {mode === "BUY" && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <div className="mb-3.5 flex gap-1.5">
             {QUICK.map((q) => (
               <button
                 key={q}
                 onClick={() => setAmount((s) => String((parseFloat(s) || 0) + q))}
-                style={{
-                  flex: 1,
-                  padding: "6px 0",
-                  borderRadius: 6,
-                  fontSize: 11,
-                  background: "#111320",
-                  color: "#4c4e68",
-                  border: "1px solid rgba(255,255,255,0.04)",
-                  cursor: "pointer",
-                  transition: "all 0.12s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "#1a1c2a";
-                  e.currentTarget.style.color = "#e4e5eb";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "#111320";
-                  e.currentTarget.style.color = "#4c4e68";
-                }}
+                className="flex-1 cursor-pointer rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)] transition-all duration-150 hover:bg-[#1a1c2a] hover:text-[var(--foreground)]"
               >
                 +${q}
               </button>
             ))}
             <button
               onClick={() => setAmount(usdcBalance)}
-              style={{
-                flex: 1,
-                padding: "6px 0",
-                borderRadius: 6,
-                fontSize: 11,
-                background: "#111320",
-                color: "#4c4e68",
-                border: "1px solid rgba(255,255,255,0.04)",
-                cursor: "pointer",
-                transition: "all 0.12s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "#1a1c2a";
-                e.currentTarget.style.color = "#e4e5eb";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "#111320";
-                e.currentTarget.style.color = "#4c4e68";
-              }}
+              className="flex-1 cursor-pointer rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)] transition-all duration-150 hover:bg-[#1a1c2a] hover:text-[var(--foreground)]"
             >
               Max
             </button>
@@ -534,25 +461,20 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         )}
 
         {/* Slippage tolerance */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-          <p style={{ fontSize: 11, color: "#4c4e68" }}>Max slippage</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div className="mb-[18px] flex items-center justify-between">
+          <p className="text-[11px] text-[var(--muted)]">Max slippage</p>
+          <div className="flex items-center gap-1">
             {SLIPPAGE_PRESETS.map((s) => {
               const active = slippagePct === s;
               return (
                 <button
                   key={s}
                   onClick={() => setSlippagePct(s)}
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    fontSize: 10,
-                    border: `1px solid ${active ? "rgba(1,210,67,0.30)" : "rgba(255,255,255,0.04)"}`,
-                    background: active ? "rgba(1,210,67,0.12)" : "#111320",
-                    color: active ? "#01d243" : "#4c4e68",
-                    cursor: "pointer",
-                    transition: "all 0.12s",
-                  }}
+                  className={`cursor-pointer rounded border px-2 py-1 text-[10px] transition-all duration-150 ${
+                    active
+                      ? "border-yes/30 bg-yes/[0.12] text-yes"
+                      : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                  }`}
                 >
                   {s}%
                 </button>
@@ -562,18 +484,18 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         </div>
 
         {/* Return breakdown */}
-        <div style={{ borderRadius: 10, padding: 14, marginBottom: 18, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-            <span style={{ color: "#4c4e68" }}>Avg price</span>
-            <span className="mono" style={{ color: "#e4e5eb" }}>
+        <div className="mb-[18px] rounded-[10px] border border-white/[0.04] bg-[var(--surface-hover)] p-3.5">
+          <div className="mb-2 flex justify-between text-[11px]">
+            <span className="text-[var(--muted)]">Avg price</span>
+            <span className="mono text-[var(--foreground)]">
               {estimate?.avgPrice ? formatCents(avgPriceNum) : formatCents(price)}
             </span>
           </div>
 
           {num > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-              <span style={{ color: "#4c4e68" }}>Price impact</span>
-              <span className="mono" style={{ color: highImpact ? "#f0324c" : "#e4e5eb" }}>
+            <div className="mb-2 flex justify-between text-[11px]">
+              <span className="text-[var(--muted)]">Price impact</span>
+              <span className={`mono ${highImpact ? "text-no" : "text-[var(--foreground)]"}`}>
                 {priceImpactPct.toFixed(2)}%
               </span>
             </div>
@@ -583,25 +505,25 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             <>
               {num > 0 && (
                 <>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                    <span style={{ color: "#4c4e68" }}>Trade amount</span>
-                    <span className="mono" style={{ color: "#e4e5eb" }}>
+                  <div className="mb-2 flex justify-between text-[11px]">
+                    <span className="text-[var(--muted)]">Trade amount</span>
+                    <span className="mono text-[var(--foreground)]">
                       ${num.toFixed(4)}
                     </span>
                   </div>
                   {protocolFeeNum > 0 && (
                     <>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                        <span style={{ color: "#4c4e68" }}>
+                      <div className="mb-2 flex justify-between text-[11px]">
+                        <span className="text-[var(--muted)]">
                           Protocol fee{protocolFeePctLabel ? ` (${protocolFeePctLabel})` : ""}
                         </span>
-                        <span className="mono" style={{ color: "#ffa500" }}>
+                        <span className="mono text-[#ffa500]">
                           −${protocolFeeNum.toFixed(4)}
                         </span>
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                        <span style={{ color: "#4c4e68" }}>Net trade amount</span>
-                        <span className="mono" style={{ color: "#e4e5eb" }}>
+                      <div className="mb-2 flex justify-between text-[11px]">
+                        <span className="text-[var(--muted)]">Net trade amount</span>
+                        <span className="mono text-[var(--foreground)]">
                           ${netAmountNum.toFixed(4)}
                         </span>
                       </div>
@@ -609,22 +531,22 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                   )}
                 </>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                <span style={{ color: "#4c4e68" }}>Shares</span>
-                <span className="mono" style={{ color: "#e4e5eb" }}>
+              <div className="mb-2 flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">Shares</span>
+                <span className="mono text-[var(--foreground)]">
                   {num > 0 ? estimatedShares.toFixed(4) : "—"}
                 </span>
               </div>
-              <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "8px 0" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                <span style={{ color: "#4c4e68" }}>Potential return</span>
-                <span className="mono" style={{ color: num > 0 ? C : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
+              <div className="my-2 h-px bg-white/[0.04]" />
+              <div className="mb-2 flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">Potential return</span>
+                <span className={`mono ${num > 0 ? `${sideAccentClass} font-semibold` : "text-[var(--muted)] font-normal"}`}>
                   {num > 0 ? `$${potentialPayout.toFixed(2)} (+${pct.toFixed(1)}%)` : "—"}
                 </span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: "#4c4e68" }}>Payout if {sideLabel} wins</span>
-                <span className="mono" style={{ color: "rgba(228,229,235,0.80)" }}>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">Payout if {sideLabel} wins</span>
+                <span className="mono text-[var(--foreground)]/80">
                   {num > 0 ? `$${potentialPayout.toFixed(2)}` : "—"}
                 </span>
               </div>
@@ -633,27 +555,27 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             <>
               {num > 0 && grossAmountNum > 0 && (
                 <>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                    <span style={{ color: "#4c4e68" }}>Gross proceeds</span>
-                    <span className="mono" style={{ color: "#e4e5eb" }}>
+                  <div className="mb-2 flex justify-between text-[11px]">
+                    <span className="text-[var(--muted)]">Gross proceeds</span>
+                    <span className="mono text-[var(--foreground)]">
                       ${grossAmountNum.toFixed(4)}
                     </span>
                   </div>
                   {protocolFeeNum > 0 && (
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                      <span style={{ color: "#4c4e68" }}>
+                    <div className="mb-2 flex justify-between text-[11px]">
+                      <span className="text-[var(--muted)]">
                         Protocol fee{protocolFeePctLabel ? ` (${protocolFeePctLabel})` : ""}
                       </span>
-                      <span className="mono" style={{ color: "#ffa500" }}>
+                      <span className="mono text-[#ffa500]">
                         −${protocolFeeNum.toFixed(4)}
                       </span>
                     </div>
                   )}
                 </>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: "#4c4e68" }}>USDC received</span>
-                <span className="mono" style={{ color: num > 0 ? "#01d243" : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
+              <div className="flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">USDC received</span>
+                <span className={`mono ${num > 0 ? "font-semibold text-yes" : "font-normal text-[var(--muted)]"}`}>
                   {num > 0 ? `$${estimatedUsdc.toFixed(4)}` : "—"}
                 </span>
               </div>
@@ -663,18 +585,8 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
         {/* Slippage warning */}
         {num > 0 && highImpact && (
-          <p
-            style={{
-              fontSize: 11,
-              marginBottom: 10,
-              padding: "8px 12px",
-              borderRadius: 8,
-              color: "#ffa500",
-              background: "rgba(255,165,0,0.08)",
-              border: "1px solid rgba(255,165,0,0.20)",
-            }}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <p className="mb-2.5 rounded-lg border border-[#ffa500]/20 bg-[#ffa500]/[0.08] px-3 py-2 text-[11px] text-[#ffa500]">
+            <span className="flex items-center gap-1.5">
               <AlertTriangle className="w-3 h-3 flex-shrink-0" />
               High price impact ({priceImpactPct.toFixed(2)}%). Consider a smaller trade size.
             </span>
@@ -683,16 +595,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
         {/* Error */}
         {error && (
-          <p
-            style={{
-              fontSize: 11,
-              marginBottom: 10,
-              padding: "8px 12px",
-              borderRadius: 8,
-              color: "#f0324c",
-              background: "rgba(240,50,76,0.08)",
-            }}
-          >
+          <p className="mb-2.5 rounded-lg bg-no/[0.08] px-3 py-2 text-[11px] text-no">
             {error}
           </p>
         )}
@@ -701,17 +604,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         {!isAuthenticated ? (
           <button
             onClick={login}
-            style={{
-              width: "100%",
-              padding: "12px 0",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              background: "#01d243",
-              color: "#000",
-              cursor: "pointer",
-              border: "none",
-            }}
+            className="w-full cursor-pointer rounded-[10px] border-0 bg-yes py-3 text-[13px] font-bold text-black"
           >
             Connect to Trade
           </button>
@@ -719,18 +612,11 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           <button
             onClick={handleTrade}
             disabled={!isConnected || num <= 0 || isLoading || !wallets.length}
-            style={{
-              width: "100%",
-              padding: "12px 0",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              border: "none",
-              transition: "all 0.12s",
-              ...(isConnected && num > 0 && !isLoading && wallets.length > 0
-                ? { background: C, color: isYes ? "#000" : "#fff", cursor: "pointer" }
-                : { background: "#111320", color: "#4c4e68", cursor: "not-allowed" }),
-            }}
+            className={`w-full rounded-[10px] border-0 py-3 text-[13px] font-bold transition-all duration-150 ${
+              isConnected && num > 0 && !isLoading && wallets.length > 0
+                ? `cursor-pointer ${sideButtonClass}`
+                : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]"
+            }`}
           >
             {isLoading
               ? "Processing…"
@@ -739,39 +625,39 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
               : "Enter an amount"}
           </button>
         )}
-        <p style={{ textAlign: "center", fontSize: 9, marginTop: 10, color: "rgba(76,78,104,0.50)" }}>
+        <p className="mt-2.5 text-center text-[9px] text-[var(--muted)]/50">
           Each trade requires a wallet signature. By trading, you agree to the Terms of Use.
         </p>
 
         {/* Current position summary */}
         {isAuthenticated && (yesShares >= DUST || noShares >= DUST) && (
-          <div style={{ marginTop: 14, borderRadius: 10, padding: 14, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
-            <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 10, color: "#4c4e68" }}>Your Position</p>
+          <div className="mt-3.5 rounded-[10px] border border-white/[0.04] bg-[var(--surface-hover)] p-3.5">
+            <p className="mb-2.5 text-[11px] font-semibold text-[var(--muted)]">Your Position</p>
             {yesShares >= DUST && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, marginBottom: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(1,210,67,0.12)", color: "#01d243" }}>{labels.yesShort}</span>
-                  <span className="mono" style={{ color: "#e4e5eb" }}>{yesShares.toFixed(4)} shares</span>
-                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(yesAvgDisplay * 100).toFixed(1)}¢</span>
+              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded bg-yes/[0.12] px-1.5 py-0.5 text-[9px] font-bold text-yes">{labels.yesShort}</span>
+                  <span className="mono text-[var(--foreground)]">{yesShares.toFixed(4)} shares</span>
+                  <span className="mono text-[var(--muted)]">@ {(yesAvgDisplay * 100).toFixed(1)}¢</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span className="mono" style={{ color: "#e4e5eb" }}>${Number(position?.yesCurrentValue ?? 0).toFixed(2)}</span>
-                  <span className="mono" style={{ color: Number(position?.yesPnl ?? 0) >= 0 ? "#01d243" : "#f0324c" }}>
+                <div className="flex items-center gap-1.5">
+                  <span className="mono text-[var(--foreground)]">${Number(position?.yesCurrentValue ?? 0).toFixed(2)}</span>
+                  <span className={`mono ${Number(position?.yesPnl ?? 0) >= 0 ? "text-yes" : "text-no"}`}>
                     {Number(position?.yesPnl ?? 0) >= 0 ? "+" : ""}${Number(position?.yesPnl ?? 0).toFixed(2)}
                   </span>
                 </div>
               </div>
             )}
             {noShares >= DUST && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: "rgba(240,50,76,0.12)", color: "#f0324c" }}>{labels.noShort}</span>
-                  <span className="mono" style={{ color: "#e4e5eb" }}>{noShares.toFixed(4)} shares</span>
-                  <span className="mono" style={{ color: "#4c4e68" }}>@ {(noAvgDisplay * 100).toFixed(1)}¢</span>
+              <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded bg-no/[0.12] px-1.5 py-0.5 text-[9px] font-bold text-no">{labels.noShort}</span>
+                  <span className="mono text-[var(--foreground)]">{noShares.toFixed(4)} shares</span>
+                  <span className="mono text-[var(--muted)]">@ {(noAvgDisplay * 100).toFixed(1)}¢</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span className="mono" style={{ color: "#e4e5eb" }}>${Number(position?.noCurrentValue ?? 0).toFixed(2)}</span>
-                  <span className="mono" style={{ color: Number(position?.noPnl ?? 0) >= 0 ? "#01d243" : "#f0324c" }}>
+                <div className="flex items-center gap-1.5">
+                  <span className="mono text-[var(--foreground)]">${Number(position?.noCurrentValue ?? 0).toFixed(2)}</span>
+                  <span className={`mono ${Number(position?.noPnl ?? 0) >= 0 ? "text-yes" : "text-no"}`}>
                     {Number(position?.noPnl ?? 0) >= 0 ? "+" : ""}${Number(position?.noPnl ?? 0).toFixed(2)}
                   </span>
                 </div>

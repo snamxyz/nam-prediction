@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRangeMarketSocket, useRangePositions, useActiveRangeMarkets } from "@/hooks/useRangeMarkets";
+import { useRangeMarketSocket, useRangePositions, useActiveRangeMarkets, useRangeTrades } from "@/hooks/useRangeMarkets";
 import type { RangeMarket, RangeOutcome, RangePosition } from "@nam-prediction/shared";
 import {
   TRADING_DOMAIN,
@@ -12,6 +12,7 @@ import {
   RANGE_TRADE_INTENT_PRIMARY_TYPE,
 } from "@nam-prediction/shared";
 import { fetchApi, authedPostApi } from "@/lib/api";
+import { RangeProbabilityChart } from "@/components/RangeProbabilityChart";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAccount } from "wagmi";
 import { createWalletClient, custom, parseUnits } from "viem";
@@ -27,6 +28,38 @@ const RANGE_COLORS = [
   "#a78bfa",
   "#38bdf8",
 ];
+
+const RANGE_TEXT_CLASSES = [
+  "text-[#6c7aff]",
+  "text-[#01d243]",
+  "text-[#f0a832]",
+  "text-[#f0324c]",
+  "text-[#a78bfa]",
+  "text-[#38bdf8]",
+];
+
+const RANGE_BG_CLASSES = [
+  "bg-[#6c7aff]/15",
+  "bg-[#01d243]/15",
+  "bg-[#f0a832]/15",
+  "bg-[#f0324c]/15",
+  "bg-[#a78bfa]/15",
+  "bg-[#38bdf8]/15",
+];
+
+const RANGE_BORDER_CLASSES = [
+  "border-[#6c7aff]",
+  "border-[#01d243]",
+  "border-[#f0a832]",
+  "border-[#f0324c]",
+  "border-[#a78bfa]",
+  "border-[#38bdf8]",
+];
+
+function getRangeClassIndex(color: string) {
+  const index = RANGE_COLORS.indexOf(color);
+  return index >= 0 ? index : 0;
+}
 
 function useCountdown(iso?: string) {
   const [value, setValue] = useState({ h: "00", m: "00", s: "00", ended: false });
@@ -75,87 +108,58 @@ function RangeCardSelectable({
 }: RangeCardSelectableProps) {
   const pct = (price * 100).toFixed(1);
   const hasBal = parseFloat(userBalance) > 0;
+  const colorIndex = getRangeClassIndex(color);
+  const rangeTextClass = RANGE_TEXT_CLASSES[colorIndex];
+  const rangeBgClass = RANGE_BG_CLASSES[colorIndex];
+  const rangeBorderClass = RANGE_BORDER_CLASSES[colorIndex];
+  const barPct = Math.min(100, parseFloat(pct));
 
   return (
     <button
       onClick={onClick}
-      style={{
-        width: "100%",
-        padding: "16px 18px",
-        borderRadius: 10,
-        border: selected
-          ? `2px solid ${color}`
-          : isWinner
-          ? `2px solid ${color}`
-          : "2px solid rgba(255,255,255,0.06)",
-        background: selected
-          ? `${color}15`
-          : isWinner
-          ? `${color}10`
+      className={`flex w-full items-center justify-between gap-3 rounded-[10px] border-2 px-[18px] py-4 text-left transition-all duration-150 ${
+        isLoser ? "cursor-default opacity-45" : "cursor-pointer"
+      } ${
+        selected || isWinner
+          ? `${rangeBgClass} ${rangeBorderClass}`
           : isLoser
-          ? "rgba(255,255,255,0.02)"
-          : "#0d0e14",
-        cursor: isLoser ? "default" : "pointer",
-        textAlign: "left",
-        transition: "all 0.15s",
-        opacity: isLoser ? 0.45 : 1,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-      }}
+            ? "border-white/[0.06] bg-white/[0.02]"
+            : "border-white/[0.06] bg-[var(--surface)]"
+      }`}
     >
-      <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <div
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              background: color,
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontSize: 14, fontWeight: 600, color: isLoser ? "#4c4e68" : "#e4e5eb" }}>
+      <div className="flex-1">
+        <div className="mb-1.5 flex items-center gap-2">
+          <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 10 10" aria-hidden="true">
+            <circle cx="5" cy="5" r="5" fill={color} />
+          </svg>
+          <span className={`text-sm font-semibold ${isLoser ? "text-[var(--muted)]" : "text-[var(--foreground)]"}`}>
             {range.label}
           </span>
           {isWinner && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color,
-                background: `${color}20`,
-                padding: "2px 6px",
-                borderRadius: 4,
-              }}
-            >
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${rangeBgClass} ${rangeTextClass}`}>
               WINNER
             </span>
           )}
         </div>
-        <div style={{ height: 3, borderRadius: 3, background: "rgba(255,255,255,0.05)" }}>
-          <div
-            style={{
-              height: "100%",
-              width: `${Math.min(100, parseFloat(pct))}%`,
-              background: color,
-              borderRadius: 3,
-              transition: "width 0.4s ease",
-            }}
-          />
-        </div>
+        <svg
+          className="block h-[3px] w-full rounded-full bg-white/[0.05]"
+          viewBox="0 0 100 1"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <rect width={barPct} height="1" fill={color} />
+        </svg>
         {hasBal && (
-          <p style={{ fontSize: 10, color: "#4c4e68", marginTop: 6 }}>
+          <p className="mt-1.5 text-[10px] text-[var(--muted)]">
             You hold: {parseFloat(userBalance).toFixed(2)} tokens
           </p>
         )}
       </div>
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <span className="mono" style={{ fontSize: 22, fontWeight: 700, color: isLoser ? "#4c4e68" : color }}>
+      <div className="shrink-0 text-right">
+        <span className={`mono text-[22px] font-bold ${isLoser ? "text-[var(--muted)]" : rangeTextClass}`}>
           {pct}¢
         </span>
-        <p style={{ fontSize: 10, color: "#4c4e68", marginTop: 2 }}>probability</p>
+        <p className="mt-0.5 text-[10px] text-[var(--muted)]">probability</p>
       </div>
     </button>
   );
@@ -410,11 +414,11 @@ function TradePanelRange({
 
   if (!market.rangeCpmmAddress && !market.resolved) {
     return (
-      <div className="card" style={{ padding: 24, textAlign: "center" }}>
-        <p style={{ fontSize: 14, fontWeight: 600, color: "#e4e5eb", marginBottom: 8 }}>
+      <div className="card p-6 text-center">
+        <p className="mb-2 text-sm font-semibold text-[var(--foreground)]">
           Trading Coming Soon
         </p>
-        <p style={{ fontSize: 12, color: "#4c4e68", lineHeight: 1.6 }}>
+        <p className="text-xs leading-[1.6] text-[var(--muted)]">
           This market is not yet deployed on-chain.
           <br />
           Trading will be available shortly.
@@ -430,50 +434,41 @@ function TradePanelRange({
     const canRedeem = winPosition && parseFloat(winPosition.balance) > 0;
 
     return (
-      <div className="card" style={{ overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: "#e4e5eb" }}>Market Resolved</h3>
+      <div className="card overflow-hidden">
+        <div className="border-b border-white/[0.04] px-5 py-4">
+          <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Market Resolved</h3>
         </div>
-        <div style={{ padding: "16px 20px 20px" }}>
+        <div className="px-5 pb-5 pt-4">
           {winRange && (
-            <p style={{ fontSize: 13, color: "#01d243", marginBottom: 14 }}>
+            <p className="mb-3.5 text-[13px] text-yes">
               Winner: <strong>{winRange.label}</strong>
             </p>
           )}
           {canRedeem ? (
             <>
-              <p style={{ fontSize: 12, color: "#8081a0", marginBottom: 14 }}>
+              <p className="mb-3.5 text-xs text-[#8081a0]">
                 You hold {parseFloat(winPosition!.balance).toFixed(4)} winning tokens.
                 Redeem for {parseFloat(winPosition!.balance).toFixed(4)} USDC.
               </p>
               <button
                 onClick={handleRedeem}
                 disabled={isLoading}
-                style={{
-                  width: "100%",
-                  padding: "12px 0",
-                  borderRadius: 10,
-                  background: "#01d243",
-                  color: "#000",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  border: "none",
-                  cursor: isLoading ? "not-allowed" : "pointer",
-                  opacity: isLoading ? 0.6 : 1,
-                }}
+                className={`w-full rounded-[10px] border-0 bg-yes py-3 text-[13px] font-bold text-black ${
+                  isLoading ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                }`}
               >
                 {isLoading ? "Redeeming…" : "Redeem Winnings"}
               </button>
             </>
           ) : (
-            <p style={{ fontSize: 12, color: "#4c4e68" }}>
+            <p className="text-xs text-[var(--muted)]">
               {positions.length === 0
                 ? "You had no positions in this market."
                 : "Your positions were on losing ranges — no payout."}
             </p>
           )}
           {error && (
-            <p style={{ fontSize: 11, color: "#f0324c", marginTop: 10 }}>{error}</p>
+            <p className="mt-2.5 text-[11px] text-no">{error}</p>
           )}
         </div>
       </div>
@@ -487,16 +482,20 @@ function TradePanelRange({
     wallets.length > 0 &&
     selectedRangeIndex != null &&
     hasCurrentBuyQuote;
+  const selectedColorIndex =
+    selectedRangeIndex != null ? selectedRangeIndex % RANGE_COLORS.length : 0;
+  const selectedTextClass = RANGE_TEXT_CLASSES[selectedColorIndex];
+  const selectedBgClass = RANGE_BG_CLASSES[selectedColorIndex];
 
   return (
-    <div className="card" style={{ overflow: "hidden" }}>
-      <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ fontSize: 13, fontWeight: 600, color: "#e4e5eb" }}>Trade</h3>
+    <div className="card overflow-hidden">
+      <div className="border-b border-white/[0.04] px-5 py-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Trade</h3>
           {isAuthenticated && (
-            <span className="mono" style={{ fontSize: 11, color: "#4c4e68" }}>
+            <span className="mono text-[11px] text-[var(--muted)]">
               Balance:{" "}
-              <span style={{ color: "#01d243" }}>
+              <span className="text-yes">
                 ${parseFloat(usdcBalance).toFixed(2)}
               </span>
             </span>
@@ -504,27 +503,22 @@ function TradePanelRange({
         </div>
       </div>
 
-      <div style={{ padding: "16px 20px 20px" }}>
+      <div className="px-5 pb-5 pt-4">
         {/* BUY / SELL toggle */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 14 }}>
+        <div className="mb-3.5 grid grid-cols-2 gap-1.5">
           {(["BUY", "SELL"] as const).map((m) => {
             const active = mode === m;
-            const mc = m === "BUY" ? "#01d243" : "#f0324c";
             return (
               <button
                 key={m}
                 onClick={() => { setMode(m); setAmount(""); setError(null); clearQuote(); }}
-                style={{
-                  padding: "8px 0",
-                  borderRadius: 8,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  border: `1px solid ${active ? mc + "4d" : "rgba(255,255,255,0.04)"}`,
-                  background: active ? mc + "18" : "#111320",
-                  color: active ? mc : "#4c4e68",
-                  cursor: "pointer",
-                  transition: "all 0.12s",
-                }}
+                className={`cursor-pointer rounded-lg border py-2 text-[11px] font-bold transition-all duration-150 ${
+                  active
+                    ? m === "BUY"
+                      ? "border-yes/30 bg-yes/10 text-yes"
+                      : "border-no/30 bg-no/10 text-no"
+                    : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                }`}
               >
                 {m}
               </button>
@@ -533,36 +527,38 @@ function TradePanelRange({
         </div>
 
         {/* Selected range */}
-        <div style={{ marginBottom: 18, padding: "10px 14px", borderRadius: 8, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
+        <div className="mb-[18px] rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] px-3.5 py-2.5">
           {selectedRangeIndex != null && selectedRange ? (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%", background: RANGE_COLORS[selectedRangeIndex % RANGE_COLORS.length], flexShrink: 0 }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#e4e5eb" }}>{selectedRange.label}</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="h-2 w-2 shrink-0" viewBox="0 0 8 8" aria-hidden="true">
+                  <circle cx="4" cy="4" r="4" fill={RANGE_COLORS[selectedColorIndex]} />
+                </svg>
+                <span className="text-[13px] font-semibold text-[var(--foreground)]">{selectedRange.label}</span>
               </div>
-              <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: RANGE_COLORS[selectedRangeIndex % RANGE_COLORS.length] }}>
+              <span className={`mono text-[13px] font-bold ${selectedTextClass}`}>
                 {(selectedPrice * 100).toFixed(1)}¢
               </span>
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: "#4c4e68", textAlign: "center" }}>← Select a range from the left</p>
+            <p className="text-center text-xs text-[var(--muted)]">← Select a range from the left</p>
           )}
         </div>
 
         {/* Amount label + owned info */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <p style={{ fontSize: 11, color: "#4c4e68" }}>{mode === "BUY" ? "Amount (USDC)" : "Tokens to Sell"}</p>
+        <div className="mb-1.5 flex items-center justify-between">
+          <p className="text-[11px] text-[var(--muted)]">{mode === "BUY" ? "Amount (USDC)" : "Tokens to Sell"}</p>
           {mode === "SELL" && isAuthenticated && (
-            <p style={{ fontSize: 11, color: "#4c4e68" }}>
-              Owned: <span style={{ color: ownedBalance > 0 ? "#6c7aff" : "#4c4e68", fontWeight: 600 }}>{ownedBalance > 0 ? ownedBalance.toFixed(4) : "0"}</span>
+            <p className="text-[11px] text-[var(--muted)]">
+              Owned: <span className={`font-semibold ${ownedBalance > 0 ? selectedTextClass : "text-[var(--muted)]"}`}>{ownedBalance > 0 ? ownedBalance.toFixed(4) : "0"}</span>
             </p>
           )}
         </div>
 
         {/* Amount input */}
-        <div style={{ position: "relative", marginBottom: 10 }}>
+        <div className="relative mb-2.5">
           {mode === "BUY" && (
-            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#4c4e68" }}>$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-[var(--muted)]">$</span>
           )}
           <input
             type="number"
@@ -573,33 +569,21 @@ function TradePanelRange({
               setAmount(e.target.value);
               clearQuote();
             }}
-            className="mono"
-            style={{
-              width: "100%",
-              borderRadius: 8,
-              paddingRight: 14,
-              paddingTop: 10,
-              paddingBottom: 10,
-              paddingLeft: mode === "BUY" ? 28 : 14,
-              fontSize: 13,
-              textAlign: "right",
-              outline: "none",
-              background: "#111320",
-              color: "#e4e5eb",
-              border: "1px solid rgba(255,255,255,0.04)",
-            }}
+            className={`mono w-full rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] py-2.5 pr-3.5 text-right text-[13px] text-[var(--foreground)] outline-none ${
+              mode === "BUY" ? "pl-7" : "pl-3.5"
+            }`}
           />
         </div>
 
         {/* Quick amounts */}
         {mode === "BUY" ? (
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <div className="mb-3.5 flex gap-1.5">
             {QUICK_BUY.map((q) => (
               <button key={q} onClick={() => {
                 setAmount((s) => String((parseFloat(s) || 0) + q));
                 clearQuote();
               }}
-                style={{ flex: 1, padding: "6px 0", borderRadius: 6, fontSize: 11, background: "#111320", color: "#4c4e68", border: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
+                className="flex-1 cursor-pointer rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)]">
                 +${q}
               </button>
             ))}
@@ -607,17 +591,21 @@ function TradePanelRange({
               setAmount(usdcBalance);
               clearQuote();
             }}
-              style={{ flex: 1, padding: "6px 0", borderRadius: 6, fontSize: 11, background: "#111320", color: "#4c4e68", border: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}>
+              className="flex-1 cursor-pointer rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)]">
               Max
             </button>
           </div>
         ) : (
-          <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <div className="mb-3.5 flex gap-1.5">
             {SELL_PERCENTS.map((p) => {
               const disabled = ownedBalance <= 0;
               return (
                 <button key={p} onClick={() => setSellPercent(p)} disabled={disabled}
-                  style={{ flex: 1, padding: "6px 0", borderRadius: 6, fontSize: 11, background: "#111320", color: disabled ? "rgba(76,78,104,0.50)" : "#4c4e68", cursor: disabled ? "not-allowed" : "pointer", border: "1px solid rgba(255,255,255,0.04)" }}>
+                  className={`flex-1 rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] ${
+                    disabled
+                      ? "cursor-not-allowed text-[var(--muted)]/50"
+                      : "cursor-pointer text-[var(--muted)]"
+                  }`}>
                   {p === 100 ? "MAX" : `${p}%`}
                 </button>
               );
@@ -626,14 +614,18 @@ function TradePanelRange({
         )}
 
         {/* Slippage */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-          <p style={{ fontSize: 11, color: "#4c4e68" }}>Max slippage</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div className="mb-[18px] flex items-center justify-between">
+          <p className="text-[11px] text-[var(--muted)]">Max slippage</p>
+          <div className="flex items-center gap-1">
             {SLIPPAGE_PRESETS.map((s) => {
               const active = slippagePct === s;
               return (
                 <button key={s} onClick={() => setSlippagePct(s)}
-                  style={{ padding: "4px 8px", borderRadius: 4, fontSize: 10, border: `1px solid ${active ? "rgba(1,210,67,0.30)" : "rgba(255,255,255,0.04)"}`, background: active ? "rgba(1,210,67,0.12)" : "#111320", color: active ? "#01d243" : "#4c4e68", cursor: "pointer" }}>
+                  className={`cursor-pointer rounded border px-2 py-1 text-[10px] ${
+                    active
+                      ? "border-yes/30 bg-yes/[0.12] text-yes"
+                      : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                  }`}>
                   {s}%
                 </button>
               );
@@ -642,38 +634,38 @@ function TradePanelRange({
         </div>
 
         {/* Return breakdown */}
-        <div style={{ borderRadius: 10, padding: 14, marginBottom: 18, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-            <span style={{ color: "#4c4e68" }}>Probability</span>
-            <span className="mono" style={{ color: "#e4e5eb" }}>{(selectedPrice * 100).toFixed(1)}¢</span>
+        <div className="mb-[18px] rounded-[10px] border border-white/[0.04] bg-[var(--surface-hover)] p-3.5">
+          <div className="mb-2 flex justify-between text-[11px]">
+            <span className="text-[var(--muted)]">Probability</span>
+            <span className="mono text-[var(--foreground)]">{(selectedPrice * 100).toFixed(1)}¢</span>
           </div>
           {mode === "BUY" ? (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 8 }}>
-                <span style={{ color: "#4c4e68" }}>
+              <div className="mb-2 flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">
                   Est. tokens
-                  {quotedTokens !== null && <span style={{ fontSize: 9, color: "#4c4e68", marginLeft: 4 }}>(exact)</span>}
+                  {quotedTokens !== null && <span className="ml-1 text-[9px] text-[var(--muted)]">(exact)</span>}
                 </span>
-                <span className="mono" style={{ color: "#e4e5eb" }}>{num > 0 ? estimatedTokens.toFixed(4) : "—"}</span>
+                <span className="mono text-[var(--foreground)]">{num > 0 ? estimatedTokens.toFixed(4) : "—"}</span>
               </div>
               {num > 0 && quotedTokens !== null && fallbackEstimate > 0 &&
                 (fallbackEstimate - quotedTokens) / fallbackEstimate > 0.05 && (
-                <div style={{ fontSize: 10, color: "#f0a832", marginBottom: 6 }}>
+                <div className="mb-1.5 text-[10px] text-[#f0a832]">
                   ⚠ High price impact ({(((fallbackEstimate - quotedTokens) / fallbackEstimate) * 100).toFixed(1)}%)
                 </div>
               )}
-              <div style={{ height: 1, background: "rgba(255,255,255,0.04)", margin: "8px 0" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                <span style={{ color: "#4c4e68" }}>Win payout</span>
-                <span className="mono" style={{ color: num > 0 ? "#01d243" : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
+              <div className="my-2 h-px bg-white/[0.04]" />
+              <div className="flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">Win payout</span>
+                <span className={`mono ${num > 0 ? "font-semibold text-yes" : "font-normal text-[var(--muted)]"}`}>
                   {num > 0 ? `$${estimatedTokens.toFixed(2)}` : "—"}
                 </span>
               </div>
             </>
           ) : (
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-              <span style={{ color: "#4c4e68" }}>USDC received (est.)</span>
-              <span className="mono" style={{ color: num > 0 ? "#01d243" : "#4c4e68", fontWeight: num > 0 ? 600 : 400 }}>
+            <div className="flex justify-between text-[11px]">
+              <span className="text-[var(--muted)]">USDC received (est.)</span>
+              <span className={`mono ${num > 0 ? "font-semibold text-yes" : "font-normal text-[var(--muted)]"}`}>
                 {num > 0 && selectedPrice > 0 ? `$${(num * selectedPrice).toFixed(4)}` : "—"}
               </span>
             </div>
@@ -682,7 +674,7 @@ function TradePanelRange({
 
         {/* Error */}
         {error && (
-          <p style={{ fontSize: 11, marginBottom: 10, padding: "8px 12px", borderRadius: 8, color: "#f0324c", background: "rgba(240,50,76,0.08)", display: "flex", alignItems: "center", gap: 6 }}>
+          <p className="mb-2.5 flex items-center gap-1.5 rounded-lg bg-no/[0.08] px-3 py-2 text-[11px] text-no">
             <AlertTriangle className="w-3 h-3 flex-shrink-0" />
             {error}
           </p>
@@ -690,17 +682,18 @@ function TradePanelRange({
 
         {/* Trade button */}
         {!isAuthenticated ? (
-          <button style={{ width: "100%", padding: "12px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, background: "#01d243", color: "#000", cursor: "pointer", border: "none" }}>
+          <button className="w-full cursor-pointer rounded-[10px] border-0 bg-yes py-3 text-[13px] font-bold text-black">
             Connect to Trade
           </button>
         ) : (
           <button onClick={handleTrade} disabled={!canTrade}
-            style={{
-              width: "100%", padding: "12px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, border: "none", transition: "all 0.12s",
-              ...(canTrade
-                ? { background: mode === "BUY" ? "#01d243" : "#f0324c", color: mode === "BUY" ? "#000" : "#fff", cursor: "pointer" }
-                : { background: "#111320", color: "#4c4e68", cursor: "not-allowed" }),
-            }}
+            className={`w-full rounded-[10px] border-0 py-3 text-[13px] font-bold transition-all duration-150 ${
+              canTrade
+                ? mode === "BUY"
+                  ? "cursor-pointer bg-yes text-black"
+                  : "cursor-pointer bg-no text-white"
+                : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]"
+            }`}
           >
             {isLoading
               ? "Processing…"
@@ -712,22 +705,22 @@ function TradePanelRange({
           </button>
         )}
 
-        <p style={{ textAlign: "center", fontSize: 9, marginTop: 10, color: "rgba(76,78,104,0.50)" }}>
+        <p className="mt-2.5 text-center text-[9px] text-[var(--muted)]/50">
           Each trade requires a wallet signature. By trading, you agree to the Terms of Use.
         </p>
 
         {/* Current position */}
         {isAuthenticated && selectedRangeIndex != null && ownedBalance > 0.000001 && (
-          <div style={{ marginTop: 14, borderRadius: 10, padding: 14, background: "#111320", border: "1px solid rgba(255,255,255,0.04)" }}>
-            <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: "#4c4e68" }}>Your Position</p>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700, background: `${RANGE_COLORS[selectedRangeIndex % RANGE_COLORS.length]}20`, color: RANGE_COLORS[selectedRangeIndex % RANGE_COLORS.length] }}>
+          <div className="mt-3.5 rounded-[10px] border border-white/[0.04] bg-[var(--surface-hover)] p-3.5">
+            <p className="mb-2 text-[11px] font-semibold text-[var(--muted)]">Your Position</p>
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${selectedBgClass} ${selectedTextClass}`}>
                   {selectedRange?.label}
                 </span>
-                <span className="mono" style={{ color: "#e4e5eb" }}>{ownedBalance.toFixed(4)} tokens</span>
+                <span className="mono text-[var(--foreground)]">{ownedBalance.toFixed(4)} tokens</span>
               </div>
-              <span className="mono" style={{ color: "#4c4e68" }}>@{((selectedPosition?.avgEntryPrice ?? selectedPrice) * 100).toFixed(1)}¢ avg</span>
+              <span className="mono text-[var(--muted)]">@{((selectedPosition?.avgEntryPrice ?? selectedPrice) * 100).toFixed(1)}¢ avg</span>
             </div>
           </div>
         )}
@@ -750,6 +743,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   const { user } = usePrivy();
   const userAddress = user?.wallet?.address?.toLowerCase() ?? null;
   const { data: positions = [], refetch: refetchPositions } = useRangePositions(market?.id, userAddress ?? undefined);
+  const { data: trades = [] } = useRangeTrades(market?.id);
   const [selectedRange, setSelectedRange] = useState<number | null>(null);
   const countdown = useCountdown(market?.endTime);
   const refreshAfterTrade = () => {
@@ -760,6 +754,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
       void queryClient.refetchQueries({ queryKey: ["range-markets-active"] });
       void queryClient.invalidateQueries({ queryKey: ["range-market", market.id] });
       void queryClient.invalidateQueries({ queryKey: ["range-markets"] });
+      void queryClient.invalidateQueries({ queryKey: ["range-trades", market.id] });
       if (userAddress) {
         void queryClient.invalidateQueries({ queryKey: ["range-positions", market.id, userAddress] });
       }
@@ -772,78 +767,75 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
 
   if (isLoading) {
     return (
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <div className="card" style={{ height: 200, marginBottom: 16 }} />
-        <div className="card" style={{ height: 400 }} />
+      <div className="mx-auto max-w-[1200px]">
+        <div className="card mb-4 h-[200px]" />
+        <div className="card h-[400px]" />
       </div>
     );
   }
 
   if (!market) {
     return (
-      <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-        <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#4c4e68", marginBottom: 16, textDecoration: "none" }}>
+      <div className="mx-auto max-w-[1200px]">
+        <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-xs text-[var(--muted)] no-underline">
           <ArrowLeft size={14} /> Back
         </Link>
-        <div className="card" style={{ textAlign: "center", padding: "60px 0" }}>
-          <p style={{ color: "#4c4e68", marginBottom: 8 }}>No active {title} market found.</p>
-          <p style={{ fontSize: 12, color: "#2d2e45" }}>Markets are created daily at 00:00 ET.</p>
+        <div className="card py-[60px] text-center">
+          <p className="mb-2 text-[var(--muted)]">No active {title} market found.</p>
+          <p className="text-xs text-[#2d2e45]">Markets are created daily at 00:00 ET.</p>
         </div>
       </div>
     );
   }
 
+  const marketTypeClass =
+    marketType === "receipts"
+      ? "bg-[#6c7aff]/[0.12] text-[#6c7aff]"
+      : "bg-[#f0a832]/[0.12] text-[#f0a832]";
+
   return (
-    <div className="fade-up" style={{ maxWidth: 1200, margin: "0 auto" }}>
-      <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "#4c4e68", marginBottom: 16, transition: "color 0.12s", textDecoration: "none" }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "#e4e5eb")}
-        onMouseLeave={(e) => (e.currentTarget.style.color = "#4c4e68")}>
+    <div className="fade-up mx-auto max-w-[1200px]">
+      <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-xs text-[var(--muted)] no-underline transition-colors duration-150 hover:text-[var(--foreground)]">
         <ArrowLeft size={14} /> Back to Markets
       </Link>
 
       {/* Header card */}
-      <div className="card" style={{ padding: "24px 28px", marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
-                color: marketType === "receipts" ? "#6c7aff" : "#f0a832",
-                background: marketType === "receipts" ? "rgba(108,122,255,0.12)" : "rgba(240,168,50,0.12)",
-                padding: "3px 8px", borderRadius: 4,
-              }}>
+      <div className="card mb-4 px-7 py-6">
+        <div className="flex items-start justify-between gap-5">
+          <div className="flex-1">
+            <div className="mb-2.5 flex items-center gap-2.5">
+              <span className={`rounded px-2 py-[3px] text-[10px] font-bold uppercase tracking-[0.1em] ${marketTypeClass}`}>
                 {marketType === "receipts" ? "Receipts" : "NAM Distribution"}
               </span>
-              <span style={{
-                fontSize: 10, fontWeight: 700,
-                color: market.resolved ? "#01d243" : "#8081a0",
-                background: market.resolved ? "rgba(1,210,67,0.08)" : "rgba(255,255,255,0.04)",
-                padding: "3px 8px", borderRadius: 4,
-              }}>
+              <span className={`rounded px-2 py-[3px] text-[10px] font-bold ${
+                market.resolved
+                  ? "bg-yes/[0.08] text-yes"
+                  : "bg-white/[0.04] text-[#8081a0]"
+              }`}>
                 {market.resolved ? "RESOLVED" : "ACTIVE"}
               </span>
             </div>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: "#e4e5eb", marginBottom: 8 }}>{market.question}</h1>
-            <p style={{ fontSize: 12, color: "#4c4e68" }}>{description}</p>
+            <h1 className="mb-2 text-xl font-bold text-[var(--foreground)]">{market.question}</h1>
+            <p className="text-xs text-[var(--muted)]">{description}</p>
           </div>
 
           {!market.resolved && (
-            <div style={{ textAlign: "center", flexShrink: 0 }}>
-              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <div className="shrink-0 text-center">
+              <div className="flex items-center gap-1">
                 {[{ v: countdown.h, l: "H" }, { v: countdown.m, l: "M" }, { v: countdown.s, l: "S" }].map(({ v, l }) => (
-                  <div key={l} style={{ textAlign: "center" }}>
-                    <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: "#e4e5eb", background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "4px 8px", minWidth: 40 }}>{v}</div>
-                    <div style={{ fontSize: 9, color: "#4c4e68", marginTop: 2 }}>{l}</div>
+                  <div key={l} className="text-center">
+                    <div className="mono min-w-10 rounded-md bg-white/[0.04] px-2 py-1 text-[22px] font-bold text-[var(--foreground)]">{v}</div>
+                    <div className="mt-0.5 text-[9px] text-[var(--muted)]">{l}</div>
                   </div>
                 ))}
               </div>
-              <p style={{ fontSize: 10, color: "#4c4e68", marginTop: 6 }}>Resolves {market.date}</p>
+              <p className="mt-1.5 text-[10px] text-[var(--muted)]">Resolves {market.date}</p>
             </div>
           )}
           {market.resolved && market.winningRangeIndex != null && (
-            <div style={{ textAlign: "center", flexShrink: 0 }}>
-              <p style={{ fontSize: 11, color: "#4c4e68", marginBottom: 4 }}>Winner</p>
-              <p style={{ fontSize: 18, fontWeight: 700, color: RANGE_COLORS[market.winningRangeIndex % RANGE_COLORS.length] }}>
+            <div className="shrink-0 text-center">
+              <p className="mb-1 text-[11px] text-[var(--muted)]">Winner</p>
+              <p className={`text-lg font-bold ${RANGE_TEXT_CLASSES[market.winningRangeIndex % RANGE_TEXT_CLASSES.length]}`}>
                 {ranges[market.winningRangeIndex]?.label}
               </p>
             </div>
@@ -851,15 +843,23 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
         </div>
       </div>
 
+      <RangeProbabilityChart
+        ranges={ranges}
+        trades={trades}
+        currentPrices={prices}
+        colors={RANGE_COLORS}
+        marketCreatedAt={market.createdAt}
+      />
+
       {/* Main content */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 16, alignItems: "start" }}>
+      <div className="grid grid-cols-[1fr_360px] items-start gap-4">
         {/* Range selection */}
-        <div className="card" style={{ padding: 20 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: "#e4e5eb", marginBottom: 14 }}>
+        <div className="card p-5">
+          <h2 className="mb-3.5 text-sm font-semibold text-[var(--foreground)]">
             Outcomes
-            <span style={{ fontSize: 11, color: "#4c4e68", marginLeft: 8, fontWeight: 400 }}>probabilities sum to 100%</span>
+            <span className="ml-2 text-[11px] font-normal text-[var(--muted)]">probabilities sum to 100%</span>
           </h2>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="flex flex-col gap-2.5">
             {ranges.map((range, i) => {
               const displayPrice = total > 0 ? (prices[i] ?? 0) / total : 1 / ranges.length;
               const isWinner = market.resolved && market.winningRangeIndex === i;
@@ -883,18 +883,18 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
 
           {/* Positions summary */}
           {positions.length > 0 && (
-            <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-              <p style={{ fontSize: 11, color: "#4c4e68", marginBottom: 10 }}>Your Positions</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div className="mt-4 border-t border-white/[0.05] pt-3.5">
+              <p className="mb-2.5 text-[11px] text-[var(--muted)]">Your Positions</p>
+              <div className="flex flex-col gap-1.5">
                 {positions.filter((p) => parseFloat(p.balance) > 0).map((p) => {
                   const range = ranges[p.rangeIndex];
-                  const color = RANGE_COLORS[p.rangeIndex % RANGE_COLORS.length];
+                  const rangeClass = RANGE_TEXT_CLASSES[p.rangeIndex % RANGE_TEXT_CLASSES.length];
                   return (
-                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", borderRadius: 8, background: "rgba(255,255,255,0.02)" }}>
-                      <span style={{ fontSize: 12, color, fontWeight: 600 }}>{range?.label ?? `Range ${p.rangeIndex}`}</span>
-                      <div style={{ textAlign: "right" }}>
-                        <span className="mono" style={{ fontSize: 12, color: "#e4e5eb" }}>{parseFloat(p.balance).toFixed(2)} tokens</span>
-                        <span style={{ fontSize: 10, color: "#4c4e68", marginLeft: 8 }}>@{(p.avgEntryPrice * 100).toFixed(1)}¢ avg</span>
+                    <div key={p.id} className="flex items-center justify-between rounded-lg bg-white/[0.02] px-2.5 py-2">
+                      <span className={`text-xs font-semibold ${rangeClass}`}>{range?.label ?? `Range ${p.rangeIndex}`}</span>
+                      <div className="text-right">
+                        <span className="mono text-xs text-[var(--foreground)]">{parseFloat(p.balance).toFixed(2)} tokens</span>
+                        <span className="ml-2 text-[10px] text-[var(--muted)]">@{(p.avgEntryPrice * 100).toFixed(1)}¢ avg</span>
                       </div>
                     </div>
                   );

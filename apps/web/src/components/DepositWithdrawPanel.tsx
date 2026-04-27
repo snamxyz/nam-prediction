@@ -158,11 +158,11 @@ export function DepositWithdrawPanel() {
   const num = parseFloat(amount) || 0;
 
   return (
-    <div className="glass-card" style={{ position: "fixed", inset: 0, zIndex: 100, overflow: "auto", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}>
-      <div className="px-5 pt-5 pb-4" style={{ borderBottom: "0.5px solid rgba(255,255,255,0.05)" }}>
-        <h3 className="text-sm font-semibold" style={{ color: "#e8e9ed" }}>Vault Balance</h3>
+    <div className="glass-card fixed inset-0 z-[100] overflow-auto bg-black/55 backdrop-blur-md">
+      <div className="border-b border-white/[0.05] px-5 pb-4 pt-5">
+        <h3 className="text-sm font-semibold text-[#e8e9ed]">Vault Balance</h3>
         {isAuthenticated && (
-          <p className="text-2xl font-bold mt-1" style={{ color: "#01d243" }}>
+          <p className="mt-1 text-2xl font-bold text-yes">
             ${parseFloat(usdcBalance).toFixed(2)}
           </p>
         )}
@@ -177,12 +177,11 @@ export function DepositWithdrawPanel() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className="py-2.5 rounded-lg text-sm font-semibold transition-all inner-border"
-                style={
+                className={`inner-border rounded-lg py-2.5 text-sm font-semibold transition-all ${
                   active
-                    ? { background: "rgba(1,210,67,0.15)", color: "#01d243", borderColor: "rgba(1,210,67,0.30)" }
-                    : { background: "rgba(31,32,40,0.50)", color: "#717182" }
-                }
+                    ? "border-yes/30 bg-yes/15 text-yes"
+                    : "bg-[#1f2028]/50 text-[#717182]"
+                }`}
               >
                 {t === "deposit" ? "Deposit" : "Withdraw"}
               </button>
@@ -191,27 +190,25 @@ export function DepositWithdrawPanel() {
         </div>
 
         {/* Amount input */}
-        <p className="text-xs mb-2" style={{ color: "#717182" }}>
+        <p className="mb-2 text-xs text-[#717182]">
           {tab === "deposit" ? "Deposit Amount (USDC)" : "Withdraw Amount (USDC)"}
         </p>
         <div className="relative mb-3">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: "#717182" }}>$</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#717182]">$</span>
           <input
             type="number"
             min="0"
             placeholder="0"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full rounded-lg pl-7 pr-4 py-2.5 text-sm text-right outline-none inner-border"
-            style={{ background: "rgba(31,32,40,0.60)", color: "#e8e9ed" }}
+            className="inner-border w-full rounded-lg bg-[#1f2028]/60 py-2.5 pl-7 pr-4 text-right text-sm text-[#e8e9ed] outline-none"
           />
         </div>
 
         {tab === "withdraw" && (
           <button
             onClick={() => setAmount(usdcBalance)}
-            className="text-xs mb-3 px-2 py-1 rounded transition-all"
-            style={{ color: "#01d243", background: "rgba(1,210,67,0.10)" }}
+            className="mb-3 rounded bg-yes/10 px-2 py-1 text-xs text-yes transition-all"
           >
             Max: ${parseFloat(usdcBalance).toFixed(2)}
           </button>
@@ -220,8 +217,7 @@ export function DepositWithdrawPanel() {
         {/* First-deposit notice: deploys the user's personal escrow clone */}
         {tab === "deposit" && isAuthenticated && hasEscrow === false && (
           <p
-            className="text-xs mb-3 px-3 py-2 rounded-lg"
-            style={{ color: "#9aa0b4", background: "rgba(1,210,67,0.06)", border: "0.5px solid rgba(1,210,67,0.15)" }}
+            className="mb-3 rounded-lg border border-yes/15 bg-yes/[0.06] px-3 py-2 text-xs text-[#9aa0b4]"
           >
             Your first deposit will create your personal vault (your funds are isolated from other users). A small one-time gas cost applies.
           </p>
@@ -231,8 +227,7 @@ export function DepositWithdrawPanel() {
         {!isAuthenticated ? (
           <button
             onClick={login}
-            className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
-            style={{ background: "#01d243", color: "#000", cursor: "pointer" }}
+            className="w-full cursor-pointer rounded-xl bg-yes py-3 text-sm font-semibold text-black transition-all"
           >
             Connect Wallet
           </button>
@@ -240,12 +235,11 @@ export function DepositWithdrawPanel() {
           <button
             onClick={tab === "deposit" ? handleDeposit : handleWithdraw}
             disabled={!isConnected || num <= 0 || isLoading}
-            className="w-full py-3 rounded-xl text-sm font-semibold transition-all"
-            style={
+            className={`w-full rounded-xl py-3 text-sm font-semibold transition-all ${
               isConnected && num > 0 && !isLoading
-                ? { background: "#01d243", color: "#000", cursor: "pointer" }
-                : { background: "rgba(31,32,40,0.50)", color: "#717182", cursor: "not-allowed" }
-            }
+                ? "cursor-pointer bg-yes text-black"
+                : "cursor-not-allowed bg-[#1f2028]/50 text-[#717182]"
+            }`}
           >
             {isLoading
               ? "Processing..."

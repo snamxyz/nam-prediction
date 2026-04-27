@@ -159,85 +159,43 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(6px)",
-      }}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 backdrop-blur-md"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
-        className="card"
-        style={{
-          width: 360,
-          maxWidth: "calc(100vw - 32px)",
-          padding: 24,
-          position: "relative",
-        }}
-      >
+      <div className="card relative w-[360px] max-w-[calc(100vw-32px)] p-6">
         {/* Close button */}
         <button
           onClick={onClose}
-          style={{
-            position: "absolute",
-            top: 14,
-            right: 14,
-            background: "none",
-            border: "none",
-            color: "#4c4e68",
-            fontSize: 18,
-            cursor: "pointer",
-            lineHeight: 1,
-          }}
+          className="absolute right-3.5 top-3.5 cursor-pointer border-0 bg-transparent text-lg leading-none text-[var(--muted)]"
         >
           ×
         </button>
 
         {/* Balance */}
-        <div style={{ marginBottom: 20 }}>
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.09em",
-              color: "#4c4e68",
-              marginBottom: 4,
-            }}
-          >
+        <div className="mb-5">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
             Vault Balance
           </div>
-          <div className="mono" style={{ fontSize: 28, fontWeight: 500, color: "#01d243" }}>
+          <div className="mono text-[28px] font-medium text-yes">
             ${parseFloat(usdcBalance).toFixed(2)}
           </div>
         </div>
 
         {/* Deposit / Withdraw tabs */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 18 }}>
+        <div className="mb-[18px] grid grid-cols-2 gap-1.5">
           {(["deposit", "withdraw"] as const).map((t) => {
             const active = tab === t;
             return (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                style={{
-                  padding: "9px 0",
-                  borderRadius: 8,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  border: `1px solid ${active ? "rgba(1,210,67,0.30)" : "rgba(255,255,255,0.04)"}`,
-                  background: active ? "rgba(1,210,67,0.12)" : "#111320",
-                  color: active ? "#01d243" : "#4c4e68",
-                  cursor: "pointer",
-                  transition: "all 0.12s",
-                }}
+                className={`cursor-pointer rounded-lg border py-[9px] text-xs font-semibold transition-all duration-150 ${
+                  active
+                    ? "border-yes/30 bg-yes/[0.12] text-yes"
+                    : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                }`}
               >
                 {t === "deposit" ? "Deposit" : "Withdraw"}
               </button>
@@ -246,20 +204,11 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
         </div>
 
         {/* Amount input */}
-        <div style={{ fontSize: 11, color: "#4c4e68", marginBottom: 6 }}>
+        <div className="mb-1.5 text-[11px] text-[var(--muted)]">
           {tab === "deposit" ? "Deposit Amount (USDC)" : "Withdraw Amount (USDC)"}
         </div>
-        <div style={{ position: "relative", marginBottom: 10 }}>
-          <span
-            style={{
-              position: "absolute",
-              left: 12,
-              top: "50%",
-              transform: "translateY(-50%)",
-              fontSize: 13,
-              color: "#4c4e68",
-            }}
-          >
+        <div className="relative mb-2.5">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-[var(--muted)]">
             $
           </span>
           <input
@@ -268,37 +217,14 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
             placeholder="0"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="mono"
-            style={{
-              width: "100%",
-              borderRadius: 8,
-              paddingLeft: 28,
-              paddingRight: 14,
-              paddingTop: 10,
-              paddingBottom: 10,
-              fontSize: 13,
-              textAlign: "right",
-              outline: "none",
-              background: "#111320",
-              color: "#e4e5eb",
-              border: "1px solid rgba(255,255,255,0.04)",
-            }}
+            className="mono w-full rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] px-3.5 py-2.5 pl-7 text-right text-[13px] text-[var(--foreground)] outline-none"
           />
         </div>
 
         {tab === "withdraw" && (
           <button
             onClick={() => setAmount(usdcBalance)}
-            style={{
-              fontSize: 11,
-              marginBottom: 10,
-              padding: "4px 10px",
-              borderRadius: 6,
-              color: "#01d243",
-              background: "rgba(1,210,67,0.08)",
-              border: "none",
-              cursor: "pointer",
-            }}
+            className="mb-2.5 cursor-pointer rounded-md border-0 bg-yes/[0.08] px-2.5 py-1 text-[11px] text-yes"
           >
             Max: ${parseFloat(usdcBalance).toFixed(2)}
           </button>
@@ -306,17 +232,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
 
         {/* First-deposit notice */}
         {tab === "deposit" && isAuthenticated && hasEscrow === false && (
-          <p
-            style={{
-              fontSize: 11,
-              marginBottom: 10,
-              padding: "8px 12px",
-              borderRadius: 8,
-              color: "#4c4e68",
-              background: "rgba(1,210,67,0.05)",
-              border: "1px solid rgba(1,210,67,0.12)",
-            }}
-          >
+          <p className="mb-2.5 rounded-lg border border-yes/[0.12] bg-yes/[0.05] px-3 py-2 text-[11px] text-[var(--muted)]">
             Your first deposit will create your personal vault. A small one-time gas cost applies.
           </p>
         )}
@@ -325,17 +241,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
         {!isAuthenticated ? (
           <button
             onClick={login}
-            style={{
-              width: "100%",
-              padding: "12px 0",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              background: "#01d243",
-              color: "#000",
-              cursor: "pointer",
-              border: "none",
-            }}
+            className="w-full cursor-pointer rounded-[10px] border-0 bg-yes py-3 text-[13px] font-bold text-black"
           >
             Connect Wallet
           </button>
@@ -343,18 +249,11 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
           <button
             onClick={tab === "deposit" ? handleDeposit : handleWithdraw}
             disabled={!isConnected || num <= 0 || isLoading}
-            style={{
-              width: "100%",
-              padding: "12px 0",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              border: "none",
-              transition: "all 0.12s",
-              ...(isConnected && num > 0 && !isLoading
-                ? { background: "#01d243", color: "#000", cursor: "pointer" }
-                : { background: "#111320", color: "#4c4e68", cursor: "not-allowed" }),
-            }}
+            className={`w-full rounded-[10px] border-0 py-3 text-[13px] font-bold transition-all duration-150 ${
+              isConnected && num > 0 && !isLoading
+                ? "cursor-pointer bg-yes text-black"
+                : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]"
+            }`}
           >
             {isLoading
               ? "Processing…"

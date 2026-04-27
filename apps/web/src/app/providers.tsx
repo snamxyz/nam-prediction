@@ -8,6 +8,7 @@ import { useState, type ReactNode } from "react";
 import { base } from "viem/chains";
 import { Toaster } from "sonner";
 import { NavigationProgress } from "@/components/NavigationProgress";
+import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -22,6 +23,22 @@ export function Providers({ children }: { children: ReactNode }) {
       }),
   );
 
+  return (
+    <ThemeProvider>
+      <ThemedProviders queryClient={queryClient}>{children}</ThemedProviders>
+    </ThemeProvider>
+  );
+}
+
+function ThemedProviders({
+  children,
+  queryClient,
+}: {
+  children: ReactNode;
+  queryClient: QueryClient;
+}) {
+  const { theme } = useTheme();
+
   const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID || "";
 
   return (
@@ -31,7 +48,7 @@ export function Providers({ children }: { children: ReactNode }) {
         defaultChain: base,
         supportedChains: [base],
         appearance: {
-          theme: "dark",
+          theme,
           accentColor: "#01d243",
         },
         embeddedWallets: {
@@ -45,7 +62,7 @@ export function Providers({ children }: { children: ReactNode }) {
           <NavigationProgress />
           {children}
           <Toaster
-            theme="dark"
+            theme={theme}
             position="bottom-right"
             richColors
             closeButton

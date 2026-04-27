@@ -83,24 +83,15 @@ export function DailyMarketHero() {
 
   return (
     <div className="mb-8">
-      <div
-        className="rounded-2xl p-6 relative overflow-hidden"
-        style={{
-          background: "linear-gradient(135deg, rgba(1,210,67,0.08) 0%, rgba(1,210,67,0.02) 100%)",
-          border: "1px solid rgba(1,210,67,0.15)",
-        }}
-      >
+      <div className="relative overflow-hidden rounded-2xl border border-yes/15 bg-gradient-to-br from-yes/[0.08] to-yes/[0.02] p-6">
         {/* Live badge */}
         <div className="flex items-center gap-2 mb-4">
-          <span
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
-            style={{ background: "rgba(1,210,67,0.15)", color: "#01d243" }}
-          >
-            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#01d243" }} />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-yes/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-yes">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-yes" />
             Daily Market
           </span>
           {countdown && (
-            <span className="inline-flex items-center gap-1 text-xs" style={{ color: "#717182" }}>
+            <span className="inline-flex items-center gap-1 text-xs text-[#717182]">
               <Clock className="w-3 h-3" />
               {countdown}
             </span>
@@ -108,37 +99,23 @@ export function DailyMarketHero() {
         </div>
 
         {/* Question */}
-        <h2 className="text-lg font-semibold mb-4" style={{ color: "#e8e9ed" }}>
+        <h2 className="mb-4 text-lg font-semibold text-[#e8e9ed]">
           Will NAM be above ${threshold.toFixed(6)} at 00:00 UTC?
         </h2>
 
         {/* Probability bar */}
         <div className="flex gap-3 mb-4">
-          <div
-            className="flex-1 py-3 rounded-lg text-center text-sm font-semibold"
-            style={{
-              background: "rgba(1,210,67,0.12)",
-              color: "#01d243",
-              border: "1px solid rgba(1,210,67,0.2)",
-            }}
-          >
+          <div className="flex-1 rounded-lg border border-yes/20 bg-yes/[0.12] py-3 text-center text-sm font-semibold text-yes">
             Yes {yesPercent}%
           </div>
-          <div
-            className="flex-1 py-3 rounded-lg text-center text-sm font-semibold"
-            style={{
-              background: "rgba(255,71,87,0.12)",
-              color: "#ff4757",
-              border: "1px solid rgba(255,71,87,0.2)",
-            }}
-          >
+          <div className="flex-1 rounded-lg border border-[#ff4757]/20 bg-[#ff4757]/[0.12] py-3 text-center text-sm font-semibold text-[#ff4757]">
             No {noPercent}%
           </div>
         </div>
 
         {/* Stats + CTA */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 text-xs" style={{ color: "#717182" }}>
+          <div className="flex items-center gap-4 text-xs text-[#717182]">
             <span>
               <TrendingUp className="w-3 h-3 inline mr-1" />
               Vol: ${market ? Number(market.volume).toLocaleString(undefined, { maximumFractionDigits: 0 }) : "0"}
@@ -148,10 +125,7 @@ export function DailyMarketHero() {
           {market && (
             <Link
               href={`/market/${market.id}`}
-              className="inline-flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-              style={{ background: "#01d243", color: "#000" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#00e676")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "#01d243")}
+              className="inline-flex items-center gap-1 rounded-lg bg-yes px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-[#00e676]"
             >
               Trade Now <ArrowRight className="w-4 h-4" />
             </Link>

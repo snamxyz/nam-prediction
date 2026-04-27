@@ -13,6 +13,21 @@
   --border-subtle: rgba(255,255,255,0.04);
   --yes: #01d243;
   --no: #f0324c;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --background: #f6f7fb;
+  --foreground: #10121a;
+  --accent: #00a835;
+  --muted: #697087;
+  --surface: #ffffff;
+  --surface-hover: #eef1f7;
+  --border: rgba(16,18,26,0.1);
+  --border-subtle: rgba(16,18,26,0.06);
+  --yes: #00a835;
+  --no: #d92740;
+  color-scheme: light;
 }
 
 body {
@@ -31,7 +46,7 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border);
   border-radius: 2px;
 }
 
@@ -44,8 +59,17 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+@keyframes namDotPulse {
+  0%, 100% { r: 4px; }
+  50% { r: 6.5px; }
+}
+@keyframes tickerScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
 
 .fade-up { animation: fadeUp 0.35s ease-out forwards; }
+.nam-live-dot { animation: namDotPulse 2.4s ease-in-out infinite; }
 .live-dot {
   display: inline-block;
   width: 6px;

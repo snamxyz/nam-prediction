@@ -6,35 +6,19 @@ interface ProbBarProps {
 }
 
 export function ProbBar({ yes, height = 3 }: ProbBarProps) {
+  const barHeight = height === 5 ? 5 : height === 4 ? 4 : 3;
+  const safeYes = Math.max(0, Math.min(100, yes));
+
   return (
-    <div
-      style={{
-        height,
-        borderRadius: height,
-        background: "rgba(255,255,255,0.05)",
-        overflow: "hidden",
-        display: "flex",
-        gap: 1,
-      }}
+    <svg
+      className="block w-full overflow-hidden rounded-full bg-white/[0.05]"
+      height={barHeight}
+      viewBox="0 0 100 1"
+      preserveAspectRatio="none"
+      aria-hidden="true"
     >
-      <div
-        style={{
-          width: `${yes}%`,
-          height: "100%",
-          background: "#01d243",
-          borderRadius: height,
-          transition: "width 0.7s cubic-bezier(0.4,0,0.2,1)",
-        }}
-      />
-      <div
-        style={{
-          flex: 1,
-          height: "100%",
-          background: "#f0324c",
-          opacity: 0.55,
-          borderRadius: height,
-        }}
-      />
-    </div>
+      <rect width={safeYes} height="1" fill="var(--yes)" />
+      <rect x={safeYes + 1} width={Math.max(0, 99 - safeYes)} height="1" fill="var(--no)" opacity="0.55" />
+    </svg>
   );
 }

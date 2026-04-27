@@ -90,37 +90,46 @@ function PositionLeg({
   const isWinningSide = resolved && ((side === "YES" && result === 1) || (side === "NO" && result === 2));
   const isLosingSide = resolved && !isWinningSide;
   const canRedeem = isWinningSide && balance > DUST;
-  const C = side === "YES" ? "#01d243" : "#ff4757";
+  const sideClasses =
+    side === "YES"
+      ? {
+          border: "border-yes/15",
+          bg: "bg-yes/15",
+          text: "text-yes",
+        }
+      : {
+          border: "border-[#ff4757]/15",
+          bg: "bg-[#ff4757]/15",
+          text: "text-[#ff4757]",
+        };
 
   return (
-    <div
-      className="rounded-lg p-4"
-      style={{ background: "rgba(31,32,40,0.45)", border: `0.5px solid ${C}22` }}
-    >
+    <div className={`rounded-lg border bg-[#1f2028]/45 p-4 ${sideClasses.border}`}>
       {/* Top row: side badge + shares + value */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span
-            className="text-xs px-2 py-0.5 rounded-md font-semibold"
-            style={{ background: `${C}22`, color: C }}
+            className={`rounded-md px-2 py-0.5 text-xs font-semibold ${sideClasses.bg} ${sideClasses.text}`}
           >
             {side}
           </span>
-          <span className="text-xs" style={{ color: "#717182" }}>
+          <span className="text-xs text-[#717182]">
             {balance.toFixed(4)} shares
           </span>
         </div>
-        <span className="text-sm font-semibold" style={{ color: "#e8e9ed" }}>
+        <span className="text-sm font-semibold text-[#e8e9ed]">
           ${currentValue.toFixed(2)}
         </span>
       </div>
 
       {/* Prices row */}
-      <div className="flex items-center justify-between text-xs mb-2" style={{ color: "#717182" }}>
-        <span>Avg: <span style={{ color: "#e8e9ed" }}>{(avgPrice * 100).toFixed(1)}¢</span></span>
-        <span>Now: <span style={{ color: "#e8e9ed" }}>{(currentPrice * 100).toFixed(1)}¢</span></span>
+      <div className="mb-2 flex items-center justify-between text-xs text-[#717182]">
+        <span>Avg: <span className="text-[#e8e9ed]">{(avgPrice * 100).toFixed(1)}¢</span></span>
+        <span>Now: <span className="text-[#e8e9ed]">{(currentPrice * 100).toFixed(1)}¢</span></span>
         <span
-          style={{ color: pnl >= 0 ? "#00e676" : "#ff4757", fontWeight: 600 }}
+          className={`font-semibold ${
+            pnl >= 0 ? "text-[#00e676]" : "text-[#ff4757]"
+          }`}
         >
           {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
         </span>
@@ -132,15 +141,14 @@ function PositionLeg({
           <button
             onClick={handleRedeem}
             disabled={isLoading}
-            className="px-3 py-1 text-xs font-semibold rounded-lg transition-all"
-            style={{ background: "#01d243", color: "#000" }}
+            className="rounded-lg bg-yes px-3 py-1 text-xs font-semibold text-black transition-all"
           >
             {isLoading ? "…" : "Redeem"}
           </button>
         ) : isLosingSide ? (
-          <span className="text-xs" style={{ color: "#ff4757" }}>Lost</span>
+          <span className="text-xs text-[#ff4757]">Lost</span>
         ) : resolved && isWinningSide && balance <= DUST ? (
-          <span className="text-xs" style={{ color: "#00e676" }}>Redeemed</span>
+          <span className="text-xs text-[#00e676]">Redeemed</span>
         ) : null}
       </div>
     </div>
@@ -189,17 +197,16 @@ export function PositionRow(props: PositionRowProps) {
     <div className="glass-card-inner p-4">
       {/* Market question + resolved badge */}
       <div className="flex items-start justify-between gap-4 mb-3">
-        <p className="text-sm leading-snug flex-1" style={{ color: "#e8e9ed" }}>
+        <p className="flex-1 text-sm leading-snug text-[#e8e9ed]">
           {question}
         </p>
         {resolvedLabel && (
           <span
-            className="text-xs px-2 py-0.5 rounded-md flex-shrink-0"
-            style={
+            className={`flex-shrink-0 rounded-md px-2 py-0.5 text-xs ${
               result === 1
-                ? { background: "rgba(1,210,67,0.15)", color: "#01d243" }
-                : { background: "rgba(255,71,87,0.15)", color: "#ff4757" }
-            }
+                ? "bg-yes/15 text-yes"
+                : "bg-[#ff4757]/15 text-[#ff4757]"
+            }`}
           >
             {resolvedLabel}
           </span>
