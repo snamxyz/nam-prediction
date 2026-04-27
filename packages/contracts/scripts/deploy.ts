@@ -148,7 +148,6 @@ async function main() {
   console.log(`  MARKET_FACTORY_ADDRESS=${factoryAddr}`);
   console.log(`  NEXT_PUBLIC_MARKET_FACTORY_ADDRESS=${factoryAddr}`);
   console.log(`  VAULT_ADDRESS=${vaultAddr}`);
-  console.log(`  NEXT_PUBLIC_VAULT_ADDRESS=${vaultAddr}`);
   console.log(`  USER_ESCROW_IMPL=${escrowImplAddr}`);
 }
 

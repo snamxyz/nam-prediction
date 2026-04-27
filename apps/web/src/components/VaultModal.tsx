@@ -5,8 +5,9 @@ import { useAccount } from "wagmi";
 import { parseUnits, createPublicClient, createWalletClient, custom, http } from "viem";
 import { base } from "viem/chains";
 import { VaultABI, ERC20ABI } from "@nam-prediction/shared";
-import { VAULT_ADDRESS, USDC_ADDRESS } from "@/lib/contracts";
+import { USDC_ADDRESS } from "@/lib/contracts";
 import { useAuth } from "@/hooks/useAuth";
+import { useContractConfig } from "@/hooks/useContractConfig";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { useWallets } from "@privy-io/react-auth";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
   const { isAuthenticated, login } = useAuth();
   const { wallets } = useWallets();
   const { usdcBalance, refetch } = useVaultBalance();
+  const { vaultAddress } = useContractConfig();
   const [tab, setTab] = useState<"deposit" | "withdraw">(initialTab);
   const [amount, setAmount] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -39,7 +41,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
   }, [initialTab]);
 
   useEffect(() => {
-    if (!address || !VAULT_ADDRESS) {
+    if (!address || !vaultAddress) {
       setHasEscrow(null);
       return;
     }
@@ -47,7 +49,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
     (async () => {
       try {
         const escrow = (await publicClient.readContract({
-          address: VAULT_ADDRESS,
+          address: vaultAddress,
           abi: VaultABI,
           functionName: "escrowOf",
           args: [address],
@@ -60,7 +62,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
     return () => {
       cancelled = true;
     };
-  }, [address]);
+  }, [address, vaultAddress]);
 
   const handleDeposit = async () => {
     if (!address || !amount || !wallets.length) return;
@@ -68,7 +70,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
     const toastId = `deposit-${Date.now()}`;
     const amountLabel = amount;
     try {
-      if (!VAULT_ADDRESS) throw new Error("Vault address is not configured.");
+      if (!vaultAddress) throw new Error("Vault address is not configured on the API.");
 
       const wallet = wallets[0];
       await wallet.switchChain(8453);
@@ -86,13 +88,13 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
         address: USDC_ADDRESS,
         abi: ERC20ABI,
         functionName: "approve",
-        args: [VAULT_ADDRESS, usdcAmount],
+        args: [vaultAddress, usdcAmount],
       });
       await publicClient.waitForTransactionReceipt({ hash: approveHash });
 
       toast.loading("Approved. Sending deposit…", { id: toastId });
       const depositHash = await walletClient.writeContract({
-        address: VAULT_ADDRESS,
+        address: vaultAddress,
         abi: VaultABI,
         functionName: "deposit",
         args: [usdcAmount],
@@ -118,7 +120,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
     const toastId = `withdraw-${Date.now()}`;
     const amountLabel = amount;
     try {
-      if (!VAULT_ADDRESS) throw new Error("Vault address is not configured.");
+      if (!vaultAddress) throw new Error("Vault address is not configured on the API.");
 
       const wallet = wallets[0];
       await wallet.switchChain(8453);
@@ -133,7 +135,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
 
       toast.loading("Confirm withdrawal in your wallet…", { id: toastId });
       const withdrawHash = await walletClient.writeContract({
-        address: VAULT_ADDRESS,
+        address: vaultAddress,
         abi: VaultABI,
         functionName: "withdraw",
         args: [usdcAmount],

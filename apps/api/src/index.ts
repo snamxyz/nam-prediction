@@ -51,6 +51,13 @@ const app = new Elysia()
   })
   // Health check
   .get("/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
+  .get("/config", () => ({
+    data: {
+      contracts: {
+        vaultAddress: process.env.VAULT_ADDRESS || null,
+      },
+    },
+  }))
   // API routes
   .use(marketRoutes)
   .use(tradingRoutes)
