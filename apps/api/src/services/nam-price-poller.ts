@@ -1,7 +1,7 @@
 import { fetchNamPriceEnriched } from "./daily-market";
 import { publishEvent } from "../lib/redis";
 
-const NAM_PRICE_HISTORY_LIMIT = 180;
+const NAM_PRICE_HISTORY_LIMIT = 5;
 const NAM_POLL_INTERVAL_MS = 5_000;
 
 export type NamPriceHistoryPoint = {

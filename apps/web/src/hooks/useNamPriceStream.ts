@@ -20,12 +20,21 @@ type NamPriceResponse = {
   history: NamPricePoint[];
 };
 
+const NAM_PRICE_HISTORY_LIMIT = 5;
+
 const EMPTY_STATE: NamPriceState = {
   price: null,
   iconUrl: null,
   lastUpdatedAt: null,
   history: [],
 };
+
+function normalizeHistory(history: NamPricePoint[] | undefined): NamPricePoint[] {
+  return (history ?? [])
+    .filter((point) => Number.isFinite(new Date(point.ts).getTime()) && Number.isFinite(Number(point.priceUsd)))
+    .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+    .slice(-NAM_PRICE_HISTORY_LIMIT);
+}
 
 export function useNamPriceStream(): NamPriceState {
   const { socket, connected } = useSocket();
@@ -45,7 +54,7 @@ export function useNamPriceStream(): NamPriceState {
           price,
           iconUrl: data.tokenIconUrl ?? null,
           lastUpdatedAt: data.lastUpdatedAt ?? null,
-          history: data.history ?? [],
+          history: normalizeHistory(data.history),
         });
       })
       .catch(() => {
@@ -64,7 +73,7 @@ export function useNamPriceStream(): NamPriceState {
         price,
         iconUrl: data.tokenIconUrl ?? null,
         lastUpdatedAt: data.lastUpdatedAt ?? null,
-        history: data.history ?? [],
+        history: normalizeHistory(data.history),
       });
     };
 

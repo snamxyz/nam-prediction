@@ -7,33 +7,36 @@ interface NamPricePoint {
   priceUsd: string;
 }
 
+type ParsedNamPricePoint = {
+  ts: Date;
+  price: number;
+};
+
 interface NamPriceChartProps {
   points: NamPricePoint[];
   threshold: number | null;
   tokenIconUrl?: string | null;
 }
 
+const LAST_NAM_TICKS = 5;
 const W = 800;
 const H = 200;
 const PL = 64;
 const PR = 20;
 const PT = 14;
 const PB = 26;
-const X_LABELS = 10;
+const X_LABELS = LAST_NAM_TICKS;
 const TT_ICON = 18;
 const TT_PAD = 8;
 
 export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChartProps) {
-  // Track hover by timestamp so the tooltip stays anchored to the same
-  // data point even when new points arrive and all x-coordinates shift.
-  const [hoveredTs, setHoveredTs] = useState<number | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-
   const data = useMemo(
     () =>
       points
         .map((p) => ({ ts: new Date(p.ts), price: Number(p.priceUsd) }))
-        .filter((p) => Number.isFinite(p.price)),
+        .filter((p) => Number.isFinite(p.ts.getTime()) && Number.isFinite(p.price))
+        .sort((a, b) => a.ts.getTime() - b.ts.getTime())
+        .slice(-LAST_NAM_TICKS),
     [points]
   );
 
@@ -44,6 +47,23 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
       </div>
     );
   }
+
+  return <NamPriceSvgChart data={data} threshold={threshold} tokenIconUrl={tokenIconUrl} />;
+}
+
+function NamPriceSvgChart({
+  data,
+  threshold,
+  tokenIconUrl,
+}: {
+  data: ParsedNamPricePoint[];
+  threshold: number | null;
+  tokenIconUrl?: string | null;
+}) {
+  // Track hover by timestamp so the tooltip stays anchored to the same
+  // data point even when new points arrive and all x-coordinates shift.
+  const [hoveredTs, setHoveredTs] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const cw = W - PL - PR;
   const ch = H - PT - PB;
@@ -227,7 +247,7 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
         stroke="rgba(255,255,255,0.06)" strokeWidth="1"
       />
 
-      {/* X-axis: 20 time-interval labels — positions are time-based, never jump */}
+      {/* X-axis labels: positions are time-based, never jump */}
       {xLabels.map((lbl, i) => (
         <g key={i}>
           <line
