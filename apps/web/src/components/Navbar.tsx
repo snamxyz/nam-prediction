@@ -26,6 +26,7 @@ export function Navbar() {
   const navLinks = [
     { href: "/", label: "Markets" },
     { href: "/portfolio", label: "Portfolio" },
+    { href: "/admin/dashboard", label: "Admin" },
   ];
 
   return (

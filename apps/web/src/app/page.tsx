@@ -27,56 +27,36 @@ export default function HomePage() {
   return (
     <div className="fade-up">
       {/* Page header */}
-      <div style={{ marginBottom: 24 }}>
+      <div className="mb-7">
         <h1
           style={{
             fontSize: 22,
             fontWeight: 600,
             letterSpacing: "-0.025em",
-            color: "#e4e5eb",
+            color: "var(--foreground)",
             marginBottom: 5,
           }}
         >
           Prediction Markets
         </h1>
-        <p style={{ fontSize: 13, color: "#4c4e68" }}>
+        <p style={{ fontSize: 13, color: "var(--muted)" }}>
           Trade on NAM ecosystem milestones. Backed by real outcomes.
         </p>
       </div>
 
       <StatsBar />
-      <HourlyMarketHero />
 
-      {/* Range markets section */}
-      {rangeMarkets.length > 0 && (
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <h2 style={{ fontSize: 14, fontWeight: 600, color: "#e4e5eb", margin: 0 }}>
-              Range Markets
-            </h2>
-            <span style={{
-              fontSize: 10, fontWeight: 700, color: "#6c7aff",
-              background: "rgba(108,122,255,0.12)", padding: "2px 8px",
-              borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.08em",
-            }}>
-              LMSR · Live
-            </span>
-          </div>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
-            gap: 12,
-          }}>
-            {rangeMarkets.map((m) => (
-              <RangeMarketCard
-                key={m.id}
-                market={m}
-                href={m.marketType === "receipts" ? "/markets/receipts" : "/markets/nam-distribution"}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Featured markets */}
+      <div className="mb-7 grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <HourlyMarketHero />
+        {rangeMarkets.map((m) => (
+          <RangeMarketCard
+            key={m.id}
+            market={m}
+            href={m.marketType === "receipts" ? "/markets/receipts" : "/markets/nam-distribution"}
+          />
+        ))}
+      </div>
 
       {/* Tab filters */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
@@ -89,9 +69,9 @@ export default function HomePage() {
               borderRadius: 20,
               fontSize: 12,
               fontWeight: 500,
-              background: tab === key ? "#111320" : "transparent",
-              color: tab === key ? "#e4e5eb" : "#4c4e68",
-              border: `1px solid ${tab === key ? "rgba(255,255,255,0.07)" : "transparent"}`,
+              background: tab === key ? "var(--surface-hover)" : "transparent",
+              color: tab === key ? "var(--foreground)" : "var(--muted)",
+              border: `1px solid ${tab === key ? "var(--border)" : "transparent"}`,
               cursor: "pointer",
               transition: "all 0.12s",
             }}

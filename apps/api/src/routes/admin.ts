@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
-import { markets, users, trades, userPositions, vaultTransactions } from "../db/schema";
+import { markets, users, trades, userPositions, vaultTransactions, rangeMarkets, rangeTrades } from "../db/schema";
 import { eq, desc, count, sum, gte, lt, and, sql, ne, lte } from "drizzle-orm";
 import { resolveMarketOnChain } from "../services/resolution";
 import { processDailyResolution } from "../services/queue/resolution-queue";
@@ -149,12 +149,14 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
 
       return {
         success: true,
-        data: page.map((r) => ({
-          ...r.user,
-          tradeCount: Number(r.tradeCount ?? 0),
-          totalVolume: Number(r.totalVolume ?? 0).toFixed(2),
-        })),
-        nextCursor: page.length === limit ? page[page.length - 1]?.user.id : null,
+        data: {
+          users: page.map((r) => ({
+            ...r.user,
+            tradeCount: Number(r.tradeCount ?? 0),
+            totalVolume: Number(r.totalVolume ?? 0).toFixed(2),
+          })),
+          nextCursor: page.length === limit ? page[page.length - 1]?.user.id : null,
+        },
       };
     },
     {
@@ -242,13 +244,80 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         .orderBy(desc(markets.createdAt))
         .limit(limit);
 
-      return {
-        success: true,
-        data: rows.map((r) => ({
+      const rangeRows = await db
+        .select({
+          market: rangeMarkets,
+          tradeCount: count(rangeTrades.id),
+          totalVol: sum(rangeTrades.collateral),
+        })
+        .from(rangeMarkets)
+        .leftJoin(rangeTrades, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
+        .where(
+          statusFilter === "active"
+            ? eq(rangeMarkets.resolved, false)
+            : statusFilter === "resolved"
+            ? eq(rangeMarkets.resolved, true)
+            : undefined
+        )
+        .groupBy(rangeMarkets.id)
+        .orderBy(desc(rangeMarkets.createdAt))
+        .limit(limit);
+
+      const binaryMarkets = rows.map((r) => {
+        const liquidity = Number(r.market.liquidity ?? 0);
+        const liquidityWithdrawn = Number(r.market.liquidityWithdrawn ?? 0);
+        const reservedClaims = Number(r.market.reservedClaims ?? 0);
+        const outstandingWinningClaims = Number(r.market.outstandingWinningClaims ?? 0);
+        return {
           ...r.market,
+          category: r.market.cadence === "24h" ? "24h" : "binary",
+          marketType: r.market.cadence === "24h" ? "24h" : "binary",
           tradeCount: Number(r.tradeCount ?? 0),
           totalVolume: Number(r.totalVol ?? 0).toFixed(2),
-        })),
+          liquidity: liquidity.toFixed(2),
+          liquidityWithdrawn: liquidityWithdrawn.toFixed(2),
+          reservedClaims: reservedClaims.toFixed(2),
+          outstandingWinningClaims: outstandingWinningClaims.toFixed(2),
+          housePnl: (liquidityWithdrawn - liquidity).toFixed(2),
+          liquidityState: r.market.resolved
+            ? r.market.liquidityDrained
+              ? "drained"
+              : "awaiting drain"
+            : "active",
+        };
+      });
+
+      const rangeAdminMarkets = rangeRows.map((r) => {
+        const liquidity = Number(r.market.totalLiquidity ?? 0);
+        return {
+          id: r.market.id,
+          onChainId: r.market.onChainMarketId ?? 0,
+          question: r.market.question,
+          cadence: "daily",
+          category: "range",
+          marketType: r.market.marketType,
+          status: r.market.status,
+          resolved: r.market.resolved,
+          result: r.market.winningRangeIndex == null ? 0 : r.market.winningRangeIndex + 1,
+          tradeCount: Number(r.tradeCount ?? 0),
+          totalVolume: Number(r.totalVol ?? 0).toFixed(2),
+          createdAt: r.market.createdAt,
+          liquidity: liquidity.toFixed(2),
+          liquidityWithdrawn: "0.00",
+          reservedClaims: "0.00",
+          outstandingWinningClaims: "0.00",
+          housePnl: "0.00",
+          liquidityState: r.market.resolved ? "settled by winning range" : "active LMSR",
+        };
+      });
+
+      const allMarkets = [...binaryMarkets, ...rangeAdminMarkets]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, limit);
+
+      return {
+        success: true,
+        data: { markets: allMarkets },
       };
     },
     {
@@ -280,12 +349,17 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
 
       return {
         success: true,
-        data: page.map((r) => ({
-          ...r.trade,
-          question: r.market.question,
-          cadence: r.market.cadence,
-        })),
-        nextCursor: page.length === limit ? page[page.length - 1]?.trade.id : null,
+        data: {
+          trades: page.map((r) => ({
+            ...r.trade,
+            traderAddress: r.trade.trader,
+            side: r.trade.isYes ? "YES" : "NO",
+            createdAt: r.trade.timestamp,
+            question: r.market.question,
+            cadence: r.market.cadence,
+          })),
+          nextCursor: page.length === limit ? page[page.length - 1]?.trade.id : null,
+        },
       };
     },
     {

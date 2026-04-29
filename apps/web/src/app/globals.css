@@ -7,8 +7,10 @@
   --foreground: #e4e5eb;
   --accent: #01d243;
   --muted: #4c4e68;
+  --muted-strong: #8081a0;
   --surface: #0d0e14;
   --surface-hover: #111320;
+  --surface-raised: #151722;
   --border: rgba(255,255,255,0.07);
   --border-subtle: rgba(255,255,255,0.04);
   --yes: #01d243;
@@ -17,14 +19,16 @@
 }
 
 [data-theme="light"] {
-  --background: #f6f7fb;
+  --background: #f4f6fb;
   --foreground: #10121a;
   --accent: #00a835;
-  --muted: #697087;
+  --muted: #596177;
+  --muted-strong: #394052;
   --surface: #ffffff;
-  --surface-hover: #eef1f7;
-  --border: rgba(16,18,26,0.1);
-  --border-subtle: rgba(16,18,26,0.06);
+  --surface-hover: #eef2f8;
+  --surface-raised: #e7ebf3;
+  --border: rgba(16,18,26,0.14);
+  --border-subtle: rgba(16,18,26,0.09);
   --yes: #00a835;
   --no: #d92740;
   color-scheme: light;
@@ -90,6 +94,20 @@ body {
   background: var(--surface-hover);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
+}
+.glass-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.14);
+}
+.glass-card-inner {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+[data-theme="light"] .glass-card {
+  box-shadow: 0 14px 40px rgba(16,18,26,0.08);
 }
 
 /* Hide number input spinners */

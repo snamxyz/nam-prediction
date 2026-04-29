@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx hardhat *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT=$?\")"
     ]
   }
 }

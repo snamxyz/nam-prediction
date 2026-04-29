@@ -40,7 +40,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
           displayName = displayName || (account as any).username || (account as any).name;
         } else if (account.type === "google_oauth") {
           loginMethod = loginMethod || "google";
-          displayName = displayName || (account as any).name || (account as any).email;
+          displayName = displayName || (account as any).email || (account as any).name;
         } else if (account.type === "email") {
           loginMethod = loginMethod || "email";
           displayName = displayName || (account as any).address;

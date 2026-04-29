@@ -20,8 +20,11 @@ export interface AdminOverview {
 }
 
 export interface AdminUser {
-  id: string;
-  wallet: string;
+  id: number | string;
+  privyUserId: string;
+  walletAddress: string | null;
+  displayName: string | null;
+  loginMethod: string | null;
   tradeCount: number;
   totalVolume: string;
   createdAt: string;
@@ -32,10 +35,19 @@ export interface AdminMarket {
   onChainId: number;
   question: string;
   cadence: string;
+  category?: string;
+  marketType?: string;
+  status?: string;
   resolved: boolean;
   result: number;
   tradeCount: number;
   totalVolume: string;
+  liquidity?: string;
+  liquidityWithdrawn?: string;
+  reservedClaims?: string;
+  outstandingWinningClaims?: string;
+  housePnl?: string;
+  liquidityState?: string;
   createdAt: string;
 }
 

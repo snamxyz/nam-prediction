@@ -26,6 +26,9 @@ export interface BinaryPositionWithMarket {
   noCurrentValue: string;
   noPnl: string;
   noPnlPct: string;
+  totalCost: string;
+  resolvedValue: string;
+  redeemed: boolean;
   // Market
   question: string;
   resolved: boolean;
@@ -59,6 +62,8 @@ export interface RangePortfolioPosition {
   rangeCurrentValue: string;
   rangePnl: string;
   rangePnlPct: string;
+  totalCost: string;
+  resolvedValue: string;
   pnl: string;
 }
 
@@ -66,6 +71,11 @@ export type PositionWithMarket = BinaryPositionWithMarket | RangePortfolioPositi
 
 export interface PortfolioSummary {
   realisedPnl: string;
+  winRate: string;
+  wins: number;
+  resolvedCount: number;
+  resolvedCost: string;
+  resolvedValue: string;
 }
 
 const RECONCILE_INTERVAL_MS = 15_000;

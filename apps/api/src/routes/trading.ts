@@ -11,8 +11,8 @@ import {
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { db } from "../db/client";
-import { markets, vaultTransactions } from "../db/schema";
-import { eq, desc, lt } from "drizzle-orm";
+import { markets, rangeMarkets, rangeTrades, trades, vaultTransactions } from "../db/schema";
+import { eq, desc } from "drizzle-orm";
 import {
   CPMMABI,
   VaultABI,
@@ -882,34 +882,107 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
     }
   )
 
-  // ─── Vault deposit/withdraw transaction history ───
+  // ─── Vault and trading transaction history ───
   //
-  // Returns up to `limit` (default 50) vault transactions for a wallet,
-  // ordered newest first. Supports cursor-based pagination via the `cursor`
-  // query param (pass the last `id` seen to get the next page).
+  // Returns a combined ledger for a wallet, ordered newest first.
   .get(
     "/transactions/:wallet",
     async ({ params, query }) => {
       const wallet = params.wallet.toLowerCase();
       const limit = Math.min(Number(query?.limit ?? 50), 200);
-      const cursor = query?.cursor ? Number(query.cursor) : undefined;
+      const cursor = query?.cursor;
 
-      const rows = await db
+      const vaultRows = await db
         .select()
         .from(vaultTransactions)
-        .where(
-          cursor
-            ? eq(vaultTransactions.userAddress, wallet)
-            : eq(vaultTransactions.userAddress, wallet)
-        )
+        .where(eq(vaultTransactions.userAddress, wallet))
         .orderBy(desc(vaultTransactions.timestamp))
-        .limit(limit);
+        .limit(200);
 
-      // Apply cursor after the fact (simple id-based pagination).
-      const filtered = cursor
-        ? rows.filter((r) => r.id < cursor)
-        : rows;
-      const page = filtered.slice(0, limit);
+      const binaryRows = await db
+        .select({
+          id: trades.id,
+          marketId: trades.marketId,
+          question: markets.question,
+          isYes: trades.isYes,
+          isBuy: trades.isBuy,
+          amount: trades.collateral,
+          shares: trades.shares,
+          txHash: trades.txHash,
+          timestamp: trades.timestamp,
+        })
+        .from(trades)
+        .innerJoin(markets, eq(trades.marketId, markets.id))
+        .where(eq(trades.trader, wallet))
+        .orderBy(desc(trades.timestamp))
+        .limit(200);
+
+      const rangeRows = await db
+        .select({
+          id: rangeTrades.id,
+          marketId: rangeTrades.rangeMarketId,
+          question: rangeMarkets.question,
+          rangeIndex: rangeTrades.rangeIndex,
+          isBuy: rangeTrades.isBuy,
+          amount: rangeTrades.collateral,
+          shares: rangeTrades.shares,
+          txHash: rangeTrades.txHash,
+          timestamp: rangeTrades.timestamp,
+        })
+        .from(rangeTrades)
+        .innerJoin(rangeMarkets, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
+        .where(eq(rangeTrades.trader, wallet))
+        .orderBy(desc(rangeTrades.timestamp))
+        .limit(200);
+
+      const ledger = [
+        ...vaultRows.map((row) => ({
+          id: `vault-${row.id}`,
+          userAddress: row.userAddress,
+          type: row.type,
+          amount: row.amount,
+          txHash: row.txHash,
+          blockNumber: row.blockNumber,
+          timestamp: row.timestamp,
+          source: "vault" as const,
+        })),
+        ...binaryRows.map((row) => ({
+          id: `binary-${row.id}`,
+          userAddress: wallet,
+          type: row.isBuy ? "buy" : "sell",
+          amount: row.amount,
+          shares: row.shares,
+          txHash: row.txHash,
+          blockNumber: null,
+          timestamp: row.timestamp,
+          source: "binary" as const,
+          marketId: row.marketId,
+          question: row.question,
+          side: row.isYes ? "YES" : "NO",
+        })),
+        ...rangeRows.map((row) => ({
+          id: `range-${row.id}`,
+          userAddress: wallet,
+          type: row.isBuy ? "buy" : "sell",
+          amount: row.amount,
+          shares: row.shares,
+          txHash: row.txHash,
+          blockNumber: null,
+          timestamp: row.timestamp,
+          source: "range" as const,
+          marketId: row.marketId,
+          question: row.question,
+          side: `Range ${row.rangeIndex}`,
+        })),
+      ].sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      const start = cursor
+        ? Math.max(0, ledger.findIndex((row) => row.id === cursor) + 1)
+        : 0;
+      const page = ledger.slice(start, start + limit);
 
       return {
         success: true,

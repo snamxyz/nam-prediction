@@ -60,9 +60,9 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
     market.marketType === "receipts" ? "Receipts" : "NAM Distribution";
 
   return (
-    <Link href={href} className="no-underline">
+    <Link href={href} className="block h-full no-underline">
       <div
-        className={`card cursor-pointer px-[22px] py-5 transition duration-150 hover:-translate-y-px ${typeHoverClass}`}
+        className={`card h-full cursor-pointer px-[22px] py-5 transition duration-150 hover:-translate-y-px ${typeHoverClass}`}
       >
         {/* Header */}
         <div className="mb-3.5 flex items-center justify-between">
@@ -75,7 +75,7 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
                 RESOLVED
               </span>
             ) : (
-              <span className="rounded bg-white/[0.04] px-2 py-0.5 text-[10px] text-[#8081a0]">
+              <span className="rounded bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] text-[var(--muted-strong)]">
                 {timeUntil(market.endTime)}
               </span>
             )}
@@ -110,7 +110,7 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
                     </svg>
                     <span
                       className={`text-xs ${
-                        isWinner ? `${colorClass} font-bold` : "font-normal text-[#8081a0]"
+                        isWinner ? `${colorClass} font-bold` : "font-normal text-[var(--muted-strong)]"
                       }`}
                     >
                       {range.label}
@@ -130,7 +130,7 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
                   </span>
                 </div>
                 <svg
-                  className="block h-[3px] w-full overflow-hidden rounded-full bg-white/[0.05]"
+                  className="block h-[3px] w-full overflow-hidden rounded-full bg-[var(--surface-hover)]"
                   viewBox="0 0 100 1"
                   preserveAspectRatio="none"
                   aria-hidden="true"

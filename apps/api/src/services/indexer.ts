@@ -533,6 +533,23 @@ async function handleRedeemed(log: any) {
   if (market.length === 0) return;
   const dbMarket = market[0];
   const userAddr = (user as string).toLowerCase();
+  const usdcAmount = formatUnits(amount, 6);
+
+  try {
+    await db
+      .insert(vaultTransactions)
+      .values({
+        userAddress: userAddr,
+        type: "redemption",
+        amount: usdcAmount,
+        txHash: log.transactionHash as string,
+        blockNumber:
+          log.blockNumber !== undefined ? log.blockNumber.toString() : null,
+      })
+      .onConflictDoNothing({ target: vaultTransactions.txHash });
+  } catch (err) {
+    console.error("[Indexer] Failed to persist redemption:", err);
+  }
 
   // Zero out the winning side balance for this user
   const updates: Record<string, string> =
@@ -547,6 +564,15 @@ async function handleRedeemed(log: any) {
         eq(userPositions.userAddress, userAddr)
       )
     );
+
+  const balance = await refreshVaultBalance(user as `0x${string}`);
+  await publishEvent("user:balance", {
+    wallet: userAddr,
+    type: "redemption",
+    amount: usdcAmount,
+    usdcBalance: balance,
+    txHash: log.transactionHash,
+  });
 }
 
 // ─── Start watching events ───

@@ -169,9 +169,14 @@ contract CPMM {
 
     /// @notice Buy YES outcome tokens with USDC
     /// @param usdcIn Amount of USDC to spend (6 decimals)
+    /// @param minSharesOut Minimum YES shares the caller will accept (slippage guard)
     /// @return sharesOut Number of YES tokens received (18 decimals)
-    function buyYes(uint256 usdcIn) external returns (uint256 sharesOut) {
+    function buyYes(uint256 usdcIn, uint256 minSharesOut) public returns (uint256 sharesOut) {
         require(usdcIn > 0, "Zero input");
+        // Once a market is resolved, AMM prices no longer reflect outcome value
+        // (winners → $1, losers → $0). Allowing trades here would let an arber
+        // buy winning tokens below par and immediately redeem for $1.
+        require(!resolved, "Market resolved");
 
         // Pull full amount into the pool; protocol fee is then remitted to the fee wallet.
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
@@ -192,6 +197,7 @@ contract CPMM {
 
         sharesOut = yesReserve - newYesReserve;
         require(sharesOut > 0, "Insufficient output");
+        require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
 
         // Update reserves
         yesReserve = newYesReserve;
@@ -203,11 +209,17 @@ contract CPMM {
         emit Trade(marketId, msg.sender, true, true, sharesOut, usdcIn);
     }
 
+    /// @notice Backwards-compatible buyYes without slippage guard. Prefer the
+    ///         two-arg overload — direct callers without a min-out are exposed
+    ///         to sandwich attacks.
+    function buyYes(uint256 usdcIn) external returns (uint256 sharesOut) {
+        return buyYes(usdcIn, 0);
+    }
+
     /// @notice Buy NO outcome tokens with USDC
-    /// @param usdcIn Amount of USDC to spend (6 decimals)
-    /// @return sharesOut Number of NO tokens received (18 decimals)
-    function buyNo(uint256 usdcIn) external returns (uint256 sharesOut) {
+    function buyNo(uint256 usdcIn, uint256 minSharesOut) public returns (uint256 sharesOut) {
         require(usdcIn > 0, "Zero input");
+        require(!resolved, "Market resolved");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
         uint256 netIn = _takeBuyFee(msg.sender, usdcIn, false);
@@ -222,6 +234,7 @@ contract CPMM {
 
         sharesOut = noReserve - newNoReserve;
         require(sharesOut > 0, "Insufficient output");
+        require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
 
         yesReserve = newYesReserve;
         noReserve = newNoReserve;
@@ -231,11 +244,14 @@ contract CPMM {
         emit Trade(marketId, msg.sender, false, true, sharesOut, usdcIn);
     }
 
+    function buyNo(uint256 usdcIn) external returns (uint256 sharesOut) {
+        return buyNo(usdcIn, 0);
+    }
+
     /// @notice Sell YES tokens back for USDC
-    /// @param sharesIn Number of YES tokens to sell (18 decimals)
-    /// @return usdcOut Amount of USDC received (6 decimals)
-    function sellYes(uint256 sharesIn) external returns (uint256 usdcOut) {
+    function sellYes(uint256 sharesIn, uint256 minUsdcOut) public returns (uint256 usdcOut) {
         require(sharesIn > 0, "Zero input");
+        require(!resolved, "Market resolved");
 
         // Burn YES tokens from seller
         IOutcomeToken(yesToken).burn(msg.sender, sharesIn);
@@ -257,6 +273,7 @@ contract CPMM {
         // Route protocol fee to the fee wallet
         usdcOut = _takeSellFee(msg.sender, afterLpFee, true);
         require(usdcOut > 0, "Insufficient output");
+        require(usdcOut >= minUsdcOut, "Slippage: insufficient output");
 
         // Update reserves
         yesReserve = newYesReserve;
@@ -268,11 +285,14 @@ contract CPMM {
         emit Trade(marketId, msg.sender, true, false, sharesIn, usdcOut);
     }
 
+    function sellYes(uint256 sharesIn) external returns (uint256 usdcOut) {
+        return sellYes(sharesIn, 0);
+    }
+
     /// @notice Sell NO tokens back for USDC
-    /// @param sharesIn Number of NO tokens to sell (18 decimals)
-    /// @return usdcOut Amount of USDC received (6 decimals)
-    function sellNo(uint256 sharesIn) external returns (uint256 usdcOut) {
+    function sellNo(uint256 sharesIn, uint256 minUsdcOut) public returns (uint256 usdcOut) {
         require(sharesIn > 0, "Zero input");
+        require(!resolved, "Market resolved");
 
         IOutcomeToken(noToken).burn(msg.sender, sharesIn);
 
@@ -288,6 +308,7 @@ contract CPMM {
 
         usdcOut = _takeSellFee(msg.sender, afterLpFee, false);
         require(usdcOut > 0, "Insufficient output");
+        require(usdcOut >= minUsdcOut, "Slippage: insufficient output");
 
         yesReserve = newYesReserve;
         noReserve = newNoReserve;
@@ -295,6 +316,10 @@ contract CPMM {
         IERC20(collateral).safeTransfer(msg.sender, usdcOut);
 
         emit Trade(marketId, msg.sender, false, false, sharesIn, usdcOut);
+    }
+
+    function sellNo(uint256 sharesIn) external returns (uint256 usdcOut) {
+        return sellNo(sharesIn, 0);
     }
 
     // ─── Vault Management ───
@@ -325,6 +350,7 @@ contract CPMM {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(usdcIn > 0, "Zero input");
         require(recipient != address(0), "Zero recipient");
+        require(!resolved, "Market resolved");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
         uint256 netIn = _takeBuyFee(recipient, usdcIn, true);
@@ -356,6 +382,7 @@ contract CPMM {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(usdcIn > 0, "Zero input");
         require(recipient != address(0), "Zero recipient");
+        require(!resolved, "Market resolved");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcIn);
         uint256 netIn = _takeBuyFee(recipient, usdcIn, false);
@@ -387,6 +414,7 @@ contract CPMM {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(sharesIn > 0, "Zero input");
         require(seller != address(0), "Zero seller");
+        require(!resolved, "Market resolved");
 
         IOutcomeToken(yesToken).burn(seller, sharesIn);
 
@@ -420,6 +448,7 @@ contract CPMM {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(sharesIn > 0, "Zero input");
         require(seller != address(0), "Zero seller");
+        require(!resolved, "Market resolved");
 
         IOutcomeToken(noToken).burn(seller, sharesIn);
 
@@ -567,11 +596,14 @@ contract CPMM {
     // ─── Liquidity ───
 
     /// @notice Add liquidity by depositing USDC. Mints proportional YES and NO reserves.
+    /// @dev Disabled once a market resolves — adding to a resolved pool would mint LP shares
+    ///      against frozen reserves and immediately drain via removeLiquidity.
     /// @param usdcAmount Amount of USDC to add (6 decimals)
     /// @return lpShares LP shares minted
     function addLiquidity(uint256 usdcAmount) external returns (uint256 lpShares) {
         require(usdcAmount > 0, "Zero amount");
         require(yesReserve > 0, "Not seeded");
+        require(!resolved, "Market resolved");
 
         IERC20(collateral).safeTransferFrom(msg.sender, address(this), usdcAmount);
 
@@ -595,11 +627,20 @@ contract CPMM {
         emit LiquidityAdded(msg.sender, usdcAmount, lpShares);
     }
 
-    /// @notice Remove liquidity by burning LP shares
+    /// @notice Remove liquidity by burning LP shares.
+    /// @dev Gated to AFTER resolution. Pre-resolution removal lets an LP pull collateral that
+    ///      may be needed for redemption payouts (the AMM's k-product invariant doesn't
+    ///      account for outstanding outcome-token supply; with enough imbalance, an LP
+    ///      could front-run resolution and strand redeemers). Post-resolution, the
+    ///      factory's drain handles the protocol-side withdrawal via withdrawExcessLiquidity;
+    ///      this path is reserved for any remaining LP that wants to claim their share of
+    ///      whatever is left after redemptions complete. Solvency for outstanding winning
+    ///      claims is enforced before the transfer.
     /// @param lpShares Number of LP shares to burn
     function removeLiquidity(uint256 lpShares) external {
         require(lpShares > 0, "Zero shares");
         require(lpShareOf[msg.sender] >= lpShares, "Insufficient LP shares");
+        require(resolved, "Market not resolved");
 
         uint256 yesRemove = (yesReserve * lpShares) / totalLpShares;
         uint256 noRemove = (noReserve * lpShares) / totalLpShares;
@@ -612,6 +653,13 @@ contract CPMM {
         // Convert removed reserves back to USDC (average of both sides)
         uint256 usdcOut = (yesRemove + noRemove) / (2 * DECIMAL_SCALE);
         require(usdcOut > 0, "Nothing to withdraw");
+
+        // Solvency guard: never let an LP pull below the USDC reserved for
+        // outstanding winning-token redemptions plus the configured buffer.
+        uint256 poolBalance = IERC20(collateral).balanceOf(address(this));
+        uint256 claims = getOutstandingWinningClaims();
+        uint256 reserved = claims + (claims * claimsBufferBps) / BPS;
+        require(poolBalance >= reserved + usdcOut, "Would underfund redemptions");
 
         IERC20(collateral).safeTransfer(msg.sender, usdcOut);
 

@@ -17,7 +17,7 @@ export default function AdminTradesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold mb-6" style={{ color: "#e8e9ed" }}>Recent Trades</h1>
+      <h1 className="text-2xl font-semibold mb-6" style={{ color: "var(--foreground)" }}>Recent Trades</h1>
       {isLoading && (
         <div className="space-y-2">
           {[...Array(8)].map((_, i) => (
@@ -29,48 +29,50 @@ export default function AdminTradesPage() {
         <div className="glass-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr style={{ borderBottom: "0.5px solid rgba(255,255,255,0.06)" }}>
+              <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                 {["Trader", "Market", "Side", "Type", "Amount", "Shares", "Time", "Tx"].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium" style={{ color: "#717182" }}>{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {trades.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-xs" style={{ color: "#717182" }}>No trades yet</td>
+                  <td colSpan={8} className="px-4 py-8 text-center text-xs" style={{ color: "var(--muted)" }}>No trades yet</td>
                 </tr>
               )}
               {trades.map((t) => {
                 const isBuy = t.isBuy;
                 const isYes = t.side === "YES";
-                const sideColor = isYes ? "#01d243" : "#ff4757";
-                const typeColor = isBuy ? "#01d243" : "#ff4757";
+                const sideColor = isYes ? "var(--yes)" : "var(--no)";
+                const typeColor = isBuy ? "var(--yes)" : "var(--no)";
+                const sideBg = isYes ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)";
+                const typeBg = isBuy ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)";
                 return (
-                  <tr key={t.id} style={{ borderBottom: "0.5px solid rgba(255,255,255,0.04)" }}>
-                    <td className="px-4 py-3 text-xs font-mono" style={{ color: "#e8e9ed" }}>
+                  <tr key={t.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                    <td className="px-4 py-3 text-xs font-mono" style={{ color: "var(--foreground)" }}>
                       {t.traderAddress ? `${t.traderAddress.slice(0, 6)}…${t.traderAddress.slice(-4)}` : "—"}
                     </td>
-                    <td className="px-4 py-3 text-xs max-w-[160px]" style={{ color: "#717182" }}>
+                    <td className="px-4 py-3 text-xs max-w-[160px]" style={{ color: "var(--muted)" }}>
                       <span className="line-clamp-1">{t.question}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: `${sideColor}18`, color: sideColor }}>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: sideBg, color: sideColor }}>
                         {t.side}
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: `${typeColor}18`, color: typeColor }}>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: typeBg, color: typeColor }}>
                         {isBuy ? "BUY" : "SELL"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "#e8e9ed" }}>
+                    <td className="px-4 py-3 text-xs" style={{ color: "var(--foreground)" }}>
                       ${parseFloat(t.collateral).toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "#e8e9ed" }}>
+                    <td className="px-4 py-3 text-xs" style={{ color: "var(--foreground)" }}>
                       {parseFloat(t.shares).toFixed(4)}
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "#717182" }}>
+                    <td className="px-4 py-3 text-xs" style={{ color: "var(--muted)" }}>
                       {timeAgo(t.createdAt)}
                     </td>
                     <td className="px-4 py-3">
@@ -80,7 +82,7 @@ export default function AdminTradesPage() {
                         rel="noopener noreferrer"
                         className="transition-opacity hover:opacity-70"
                       >
-                        <ExternalLink className="w-3.5 h-3.5" style={{ color: "#717182" }} />
+                        <ExternalLink className="w-3.5 h-3.5" style={{ color: "var(--muted)" }} />
                       </a>
                     </td>
                   </tr>

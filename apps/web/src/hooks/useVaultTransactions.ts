@@ -6,13 +6,18 @@ import { useAccount } from "wagmi";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 export interface VaultTransaction {
-  id: number;
+  id: string;
   userAddress: string;
-  type: "deposit" | "withdraw";
+  type: "deposit" | "withdraw" | "buy" | "sell" | "redemption";
   amount: string;
+  shares?: string;
   txHash: string;
-  blockNumber: string;
+  blockNumber: string | null;
   timestamp: string;
+  source?: "vault" | "binary" | "range";
+  marketId?: number;
+  question?: string;
+  side?: string;
 }
 
 async function fetchTransactions(address: string): Promise<VaultTransaction[]> {

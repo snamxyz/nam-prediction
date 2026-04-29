@@ -46,9 +46,7 @@ export function HourlyMarketHero() {
 
   if (isLoading) {
     return (
-      <div className="mb-6">
-        <div className="card h-80 p-7" />
-      </div>
+      <div className="card h-full min-h-[260px] p-5" />
     );
   }
 
@@ -61,13 +59,13 @@ export function HourlyMarketHero() {
   const question = formatMarketQuestion(market);
 
   return (
-    <div className="card fade-up relative mb-6 overflow-hidden p-7">
+    <div className="card fade-up relative h-full overflow-hidden p-5 transition duration-150 hover:-translate-y-px hover:border-yes/30">
       {/* Background accent glows */}
       <div className="pointer-events-none absolute -left-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#01d24307_0%,transparent_65%)]" />
       <div className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#f0324c05_0%,transparent_65%)]" />
 
       {/* Top row */}
-      <div className="mb-[18px] flex items-center justify-between">
+      <div className="mb-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="live-dot" />
           <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--muted)]">
@@ -80,26 +78,26 @@ export function HourlyMarketHero() {
       </div>
 
       {/* Question */}
-      <h2 className="mb-7 max-w-[700px] text-xl font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
+      <h2 className="mb-4 text-sm font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
         {question}
       </h2>
 
       {/* Large probability display */}
-      <div className="mb-[22px] grid grid-cols-[1fr_1px_1fr] gap-0">
-        <div className="px-6 py-[18px] text-center">
-          <div className="mono text-[60px] font-medium leading-none tracking-[-0.03em] text-yes">
+      <div className="mb-3.5 grid grid-cols-[1fr_1px_1fr] gap-0 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+        <div className="bg-yes/[0.04] px-3 py-2.5 text-center">
+          <div className="mono text-[30px] font-medium leading-none tracking-[-0.03em] text-yes">
             {yp}
           </div>
-          <div className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
             {outcomeLabels.yes} %
           </div>
         </div>
-        <div className="my-3 bg-white/[0.07]" />
-        <div className="px-6 py-[18px] text-center">
-          <div className="mono text-[60px] font-medium leading-none tracking-[-0.03em] text-no">
+        <div className="bg-[var(--border-subtle)]" />
+        <div className="bg-no/[0.03] px-3 py-2.5 text-center">
+          <div className="mono text-[30px] font-medium leading-none tracking-[-0.03em] text-no">
             {np}
           </div>
-          <div className="mt-1.5 text-[11px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
+          <div className="mt-1 text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
             {outcomeLabels.no} %
           </div>
         </div>
@@ -108,8 +106,8 @@ export function HourlyMarketHero() {
       <ProbBar yes={parseFloat(yp)} height={4} />
 
       {/* Footer */}
-      <div className="mt-5 flex items-center justify-between">
-        <div className="flex gap-5">
+      <div className="mt-3.5 flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-3">
+        <div className="flex gap-3">
           <div>
             <div className="mb-[3px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
               Volume
@@ -129,9 +127,9 @@ export function HourlyMarketHero() {
         </div>
         <Link
           href={`/market/${market.id}`}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-yes px-[22px] py-2.5 text-[13px] font-bold tracking-[0.01em] text-black"
-      >
-          Trade Now <ArrowRight className="w-4 h-4" />
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-yes px-3 py-2 text-[12px] font-bold tracking-[0.01em] text-black"
+        >
+          Trade <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
     </div>

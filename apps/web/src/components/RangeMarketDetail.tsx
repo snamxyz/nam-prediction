@@ -235,6 +235,13 @@ function TradePanelRange({
       quotedAmount === amount &&
       quotedRangeIndex === selectedRangeIndex);
   const estimatedTokens = (hasCurrentBuyQuote && quotedTokens !== null && quotedTokens > 0) ? quotedTokens : fallbackEstimate;
+  const poolLiquidity = parseFloat(market.totalLiquidity || "0") || 0;
+  const priceImpactPct =
+    mode === "BUY" && num > 0 && quotedTokens !== null && fallbackEstimate > 0
+      ? Math.max(0, ((fallbackEstimate - quotedTokens) / fallbackEstimate) * 100)
+      : 0;
+  const winPayout = mode === "BUY" && num > 0 ? estimatedTokens : 0;
+  const netIfWins = winPayout - num;
 
   useEffect(() => {
     if (mode !== "BUY" || selectedRangeIndex == null || num <= 0 || !market.rangeCpmmAddress) {
@@ -649,16 +656,28 @@ function TradePanelRange({
                 <span className="mono text-[var(--foreground)]">{num > 0 ? estimatedTokens.toFixed(4) : "—"}</span>
               </div>
               {num > 0 && quotedTokens !== null && fallbackEstimate > 0 &&
-                (fallbackEstimate - quotedTokens) / fallbackEstimate > 0.05 && (
+                priceImpactPct > 5 && (
                 <div className="mb-1.5 text-[10px] text-[#f0a832]">
-                  ⚠ High price impact ({(((fallbackEstimate - quotedTokens) / fallbackEstimate) * 100).toFixed(1)}%)
+                  High price impact ({priceImpactPct.toFixed(1)}%)
                 </div>
               )}
-              <div className="my-2 h-px bg-white/[0.04]" />
+              <div className="mb-2 flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">Pool liquidity</span>
+                <span className="mono text-[var(--foreground)]">
+                  {poolLiquidity > 0 ? `$${poolLiquidity.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              <div className="my-2 h-px bg-[var(--border-subtle)]" />
               <div className="flex justify-between text-[11px]">
                 <span className="text-[var(--muted)]">Win payout</span>
                 <span className={`mono ${num > 0 ? "font-semibold text-yes" : "font-normal text-[var(--muted)]"}`}>
-                  {num > 0 ? `$${estimatedTokens.toFixed(2)}` : "—"}
+                  {num > 0 ? `$${winPayout.toFixed(2)}` : "—"}
+                </span>
+              </div>
+              <div className="mt-2 flex justify-between text-[11px]">
+                <span className="text-[var(--muted)]">Net if wins</span>
+                <span className={`mono ${num > 0 ? "font-semibold text-[var(--foreground)]" : "font-normal text-[var(--muted)]"}`}>
+                  {num > 0 ? `${netIfWins >= 0 ? "+" : "-"}$${Math.abs(netIfWins).toFixed(2)}` : "—"}
                 </span>
               </div>
             </>

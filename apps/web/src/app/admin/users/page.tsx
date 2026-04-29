@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useAdminUsers } from "@/hooks/useAdmin";
-import { ExternalLink } from "lucide-react";
+import { CheckCheck, Copy, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 
 function timeAgo(ts: string) {
   const d = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
@@ -15,13 +17,34 @@ function fmt(n: string) {
   return `$${v.toFixed(2)}`;
 }
 
+function truncateAddress(address: string) {
+  return `${address.slice(0, 8)}…${address.slice(-4)}`;
+}
+
+function getIdentity(loginMethod: string | null, displayName: string | null) {
+  if (loginMethod === "wallet") return "";
+  return displayName ?? "";
+}
+
 export default function AdminUsersPage() {
   const { data, isLoading } = useAdminUsers();
   const users = data?.users ?? [];
+  const [copiedWallet, setCopiedWallet] = useState<string | null>(null);
+
+  const copyWallet = async (walletAddress: string) => {
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setCopiedWallet(walletAddress);
+      toast.success("Wallet address copied");
+      setTimeout(() => setCopiedWallet(null), 1800);
+    } catch {
+      toast.error("Failed to copy wallet address");
+    }
+  };
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold mb-6" style={{ color: "#e8e9ed" }}>Users</h1>
+      <h1 className="text-2xl font-semibold mb-6" style={{ color: "var(--foreground)" }}>Users</h1>
       {isLoading && (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => (
@@ -33,39 +56,57 @@ export default function AdminUsersPage() {
         <div className="glass-card overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr style={{ borderBottom: "0.5px solid rgba(255,255,255,0.06)" }}>
-                {["Wallet", "Trades", "Volume", "Joined"].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-xs font-medium" style={{ color: "#717182" }}>{h}</th>
+              <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                {["User", "Wallet", "Trades", "Volume", "Joined"].map((h) => (
+                  <th key={h} className="px-5 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-5 py-8 text-center text-xs" style={{ color: "#717182" }}>No users found</td>
+                  <td colSpan={5} className="px-5 py-8 text-center text-xs" style={{ color: "var(--muted)" }}>No users found</td>
                 </tr>
               )}
               {users.map((u) => (
-                <tr key={u.id} style={{ borderBottom: "0.5px solid rgba(255,255,255,0.04)" }}>
+                <tr key={u.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                  <td className="px-5 py-3">
+                    <span className="text-xs" style={{ color: getIdentity(u.loginMethod, u.displayName) ? "var(--foreground)" : "var(--muted)" }}>
+                      {getIdentity(u.loginMethod, u.displayName) || "—"}
+                    </span>
+                  </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs" style={{ color: "#e8e9ed" }}>
-                        {u.wallet ? `${u.wallet.slice(0, 8)}…${u.wallet.slice(-4)}` : u.id}
+                      <span className="font-mono text-xs" style={{ color: "var(--foreground)" }}>
+                        {u.walletAddress ? truncateAddress(u.walletAddress) : "—"}
                       </span>
-                      {u.wallet && (
-                        <a
-                          href={`https://basescan.org/address/${u.wallet}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLink className="w-3 h-3" style={{ color: "#717182" }} />
-                        </a>
+                      {u.walletAddress && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => copyWallet(u.walletAddress!)}
+                            className="rounded p-0.5 transition-all"
+                            style={{ color: copiedWallet === u.walletAddress ? "var(--yes)" : "var(--muted)" }}
+                            title="Copy wallet address"
+                            aria-label="Copy wallet address"
+                          >
+                            {copiedWallet === u.walletAddress ? <CheckCheck className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                          <a
+                            href={`https://basescan.org/address/${u.walletAddress}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="View wallet on Basescan"
+                          >
+                            <ExternalLink className="w-3 h-3" style={{ color: "var(--muted)" }} />
+                          </a>
+                        </>
                       )}
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-xs" style={{ color: "#e8e9ed" }}>{u.tradeCount}</td>
-                  <td className="px-5 py-3 text-xs" style={{ color: "#01d243" }}>{fmt(u.totalVolume)}</td>
-                  <td className="px-5 py-3 text-xs" style={{ color: "#717182" }}>{timeAgo(u.createdAt)}</td>
+                  <td className="px-5 py-3 text-xs" style={{ color: "var(--foreground)" }}>{u.tradeCount}</td>
+                  <td className="px-5 py-3 text-xs" style={{ color: "var(--yes)" }}>{fmt(u.totalVolume)}</td>
+                  <td className="px-5 py-3 text-xs" style={{ color: "var(--muted)" }}>{timeAgo(u.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

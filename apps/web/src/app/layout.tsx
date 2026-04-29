@@ -49,7 +49,7 @@ export default function RootLayout({
             }}
           >
             <Navbar />
-            <main className="max-w-[1280px] mx-auto px-6 relative">
+            <main className="max-w-[1280px] mx-auto px-6 relative py-10">
               {children}
             </main>
           </div>

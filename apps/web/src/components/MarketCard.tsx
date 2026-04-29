@@ -54,7 +54,7 @@ export function MarketCard({ market }: { market: Market }) {
       onFocus={prefetchMarket}
     >
       <div
-        className="card cursor-pointer rounded-xl p-5 transition-all duration-150 hover:border-white/[0.12] hover:bg-[var(--surface-hover)]"
+        className="card cursor-pointer rounded-xl p-5 transition-all duration-150 hover:border-[var(--border)] hover:bg-[var(--surface-hover)]"
       >
         {/* Question */}
         <p className="mb-[18px] text-[13px] font-medium leading-[1.55] text-[var(--foreground)]">
@@ -62,7 +62,7 @@ export function MarketCard({ market }: { market: Market }) {
         </p>
 
         {/* Split probability block */}
-        <div className="mb-3.5 flex items-center gap-0 overflow-hidden rounded-lg border border-white/[0.04]">
+        <div className="mb-3.5 flex items-center gap-0 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
           <div className="flex-1 bg-yes/[0.04] py-2.5 text-center">
             <span className="mono text-[26px] font-medium text-yes">
               {yesPct}
@@ -71,7 +71,7 @@ export function MarketCard({ market }: { market: Market }) {
               {outcomeLabels.yes} %
             </span>
           </div>
-          <div className="h-12 w-px bg-white/[0.04]" />
+          <div className="h-12 w-px bg-[var(--border-subtle)]" />
           <div className="flex-1 bg-no/[0.03] py-2.5 text-center">
             <span className="mono text-[26px] font-medium text-no">
               {noPct}
@@ -85,7 +85,7 @@ export function MarketCard({ market }: { market: Market }) {
         <ProbBar yes={yesPct} height={3} />
 
         {/* Footer */}
-        <div className="mt-3 flex justify-between border-t border-white/[0.04] pt-3">
+        <div className="mt-3 flex justify-between border-t border-[var(--border-subtle)] pt-3">
           <div className="flex items-center gap-3">
             <span className="mono text-[11px] text-[var(--muted)]">
               {formatVolume(market.volume)} vol

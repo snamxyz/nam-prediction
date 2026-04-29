@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
-import { rangeMarkets, rangePositions, rangeTrades } from "../db/schema";
+import { rangeMarkets, rangePositions, rangeTrades, vaultTransactions } from "../db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import {
   createWalletClient,
@@ -26,13 +26,72 @@ import {
 
 // Unified pool ABI: RangeLMSRABI is a superset of RangeCPMMABI for identical functions.
 const RangePoolABI = RangeLMSRABI;
-import { publishEvent, getCache, setCache, cacheKeys } from "../lib/redis";
+import { publishEvent, getCache, setCache, cacheKeys, redis } from "../lib/redis";
 import { getNonceManager } from "../lib/nonce-manager.instance";
+import { verifyPrivyToken, privyClient } from "../middleware/auth";
+
+// ─── Replay protection ───
+//
+// Each signed range-trade intent carries a nonce. We reserve the nonce in
+// Redis with SETNX so a captured signature cannot be re-submitted. The TTL
+// must match the intent's signature window (24h is plenty — intent deadlines
+// are typically minutes).
+const RANGE_NONCE_TTL_SECONDS = 60 * 60 * 24;
+
+function rangeNonceKey(wallet: string, nonce: string) {
+  return `range-trading:nonce:used:${wallet.toLowerCase()}:${nonce}`;
+}
+
+async function reserveRangeNonce(wallet: string, nonce: string): Promise<boolean> {
+  const result = await redis.set(rangeNonceKey(wallet, nonce), "1", "EX", RANGE_NONCE_TTL_SECONDS, "NX");
+  return result === "OK";
+}
+
+async function releaseRangeNonce(wallet: string, nonce: string) {
+  await redis.del(rangeNonceKey(wallet, nonce));
+}
+
+/**
+ * Resolve the authenticated user's wallet from the Privy JWT in the
+ * Authorization header. Returns the lowercased wallet address on success,
+ * or null if the token is missing/invalid or the user has no linked wallet.
+ *
+ * All trade-execution endpoints MUST run this and use the returned address
+ * as the authoritative trader — never trust `userAddress` from the request
+ * body, since the server-controlled operator wallet would otherwise be
+ * tricked into pulling funds from any victim escrow.
+ */
+async function resolveAuthenticatedWallet(
+  authHeader: string | null | undefined
+): Promise<`0x${string}` | null> {
+  const claims = await verifyPrivyToken(authHeader);
+  if (!claims) return null;
+  try {
+    const user = await privyClient.getUser(claims.userId);
+    const addr = user.wallet?.address;
+    if (!addr) return null;
+    return addr.toLowerCase() as `0x${string}`;
+  } catch {
+    return null;
+  }
+}
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = (process.env.RANGE_FACTORY_ADDRESS || process.env.MARKET_FACTORY_ADDRESS) as `0x${string}`;
 const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
+const RANGE_REDEEMED_EVENT_ABI = [
+  {
+    type: "event",
+    name: "RangeRedeemed",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "rangeIndex", type: "uint256", indexed: false },
+      { name: "usdcOut", type: "uint256", indexed: false },
+    ],
+  },
+] as const;
 
 function getWalletClient() {
   const privateKey = process.env.PRIVATE_KEY;
@@ -391,21 +450,36 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
   // POST /range-markets/:id/buy — buy a range outcome
   .post(
     "/:id/buy",
-    async ({ params, body, set }) => {
+    async ({ params, body, headers, set }) => {
       const id = Number(params.id);
-      const { rangeIndex, usdcAmount, userAddress, minOutput, signature, nonce, deadline } = body as {
+      const { rangeIndex, usdcAmount, minOutput, signature, nonce, deadline } = body as {
         rangeIndex: number;
         usdcAmount: number;
-        userAddress: string;
         minOutput?: string;
         signature: string;
         nonce: string;
         deadline: string;
       };
 
-      if (isNaN(id) || rangeIndex < 0 || usdcAmount <= 0 || !userAddress) {
+      // ── Auth: derive the trader wallet from the Privy JWT, never the body ──
+      // Without this, an unauthenticated caller could pass `userAddress: <victim>`
+      // and have the operator drain that victim's vault escrow.
+      const userAddress = await resolveAuthenticatedWallet(headers.authorization);
+      if (!userAddress) {
+        set.status = 401;
+        return { error: "Unauthorized", success: false };
+      }
+
+      if (isNaN(id) || rangeIndex < 0 || usdcAmount <= 0) {
         set.status = 400;
         return { error: "Invalid parameters", success: false };
+      }
+
+      // Signature, nonce, and deadline are required so that the operator wallet
+      // can only execute trades the user has explicitly approved.
+      if (!signature || !nonce || !deadline) {
+        set.status = 400;
+        return { error: "signature, nonce, and deadline are required", success: false };
       }
 
       const rows = await db.select().from(rangeMarkets).where(eq(rangeMarkets.id, id)).limit(1);
@@ -434,24 +508,30 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       const cpmmAddress = market.rangeCpmmAddress as `0x${string}`;
       const minOutputRaw = minOutput ? BigInt(minOutput) : BigInt(0);
 
-      if (signature && nonce && deadline) {
-        try {
-          await verifyRangeTradeSignature({
-            signature: signature as `0x${string}`,
-            trader: userAddress as `0x${string}`,
-            marketId: BigInt(market.onChainMarketId ?? market.id),
-            cpmmAddress,
-            rangeIndex: BigInt(rangeIndex),
-            isBuy: true,
-            amount: usdcAmountRaw,
-            minOutput: minOutputRaw,
-            nonce: BigInt(nonce),
-            deadline: BigInt(deadline),
-          });
-        } catch (err: unknown) {
-          set.status = 401;
-          return { error: (err as Error).message ?? "Invalid signature", success: false };
-        }
+      try {
+        await verifyRangeTradeSignature({
+          signature: signature as `0x${string}`,
+          trader: userAddress,
+          marketId: BigInt(market.onChainMarketId ?? market.id),
+          cpmmAddress,
+          rangeIndex: BigInt(rangeIndex),
+          isBuy: true,
+          amount: usdcAmountRaw,
+          minOutput: minOutputRaw,
+          nonce: BigInt(nonce),
+          deadline: BigInt(deadline),
+        });
+      } catch (err: unknown) {
+        set.status = 401;
+        return { error: (err as Error).message ?? "Invalid signature", success: false };
+      }
+
+      // Replay protection — reserve the nonce atomically. A second submission
+      // with the same signature is rejected.
+      const reserved = await reserveRangeNonce(userAddress, nonce);
+      if (!reserved) {
+        set.status = 409;
+        return { error: "Nonce already used", success: false };
       }
 
       try {
@@ -493,13 +573,21 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         }
 
         if (VAULT_ADDRESS) {
-          // Route through user's vault escrow: Vault.executeRangeBuy deducts from user's escrow
+          // Route through user's vault escrow: Vault.executeRangeBuy deducts from user's escrow.
+          // Use the 5-arg overload so the user's signed `minSharesOut` is enforced ON-CHAIN —
+          // the off-chain quote check above can be stale by the time the tx lands.
           buyHash = await nm.withNonce((n) =>
             walletClient.writeContract({
               address: VAULT_ADDRESS!,
               abi: VaultABI,
               functionName: "executeRangeBuy",
-              args: [cpmmAddress, BigInt(rangeIndex), usdcAmountRaw, userAddress as `0x${string}`],
+              args: [
+                cpmmAddress,
+                BigInt(rangeIndex),
+                usdcAmountRaw,
+                userAddress,
+                minOutputRaw,
+              ],
               nonce: n,
             })
           );
@@ -658,6 +746,8 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           },
         };
       } catch (err: unknown) {
+        // Tx never landed — release the nonce so the user can retry with the same signature.
+        await releaseRangeNonce(userAddress, nonce);
         console.error("[RangeMarkets] Buy error:", err);
         set.status = 500;
         return { error: (err as Error).message ?? "Trade failed", success: false };
@@ -667,11 +757,10 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       body: t.Object({
         rangeIndex: t.Number(),
         usdcAmount: t.Number(),
-        userAddress: t.String(),
-        signature: t.Optional(t.String()),
+        signature: t.String(),
         minOutput: t.Optional(t.String()),
-        nonce: t.Optional(t.String()),
-        deadline: t.Optional(t.String()),
+        nonce: t.String(),
+        deadline: t.String(),
       }),
     }
   )
@@ -679,21 +768,34 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
   // POST /range-markets/:id/sell — sell a range outcome
   .post(
     "/:id/sell",
-    async ({ params, body, set }) => {
+    async ({ params, body, headers, set }) => {
       const id = Number(params.id);
-      const { rangeIndex, shares, userAddress, minOutput, signature, nonce, deadline } = body as {
+      const { rangeIndex, shares, minOutput, signature, nonce, deadline } = body as {
         rangeIndex: number;
         shares: number;
-        userAddress: string;
         minOutput?: string;
-        signature?: string;
-        nonce?: string;
-        deadline?: string;
+        signature: string;
+        nonce: string;
+        deadline: string;
       };
 
-      if (isNaN(id) || rangeIndex < 0 || shares <= 0 || !userAddress) {
+      // ── Auth: derive the seller wallet from the Privy JWT, never the body ──
+      // Same exposure as buy: an unauthenticated body-only flow lets an
+      // attacker burn a victim's range tokens.
+      const userAddress = await resolveAuthenticatedWallet(headers.authorization);
+      if (!userAddress) {
+        set.status = 401;
+        return { error: "Unauthorized", success: false };
+      }
+
+      if (isNaN(id) || rangeIndex < 0 || shares <= 0) {
         set.status = 400;
         return { error: "Invalid parameters", success: false };
+      }
+
+      if (!signature || !nonce || !deadline) {
+        set.status = 400;
+        return { error: "signature, nonce, and deadline are required", success: false };
       }
 
       const rows = await db.select().from(rangeMarkets).where(eq(rangeMarkets.id, id)).limit(1);
@@ -717,25 +819,28 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       const requestedSharesRaw = parseUnits(String(shares), 18);
       const minOutputRaw = minOutput ? BigInt(minOutput) : BigInt(0);
 
-      // Verify EIP-712 signature when provided
-      if (signature && nonce && deadline) {
-        try {
-          await verifyRangeTradeSignature({
-            signature: signature as `0x${string}`,
-            trader: userAddress as `0x${string}`,
-            marketId: BigInt(market.onChainMarketId ?? market.id),
-            cpmmAddress,
-            rangeIndex: BigInt(rangeIndex),
-            isBuy: false,
-            amount: requestedSharesRaw,
-            minOutput: minOutputRaw,
-            nonce: BigInt(nonce),
-            deadline: BigInt(deadline),
-          });
-        } catch (err: unknown) {
-          set.status = 401;
-          return { error: (err as Error).message ?? "Invalid signature", success: false };
-        }
+      try {
+        await verifyRangeTradeSignature({
+          signature: signature as `0x${string}`,
+          trader: userAddress,
+          marketId: BigInt(market.onChainMarketId ?? market.id),
+          cpmmAddress,
+          rangeIndex: BigInt(rangeIndex),
+          isBuy: false,
+          amount: requestedSharesRaw,
+          minOutput: minOutputRaw,
+          nonce: BigInt(nonce),
+          deadline: BigInt(deadline),
+        });
+      } catch (err: unknown) {
+        set.status = 401;
+        return { error: (err as Error).message ?? "Invalid signature", success: false };
+      }
+
+      const reserved = await reserveRangeNonce(userAddress, nonce);
+      if (!reserved) {
+        set.status = 409;
+        return { error: "Nonce already used", success: false };
       }
 
       try {
@@ -748,7 +853,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
 
         if (VAULT_ADDRESS) {
           // Route through user's vault escrow: tokens are in the escrow, sell from there
-          const userEscrow = await getUserEscrow(userAddress as `0x${string}`);
+          const userEscrow = await getUserEscrow(userAddress);
           if (!userEscrow) {
             set.status = 400;
             return { error: "No vault escrow found for user", success: false };
@@ -767,7 +872,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
               address: VAULT_ADDRESS!,
               abi: VaultABI,
               functionName: "executeRangeSell",
-              args: [cpmmAddress, BigInt(rangeIndex), safeSharesRaw, userAddress as `0x${string}`],
+              args: [cpmmAddress, BigInt(rangeIndex), safeSharesRaw, userAddress],
               nonce: n,
             })
           );
@@ -868,6 +973,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           data: { txHash: sellHash, sharesSold: actualSharesSoldStr, rangePrices: newPrices },
         };
       } catch (err: unknown) {
+        await releaseRangeNonce(userAddress, nonce);
         console.error("[RangeMarkets] Sell error:", err);
         set.status = 500;
         return { error: (err as Error).message ?? "Trade failed", success: false };
@@ -877,21 +983,39 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       body: t.Object({
         rangeIndex: t.Number(),
         shares: t.Number(),
-        userAddress: t.String(),
         minOutput: t.Optional(t.String()),
-        signature: t.Optional(t.String()),
-        nonce: t.Optional(t.String()),
-        deadline: t.Optional(t.String()),
+        signature: t.String(),
+        nonce: t.String(),
+        deadline: t.String(),
       }),
     }
   )
 
   // POST /range-markets/:id/redeem — redeem winning tokens after resolution
+  //
+  // SECURITY NOTE: `RangeMarketFactory.redeemRange` resolves the redeemer via
+  // `msg.sender`, so calling it from the operator wallet would attempt to burn
+  // the OPERATOR's range tokens (zero) and the user would never see funds. The
+  // correct flow is for the user to call `redeemRange` directly from their own
+  // wallet — this endpoint only persists the resulting on-chain receipt for
+  // history. Until a delegated `redeemRangeFor(user)` exists on the factory,
+  // we only accept already-confirmed user-broadcast tx hashes here.
   .post(
     "/:id/redeem",
-    async ({ params, body, set }) => {
+    async ({ params, body, headers, set }) => {
+      const userAddress = await resolveAuthenticatedWallet(headers.authorization);
+      if (!userAddress) {
+        set.status = 401;
+        return { error: "Unauthorized", success: false };
+      }
+
       const id = Number(params.id);
-      const { userAddress } = body as { userAddress: string };
+      const { txHash } = body as { txHash: string };
+
+      if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+        set.status = 400;
+        return { error: "Valid txHash required (user must broadcast redemption)", success: false };
+      }
 
       const rows = await db.select().from(rangeMarkets).where(eq(rangeMarkets.id, id)).limit(1);
       if (rows.length === 0) {
@@ -910,22 +1034,62 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       }
 
       try {
-        const walletClient = getWalletClient();
         const publicClient = getPublicClient();
-        const nm = getNonceManager();
+        const receipt = await publicClient.getTransactionReceipt({ hash: txHash as `0x${string}` });
+        if (!receipt || receipt.status !== "success") {
+          set.status = 400;
+          return { error: "Transaction not confirmed or reverted", success: false };
+        }
 
-        const redeemHash = await nm.withNonce((nonce) =>
-          walletClient.writeContract({
-            address: FACTORY_ADDRESS,
-            abi: RangeMarketFactoryABI,
-            functionName: "redeemRange",
-            args: [BigInt(market.onChainMarketId!), BigInt(market.winningRangeIndex!)],
-            nonce,
+        // Verify the redemption was actually for the authenticated user. The
+        // RangeRedeemed event indexes `user`, so we can match it against the
+        // JWT-derived wallet to prevent users tagging their history with
+        // someone else's tx.
+        let redeemedAmount = "0";
+        let matched = false;
+        for (const log of receipt.logs) {
+          if (log.address.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) continue;
+          try {
+            const decoded = decodeEventLog({
+              abi: RANGE_REDEEMED_EVENT_ABI,
+              data: log.data,
+              topics: log.topics,
+            }) as {
+              eventName: string;
+              args: { user?: `0x${string}`; usdcOut?: bigint; marketId?: bigint };
+            };
+            if (
+              decoded.eventName === "RangeRedeemed" &&
+              decoded.args.user?.toLowerCase() === userAddress &&
+              decoded.args.marketId === BigInt(market.onChainMarketId!) &&
+              decoded.args.usdcOut != null
+            ) {
+              redeemedAmount = formatUnits(decoded.args.usdcOut, 6);
+              matched = true;
+              break;
+            }
+          } catch {
+            // Not the range redemption event.
+          }
+        }
+
+        if (!matched) {
+          set.status = 400;
+          return { error: "RangeRedeemed event for this user not found in tx", success: false };
+        }
+
+        await db
+          .insert(vaultTransactions)
+          .values({
+            userAddress,
+            type: "redemption",
+            amount: redeemedAmount,
+            txHash,
+            blockNumber: receipt.blockNumber.toString(),
           })
-        );
-        await publicClient.waitForTransactionReceipt({ hash: redeemHash });
+          .onConflictDoNothing({ target: vaultTransactions.txHash });
 
-        return { success: true, data: { txHash: redeemHash } };
+        return { success: true, data: { txHash, amount: redeemedAmount } };
       } catch (err: unknown) {
         console.error("[RangeMarkets] Redeem error:", err);
         set.status = 500;
@@ -933,6 +1097,6 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       }
     },
     {
-      body: t.Object({ userAddress: t.String() }),
+      body: t.Object({ txHash: t.String() }),
     }
   );

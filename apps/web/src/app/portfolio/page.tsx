@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePortfolio, usePortfolioSummary } from "@/hooks/usePortfolio";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { VaultModal } from "@/components/VaultModal";
+import { VaultTransactionHistory } from "@/components/VaultTransactionHistory";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
 import { toast } from "sonner";
@@ -36,6 +37,10 @@ function getPortfolioPnl(pos: PositionWithMarket) {
   return Number(pos.pnl || "0");
 }
 
+function getTotalCost(pos: PositionWithMarket) {
+  return Number(pos.totalCost || "0");
+}
+
 export default function PortfolioPage() {
   const { isConnected, address } = useAccount();
   const { login } = usePrivy();
@@ -48,10 +53,10 @@ export default function PortfolioPage() {
   if (!isConnected) {
     return (
       <div className="card fade-up" style={{ textAlign: "center", padding: "80px 20px" }}>
-        <p style={{ fontSize: 18, fontWeight: 600, color: "#e4e5eb", marginBottom: 8 }}>
+        <p style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", marginBottom: 8 }}>
           Portfolio
         </p>
-        <p style={{ fontSize: 13, color: "#4c4e68", marginBottom: 24 }}>
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>
           Connect your wallet to view positions
         </p>
         <button
@@ -83,21 +88,11 @@ export default function PortfolioPage() {
   );
   const totalPnl = activeWithShares.reduce((s, p) => s + getPortfolioPnl(p), 0);
   const realisedPnl = Number(portfolioSummary?.realisedPnl || "0");
-
-  const resolvedWithResult = resolvedPositions.filter(
-    (p) => isRangePosition(p) ? p.winningRangeIndex != null : p.result === 1 || p.result === 2
-  );
-  const wins = resolvedWithResult.filter(
-    (p) =>
-      isRangePosition(p)
-        ? p.rangeIndex === p.winningRangeIndex && Number(p.rangeBalance || "0") >= DUST
-        : (p.result === 1 && Number(p.yesBalance || "0") >= DUST) ||
-          (p.result === 2 && Number(p.noBalance || "0") >= DUST)
-  ).length;
-  const winRate =
-    resolvedWithResult.length > 0
-      ? Math.round((wins / resolvedWithResult.length) * 100)
-      : 0;
+  const summaryResolvedCount = portfolioSummary?.resolvedCount ?? 0;
+  const winRate = Number(portfolioSummary?.winRate || "0");
+  const resolvedCost = Number(portfolioSummary?.resolvedCost || "0");
+  const resolvedValue = Number(portfolioSummary?.resolvedValue || "0");
+  const resolvedPnl = resolvedValue - resolvedCost;
 
   return (
     <div className="fade-up">
@@ -106,7 +101,7 @@ export default function PortfolioPage() {
           fontSize: 22,
           fontWeight: 600,
           letterSpacing: "-0.025em",
-          color: "#e4e5eb",
+          color: "var(--foreground)",
           marginBottom: 20,
         }}
       >
@@ -130,14 +125,14 @@ export default function PortfolioPage() {
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.07em",
-                color: "#4c4e68",
+                color: "var(--muted)",
               }}
             >
               Active Value
             </div>
-            <Wallet className="w-3.5 h-3.5" style={{ color: "#4c4e68" }} />
+            <Wallet className="w-3.5 h-3.5" style={{ color: "var(--muted)" }} />
           </div>
-          <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>
+          <div className="mono" style={{ fontSize: 21, color: "var(--foreground)" }}>
             ${totalActiveValue.toFixed(2)}
           </div>
         </div>
@@ -149,7 +144,7 @@ export default function PortfolioPage() {
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.07em",
-                color: "#4c4e68",
+                color: "var(--muted)",
               }}
             >
               Unrealised P&L
@@ -171,7 +166,7 @@ export default function PortfolioPage() {
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.07em",
-                color: "#4c4e68",
+                color: "var(--muted)",
               }}
             >
               Realised P&L
@@ -193,15 +188,15 @@ export default function PortfolioPage() {
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.07em",
-                color: "#4c4e68",
+                color: "var(--muted)",
               }}
             >
               Win Rate
             </div>
-            <Trophy className="w-3.5 h-3.5" style={{ color: "#4c4e68" }} />
+            <Trophy className="w-3.5 h-3.5" style={{ color: "var(--muted)" }} />
           </div>
-          <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>
-            {resolvedWithResult.length > 0 ? `${winRate}%` : "—"}
+          <div className="mono" style={{ fontSize: 21, color: "var(--foreground)" }}>
+            {summaryResolvedCount > 0 ? `${Math.round(winRate)}%` : "—"}
           </div>
         </div>
       </div>
@@ -224,14 +219,14 @@ export default function PortfolioPage() {
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.07em",
-              color: "#4c4e68",
+              color: "var(--muted)",
               marginBottom: 4,
             }}
           >
             Vault Balance
           </div>
           {isBalanceLoading ? (
-            <div style={{ height: 28, width: 80, borderRadius: 6, background: "rgba(255,255,255,0.06)", marginTop: 2 }} />
+            <div style={{ height: 28, width: 80, borderRadius: 6, background: "var(--surface-hover)", marginTop: 2 }} />
           ) : (
             <div className="mono" style={{ fontSize: 21, color: "#01d243" }}>
               ${parseFloat(usdcBalance).toFixed(2)}
@@ -270,9 +265,9 @@ export default function PortfolioPage() {
               borderRadius: 8,
               fontSize: 12,
               fontWeight: 700,
-              background: "#111320",
-              color: "#e4e5eb",
-              border: "1px solid rgba(255,255,255,0.07)",
+              background: "var(--surface-hover)",
+              color: "var(--foreground)",
+              border: "1px solid var(--border)",
               cursor: "pointer",
               display: "inline-flex",
               alignItems: "center",
@@ -300,12 +295,12 @@ export default function PortfolioPage() {
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.09em",
-              color: "#4c4e68",
+              color: "var(--muted)",
             }}
           >
             Active Positions
           </h2>
-          <span style={{ fontSize: 11, color: "#4c4e68" }}>
+          <span style={{ fontSize: 11, color: "var(--muted)" }}>
             {activeWithShares.length} positions
           </span>
         </div>
@@ -320,10 +315,10 @@ export default function PortfolioPage() {
 
         {!isLoading && activeWithShares.length === 0 && (
           <div style={{ textAlign: "center", padding: "40px 0" }}>
-            <p style={{ fontSize: 13, color: "#e4e5eb", marginBottom: 4 }}>
+            <p style={{ fontSize: 13, color: "var(--foreground)", marginBottom: 4 }}>
               No active positions
             </p>
-            <p style={{ fontSize: 11, color: "#4c4e68" }}>
+            <p style={{ fontSize: 11, color: "var(--muted)" }}>
               Start trading to build your portfolio
             </p>
           </div>
@@ -335,14 +330,14 @@ export default function PortfolioPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+                gridTemplateColumns: "2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 80px",
                 gap: 8,
                 paddingBottom: 8,
-                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                borderBottom: "1px solid var(--border-subtle)",
                 marginBottom: 4,
               }}
             >
-              {["Market", "Side", "Shares", "Avg Price", "Value", "P&L"].map(
+              {["Market", "Side", "Shares", "Avg Price", "Cost", "Value", "P&L"].map(
                 (h) => (
                   <div
                     key={h}
@@ -351,7 +346,7 @@ export default function PortfolioPage() {
                       fontWeight: 700,
                       textTransform: "uppercase",
                       letterSpacing: "0.08em",
-                      color: "#4c4e68",
+                      color: "var(--muted)",
                     }}
                   >
                     {h}
@@ -383,27 +378,30 @@ export default function PortfolioPage() {
                 fontWeight: 700,
                 textTransform: "uppercase",
                 letterSpacing: "0.09em",
-                color: "#4c4e68",
+                color: "var(--muted)",
               }}
             >
               Resolved Positions
             </h2>
-            <span style={{ fontSize: 11, color: "#4c4e68" }}>
-              {resolvedPositions.length}
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              Cost ${resolvedCost.toFixed(2)} - P&L{" "}
+              <span style={{ color: resolvedPnl >= 0 ? "#01d243" : "#f0324c" }}>
+                {resolvedPnl >= 0 ? "+" : ""}${resolvedPnl.toFixed(2)}
+              </span>
             </span>
           </div>
           <div>
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr 80px",
                 gap: 8,
                 paddingBottom: 8,
-                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                borderBottom: "1px solid var(--border-subtle)",
                 marginBottom: 4,
               }}
             >
-              {["Market", "Side", "Shares", "Result", "Value", "Action"].map(
+              {["Market", "Side", "Shares", "Result", "Cost", "P&L", "Action"].map(
                 (h) => (
                   <div
                     key={h}
@@ -412,7 +410,7 @@ export default function PortfolioPage() {
                       fontWeight: 700,
                       textTransform: "uppercase",
                       letterSpacing: "0.08em",
-                      color: "#4c4e68",
+                      color: "var(--muted)",
                     }}
                   >
                     {h}
@@ -431,6 +429,10 @@ export default function PortfolioPage() {
           </div>
         </div>
       )}
+
+      <div style={{ marginTop: 16 }}>
+        <VaultTransactionHistory />
+      </div>
 
       <VaultModal
         open={vaultOpen}
@@ -486,7 +488,9 @@ function PositionTableRow({
     } else toast.success("Redeemed. Payout added to your vault.");
     const kick = () => {
       queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio-summary", address] });
       queryClient.invalidateQueries({ queryKey: ["vault-balance", address] });
+      queryClient.invalidateQueries({ queryKey: ["vault-transactions", address] });
     };
     kick();
     const t1 = setTimeout(kick, 1500);
@@ -534,16 +538,18 @@ function PositionTableRow({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+            gridTemplateColumns: resolved
+              ? "2fr 1fr 1fr 1fr 1fr 1fr 80px"
+              : "2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 80px",
             gap: 8,
             padding: "10px 0",
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
+            borderBottom: "1px solid var(--border-subtle)",
             cursor: "pointer",
             transition: "background 0.12s",
             alignItems: "center",
           }}
           onMouseEnter={(e) =>
-            (e.currentTarget.style.background = "rgba(255,255,255,0.02)")
+            (e.currentTarget.style.background = "var(--surface-hover)")
           }
           onMouseLeave={(e) =>
             (e.currentTarget.style.background = "transparent")
@@ -552,7 +558,7 @@ function PositionTableRow({
           <div
             style={{
               fontSize: 12,
-              color: "#e4e5eb",
+              color: "var(--foreground)",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -576,7 +582,7 @@ function PositionTableRow({
           </div>
           <div
             className="mono"
-            style={{ fontSize: 12, color: "#e4e5eb" }}
+            style={{ fontSize: 12, color: "var(--foreground)" }}
           >
             {balance.toFixed(2)}
           </div>
@@ -584,13 +590,19 @@ function PositionTableRow({
             <>
               <div
                 className="mono"
-                style={{ fontSize: 12, color: "#4c4e68" }}
+                style={{ fontSize: 12, color: "var(--muted)" }}
               >
                 {(pos.rangeAvgPrice * 100).toFixed(1)}¢
               </div>
               <div
                 className="mono"
-                style={{ fontSize: 12, color: "#e4e5eb" }}
+                style={{ fontSize: 12, color: "var(--foreground)" }}
+              >
+                ${getTotalCost(pos).toFixed(2)}
+              </div>
+              <div
+                className="mono"
+                style={{ fontSize: 12, color: "var(--foreground)" }}
               >
                 ${currentValue.toFixed(2)}
               </div>
@@ -617,9 +629,18 @@ function PositionTableRow({
               </div>
               <div
                 className="mono"
-                style={{ fontSize: 12, color: "#e4e5eb" }}
+                style={{ fontSize: 12, color: "var(--foreground)" }}
               >
-                ${currentValue.toFixed(2)}
+                ${getTotalCost(pos).toFixed(2)}
+              </div>
+              <div
+                className="mono"
+                style={{
+                  fontSize: 12,
+                  color: pnl >= 0 ? "#01d243" : "#f0324c",
+                }}
+              >
+                {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
               </div>
               <div>
                 <span
@@ -647,24 +668,30 @@ function PositionTableRow({
     side: "YES" | "NO";
     bal: number;
     avgPrice: number;
+    cost: number;
     value: number;
     pnl: number;
+    redeemed: boolean;
   }[] = [];
   if (hasYes)
     legs.push({
       side: "YES",
       bal: yesBal,
       avgPrice: pos.yesAvgPrice,
+      cost: Number(pos.yesCostBasis || "0"),
       value: Number(pos.yesCurrentValue || "0"),
       pnl: Number(pos.yesPnl || "0"),
+      redeemed: pos.redeemed && pos.result === 1,
     });
   if (hasNo)
     legs.push({
       side: "NO",
       bal: noBal,
       avgPrice: pos.noAvgPrice,
+      cost: Number(pos.noCostBasis || "0"),
       value: Number(pos.noCurrentValue || "0"),
       pnl: Number(pos.noPnl || "0"),
+      redeemed: pos.redeemed && pos.result === 2,
     });
 
   const isWin = (side: "YES" | "NO") =>
@@ -679,16 +706,18 @@ function PositionTableRow({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 80px",
+              gridTemplateColumns: resolved
+                ? "2fr 1fr 1fr 1fr 1fr 1fr 80px"
+                : "2fr 0.9fr 0.9fr 0.9fr 0.9fr 0.9fr 80px",
               gap: 8,
               padding: "10px 0",
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
+              borderBottom: "1px solid var(--border-subtle)",
               cursor: "pointer",
               transition: "background 0.12s",
               alignItems: "center",
             }}
             onMouseEnter={(e) =>
-              (e.currentTarget.style.background = "rgba(255,255,255,0.02)")
+              (e.currentTarget.style.background = "var(--surface-hover)")
             }
             onMouseLeave={(e) =>
               (e.currentTarget.style.background = "transparent")
@@ -697,7 +726,7 @@ function PositionTableRow({
             <div
               style={{
                 fontSize: 12,
-                color: "#e4e5eb",
+                color: "var(--foreground)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -724,7 +753,7 @@ function PositionTableRow({
             </div>
             <div
               className="mono"
-              style={{ fontSize: 12, color: "#e4e5eb" }}
+              style={{ fontSize: 12, color: "var(--foreground)" }}
             >
               {leg.bal.toFixed(2)}
             </div>
@@ -732,13 +761,19 @@ function PositionTableRow({
               <>
                 <div
                   className="mono"
-                  style={{ fontSize: 12, color: "#4c4e68" }}
+                  style={{ fontSize: 12, color: "var(--muted)" }}
                 >
                   {(leg.avgPrice * 100).toFixed(1)}¢
                 </div>
                 <div
                   className="mono"
-                  style={{ fontSize: 12, color: "#e4e5eb" }}
+                  style={{ fontSize: 12, color: "var(--foreground)" }}
+                >
+                  ${leg.cost.toFixed(2)}
+                </div>
+                <div
+                  className="mono"
+                  style={{ fontSize: 12, color: "var(--foreground)" }}
                 >
                   ${leg.value.toFixed(2)}
                 </div>
@@ -766,12 +801,21 @@ function PositionTableRow({
                 </div>
                 <div
                   className="mono"
-                  style={{ fontSize: 12, color: "#e4e5eb" }}
+                  style={{ fontSize: 12, color: "var(--foreground)" }}
                 >
-                  ${leg.value.toFixed(2)}
+                  ${leg.cost.toFixed(2)}
+                </div>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 12,
+                    color: leg.pnl >= 0 ? "#01d243" : "#f0324c",
+                  }}
+                >
+                  {leg.pnl >= 0 ? "+" : ""}${leg.pnl.toFixed(2)}
                 </div>
                 <div>
-                  {isWin(leg.side) && leg.bal > DUST ? (
+                  {isWin(leg.side) && !leg.redeemed && leg.bal > DUST ? (
                     <button
                       onClick={(e) => {
                         e.preventDefault();
