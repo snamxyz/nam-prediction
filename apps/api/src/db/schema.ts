@@ -408,6 +408,11 @@ export const rangeMarkets = pgTable(
     status: text("status").notNull().default("creating"), // creating | active | resolved | cancelled
     resolved: boolean("resolved").notNull().default(false),
     winningRangeIndex: integer("winning_range_index"),
+    liquidityDrained: boolean("liquidity_drained").notNull().default(false),
+    liquidityWithdrawn: numeric("liquidity_withdrawn", { precision: 30, scale: 6 }).notNull().default("0"),
+    reservedClaims: numeric("reserved_claims", { precision: 30, scale: 6 }).notNull().default("0"),
+    outstandingWinningClaims: numeric("outstanding_winning_claims", { precision: 30, scale: 6 }).notNull().default("0"),
+    drainedAt: timestamp("drained_at", { withTimezone: true }),
     endTime: timestamp("end_time", { withTimezone: true }).notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -416,6 +421,7 @@ export const rangeMarkets = pgTable(
     index("range_markets_type_status_idx").on(table.marketType, table.status),
     index("range_markets_end_time_idx").on(table.endTime),
     index("range_markets_type_date_idx").on(table.marketType, table.date),
+    index("range_markets_resolved_drained_idx").on(table.resolved, table.liquidityDrained, table.resolvedAt),
   ]
 );
 

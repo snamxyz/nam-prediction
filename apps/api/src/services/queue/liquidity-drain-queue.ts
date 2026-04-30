@@ -5,13 +5,13 @@
  * Concurrency: 1 (serialised tx dispatch)
  *
  * Flow:
- *  1. Find markets where `resolved=true AND liquidityDrained=false`.
+ *  1. Find binary/range markets where `resolved=true AND liquidityDrained=false`.
  *  2. Read outstanding winning claims + withdrawable liquidity via multicall.
  *     The on-chain `getWithdrawableLiquidity` already reserves outstanding
  *     claims plus `claimsBufferBps` headroom, so every tick can safely sweep
  *     whatever it reports — no time gate is needed.
- *  3. Call factory.drainMarketLiquidity(onChainId, ZeroAddress) so the excess
- *     USDC is routed to the factory-level treasury.
+ *  3. Call the matching factory drain function so the excess USDC is routed to
+ *     the factory-level treasury.
  *  4. Update DB fields (liquidityDrained / liquidityWithdrawn / reservedClaims /
  *     outstandingWinningClaims / drainedAt).
  */
@@ -19,17 +19,19 @@ import { Queue, Worker } from "bullmq";
 import { createWalletClient, http, zeroAddress, formatUnits } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
-import { and, eq } from "drizzle-orm";
-import { CPMMABI, MarketFactoryABI } from "@nam-prediction/shared";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { CPMMABI, MarketFactoryABI, RangeMarketFactoryABI } from "@nam-prediction/shared";
 import { createRedisConnection, acquireLock, releaseLock } from "../../lib/redis";
 import { db } from "../../db/client";
-import { markets } from "../../db/schema";
+import { markets, rangeMarkets } from "../../db/schema";
 import { publicClient } from "../indexer";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
 
 const QUEUE_NAME = "liquidity-drain";
 
-const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}` | undefined;
+const BINARY_FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}` | undefined;
+// Must point at RangeMarketFactory; PRIVATE_KEY must be its admin and treasury must be set.
+const RANGE_FACTORY_ADDRESS = process.env.RANGE_FACTORY_ADDRESS as `0x${string}` | undefined;
 const WRITE_RPC_URL =
   process.env.WRITE_RPC_URL ||
   process.env.RPC_URL ||
@@ -65,8 +67,8 @@ export async function setupLiquidityDrainSchedule() {
 // ─── Worker ───
 
 export function startLiquidityDrainWorker() {
-  if (!FACTORY_ADDRESS) {
-    console.warn("[LiquidityDrain] MARKET_FACTORY_ADDRESS not set — worker idle");
+  if (!BINARY_FACTORY_ADDRESS && !RANGE_FACTORY_ADDRESS) {
+    console.warn("[LiquidityDrain] MARKET_FACTORY_ADDRESS/RANGE_FACTORY_ADDRESS not set — worker idle");
     return null;
   }
 
@@ -88,19 +90,26 @@ export function startLiquidityDrainWorker() {
     console.error(`[LiquidityDrain] Job ${job?.id} failed:`, err.message);
   });
 
-  console.log("[LiquidityDrain] Worker started");
+  console.log(
+    "[LiquidityDrain] Worker started " +
+      `(binary=${Boolean(BINARY_FACTORY_ADDRESS)}, range=${Boolean(RANGE_FACTORY_ADDRESS)})`
+  );
   return worker;
 }
 
 // ─── Core logic ───
 
 async function processPendingDrains() {
-  if (!FACTORY_ADDRESS) return;
+  if (BINARY_FACTORY_ADDRESS) {
+    await processPendingBinaryDrains();
+  }
 
-  // The on-chain `getWithdrawableLiquidity` already subtracts outstanding
-  // claims plus the configured buffer, so we can sweep every tick without a
-  // time-based gate. If the buffer hasn't yet released any excess, the call
-  // returns 0 and we simply wait for the next tick.
+  if (RANGE_FACTORY_ADDRESS) {
+    await processPendingRangeDrains();
+  }
+}
+
+async function processPendingBinaryDrains() {
   const pending = await db
     .select()
     .from(markets)
@@ -119,6 +128,34 @@ async function processPendingDrains() {
     } catch (err) {
       console.error(
         `[LiquidityDrain] Market #${market.onChainId} drain failed:`,
+        err
+      );
+      // Don't rethrow — one bad market shouldn't block the rest.
+    }
+  }
+}
+
+async function processPendingRangeDrains() {
+  const pending = await db
+    .select()
+    .from(rangeMarkets)
+    .where(
+      and(
+        eq(rangeMarkets.resolved, true),
+        eq(rangeMarkets.liquidityDrained, false),
+        isNotNull(rangeMarkets.rangeCpmmAddress),
+        isNotNull(rangeMarkets.onChainMarketId)
+      )
+    );
+
+  if (pending.length === 0) return;
+
+  for (const market of pending) {
+    try {
+      await drainRangeMarket(market);
+    } catch (err) {
+      console.error(
+        `[LiquidityDrain] Range market #${market.onChainMarketId} drain failed:`,
         err
       );
       // Don't rethrow — one bad market shouldn't block the rest.
@@ -199,7 +236,7 @@ async function drainMarket(market: typeof markets.$inferSelect) {
 
     const txHash = await getNonceManager().withNonce((nonce) =>
       walletClient.writeContract({
-        address: FACTORY_ADDRESS!,
+        address: BINARY_FACTORY_ADDRESS!,
         abi: MarketFactoryABI,
         functionName: "drainMarketLiquidity",
         args: [BigInt(market.onChainId), zeroAddress],
@@ -225,6 +262,108 @@ async function drainMarket(market: typeof markets.$inferSelect) {
 
     console.log(
       `[LiquidityDrain] Market #${market.onChainId} drained — tx=${txHash}, ` +
+        `amount=${formatUnits(withdrawable, 6)} USDC`
+    );
+  } finally {
+    await releaseLock(lockKey);
+  }
+}
+
+async function drainRangeMarket(market: typeof rangeMarkets.$inferSelect) {
+  const lockKey = `drain:range-market:${market.id}`;
+  const acquired = await acquireLock(lockKey, 300); // 5-min TTL
+  if (!acquired) {
+    console.log(`[LiquidityDrain] Range market #${market.onChainMarketId} already in progress — skipping`);
+    return;
+  }
+
+  try {
+    const poolAddress = market.rangeCpmmAddress as `0x${string}`;
+    const onChainMarketId = BigInt(market.onChainMarketId!);
+
+    // RangeLMSR exposes the same liquidity-breaker view selectors as CPMM.
+    const [outstandingClaims, withdrawable, alreadyDrained] = await publicClient.multicall({
+      allowFailure: false,
+      contracts: [
+        { address: poolAddress, abi: CPMMABI, functionName: "getOutstandingWinningClaims" },
+        { address: poolAddress, abi: CPMMABI, functionName: "getWithdrawableLiquidity" },
+        { address: poolAddress, abi: CPMMABI, functionName: "liquidityDrained" },
+      ],
+    }) as [bigint, bigint, boolean];
+
+    if (alreadyDrained) {
+      console.log(
+        `[LiquidityDrain] Range market #${market.onChainMarketId} already drained on-chain — healing DB`
+      );
+      const withdrawnOnChain = (await publicClient.readContract({
+        address: poolAddress,
+        abi: CPMMABI,
+        functionName: "liquidityWithdrawn",
+      })) as bigint;
+      await db
+        .update(rangeMarkets)
+        .set({
+          liquidityDrained: true,
+          liquidityWithdrawn: formatUnits(withdrawnOnChain, 6),
+          reservedClaims: formatUnits(outstandingClaims, 6),
+          outstandingWinningClaims: formatUnits(outstandingClaims, 6),
+          drainedAt: new Date(),
+        })
+        .where(eq(rangeMarkets.id, market.id));
+      return;
+    }
+
+    if (withdrawable === 0n) {
+      return;
+    }
+
+    console.log(
+      `[LiquidityDrain] Draining range market #${market.onChainMarketId}: ` +
+        `withdrawable=${formatUnits(withdrawable, 6)} USDC, ` +
+        `reservedClaims=${formatUnits(outstandingClaims, 6)} USDC`
+    );
+
+    const privateKey = process.env.PRIVATE_KEY;
+    if (!privateKey) throw new Error("PRIVATE_KEY not set");
+    const account = privateKeyToAccount(`0x${privateKey}` as `0x${string}`);
+    const walletClient = createWalletClient({
+      account,
+      chain: base,
+      transport: http(WRITE_RPC_URL, {
+        retryCount: 3,
+        retryDelay: 500,
+        timeout: 30_000,
+      }),
+    });
+
+    const txHash = await getNonceManager().withNonce((nonce) =>
+      walletClient.writeContract({
+        address: RANGE_FACTORY_ADDRESS!,
+        abi: RangeMarketFactoryABI,
+        functionName: "drainLiquidity",
+        args: [onChainMarketId],
+        nonce,
+      })
+    );
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== "success") {
+      throw new Error(`drainLiquidity reverted (tx=${txHash})`);
+    }
+
+    await db
+      .update(rangeMarkets)
+      .set({
+        liquidityDrained: true,
+        liquidityWithdrawn: formatUnits(withdrawable, 6),
+        reservedClaims: formatUnits(outstandingClaims, 6),
+        outstandingWinningClaims: formatUnits(outstandingClaims, 6),
+        drainedAt: new Date(),
+      })
+      .where(eq(rangeMarkets.id, market.id));
+
+    console.log(
+      `[LiquidityDrain] Range market #${market.onChainMarketId} drained — tx=${txHash}, ` +
         `amount=${formatUnits(withdrawable, 6)} USDC`
     );
   } finally {
