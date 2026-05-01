@@ -428,6 +428,10 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(alice).deposit(amount);
 
       expect(await vault.balances(alice.address)).to.equal(amount);
+      expect(await vault.totalVaultBalance()).to.equal(amount);
+      expect(await vault.depositorCount()).to.equal(1n);
+      expect(await vault.depositorAt(0)).to.equal(alice.address);
+      expect(await vault.isDepositor(alice.address)).to.equal(true);
     });
 
     it("should allow users to withdraw USDC", async function () {
@@ -439,6 +443,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(alice).withdraw(200n * ONE_USDC);
 
       expect(await vault.balances(alice.address)).to.equal(300n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(300n * ONE_USDC);
       expect(await usdc.balanceOf(alice.address)).to.equal(balanceBefore + 200n * ONE_USDC);
     });
 
@@ -469,6 +474,7 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Vault balance should be reduced
       expect(await vault.balances(alice.address)).to.equal(400n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(400n * ONE_USDC);
     });
 
     it("should allow operator to execute buy NO", async function () {
@@ -482,6 +488,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       const noBalance = await noToken.balanceOf(bob.address);
       expect(noBalance).to.be.gt(0n);
       expect(await vault.balances(bob.address)).to.equal(400n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(400n * ONE_USDC);
     });
 
     it("should allow operator to execute sell YES", async function () {
@@ -500,6 +507,7 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Vault balance should increase (USDC credited)
       expect(await vault.balances(alice.address)).to.be.gt(vaultBalanceBefore);
+      expect(await vault.totalVaultBalance()).to.equal(await vault.balances(alice.address));
       // YES token balance should decrease
       expect(await yesToken.balanceOf(alice.address)).to.equal(yesBalance - sellAmount);
     });
@@ -517,6 +525,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(admin).executeSellNo(await pool.getAddress(), sellAmount, bob.address);
 
       expect(await vault.balances(bob.address)).to.be.gt(vaultBalanceBefore);
+      expect(await vault.totalVaultBalance()).to.equal(await vault.balances(bob.address));
       expect(await noToken.balanceOf(bob.address)).to.equal(noBalance - sellAmount);
     });
 
@@ -583,6 +592,64 @@ describe("Prediction Market — Full Lifecycle", function () {
       expect(remaining).to.be.gt(0n);
       await vault.connect(alice).withdraw(remaining);
       expect(await vault.balances(alice.address)).to.equal(0n);
+      expect(await vault.totalVaultBalance()).to.equal(0n);
+    });
+
+    it("returns per-wallet balances and aggregate for requested addresses", async function () {
+      await usdc.connect(alice).approve(await vault.getAddress(), 100n * ONE_USDC);
+      await vault.connect(alice).deposit(100n * ONE_USDC);
+      await usdc.connect(bob).approve(await vault.getAddress(), 250n * ONE_USDC);
+      await vault.connect(bob).deposit(250n * ONE_USDC);
+
+      const [balances, total] = await vault.balancesOf([alice.address, bob.address, admin.address]);
+      expect(balances[0]).to.equal(100n * ONE_USDC);
+      expect(balances[1]).to.equal(250n * ONE_USDC);
+      expect(balances[2]).to.equal(0n);
+      expect(total).to.equal(350n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(total);
+    });
+
+    it("emergency refund batches return escrowed USDC to depositors", async function () {
+      await usdc.connect(alice).approve(await vault.getAddress(), 100n * ONE_USDC);
+      await vault.connect(alice).deposit(100n * ONE_USDC);
+      await usdc.connect(bob).approve(await vault.getAddress(), 200n * ONE_USDC);
+      await vault.connect(bob).deposit(200n * ONE_USDC);
+
+      await expect(vault.connect(alice).setEmergencyRefundMode(true)).to.be.revertedWith("Only admin");
+      await expect(vault.connect(alice).emergencyRefund(0, 1)).to.be.revertedWith("Only admin");
+      await expect(vault.connect(admin).emergencyRefund(0, 1)).to.be.revertedWith("Emergency refund inactive");
+
+      const aliceBefore = await usdc.balanceOf(alice.address);
+      const bobBefore = await usdc.balanceOf(bob.address);
+      await expect(vault.connect(admin).setEmergencyRefundMode(true))
+        .to.emit(vault, "EmergencyRefundModeChanged")
+        .withArgs(true);
+
+      await expect(
+        vault.connect(alice).deposit(1n * ONE_USDC)
+      ).to.be.revertedWith("Emergency refund active");
+      await expect(
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), 1n * ONE_USDC, alice.address)
+      ).to.be.revertedWith("Emergency refund active");
+
+      await expect(vault.connect(admin).emergencyRefund(0, 1))
+        .to.emit(vault, "EmergencyRefunded")
+        .withArgs(alice.address, await vault.escrowOf(alice.address), 100n * ONE_USDC);
+
+      expect(await usdc.balanceOf(alice.address)).to.equal(aliceBefore + 100n * ONE_USDC);
+      expect(await vault.balanceOf(alice.address)).to.equal(0n);
+      expect(await vault.balanceOf(bob.address)).to.equal(200n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(200n * ONE_USDC);
+
+      // Retrying an already-refunded slice must not double-refund.
+      await vault.connect(admin).emergencyRefund(0, 1);
+      expect(await usdc.balanceOf(alice.address)).to.equal(aliceBefore + 100n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(200n * ONE_USDC);
+
+      await vault.connect(admin).emergencyRefund(1, 10);
+      expect(await usdc.balanceOf(bob.address)).to.equal(bobBefore + 200n * ONE_USDC);
+      expect(await vault.balanceOf(bob.address)).to.equal(0n);
+      expect(await vault.totalVaultBalance()).to.equal(0n);
     });
   });
 
@@ -698,7 +765,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       ).to.be.revertedWith("Only router");
     });
 
-    it("escrow withdraw routes collateral to owner even if the router calls it", async function () {
+    it("escrow withdrawals must route through the vault for aggregate accounting", async function () {
       const amt = 100n * ONE_USDC;
       await usdc.connect(alice).approve(await vault.getAddress(), amt);
       await vault.connect(alice).deposit(amt);
@@ -706,15 +773,20 @@ describe("Prediction Market — Full Lifecycle", function () {
       const escrowAddr = await vault.escrowOf(alice.address);
       const escrow = await ethers.getContractAt("UserEscrow", escrowAddr);
 
-      // Even though withdraw has no recipient arg, alice (the owner) can call directly.
-      const before = await usdc.balanceOf(alice.address);
-      await escrow.connect(alice).withdraw(30n * ONE_USDC);
-      expect(await usdc.balanceOf(alice.address)).to.equal(before + 30n * ONE_USDC);
+      // Direct escrow withdrawals would bypass Vault.totalVaultBalance accounting.
+      await expect(
+        escrow.connect(alice).withdraw(30n * ONE_USDC)
+      ).to.be.revertedWith("Only router");
 
-      // Non-owner / non-router EOAs cannot withdraw.
+      const before = await usdc.balanceOf(alice.address);
+      await vault.connect(alice).withdraw(30n * ONE_USDC);
+      expect(await usdc.balanceOf(alice.address)).to.equal(before + 30n * ONE_USDC);
+      expect(await vault.totalVaultBalance()).to.equal(70n * ONE_USDC);
+
+      // Non-router EOAs cannot withdraw.
       await expect(
         escrow.connect(bob).withdraw(10n * ONE_USDC)
-      ).to.be.revertedWith("Not authorized");
+      ).to.be.revertedWith("Only router");
     });
 
     it("rejects operator trades routed through an unregistered pool", async function () {

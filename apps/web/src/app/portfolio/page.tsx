@@ -94,8 +94,13 @@ export default function PortfolioPage() {
   const resolvedValue = Number(portfolioSummary?.resolvedValue || "0");
   const resolvedPnl = resolvedValue - resolvedCost;
 
-  return (
-    <div className="fade-up">
+  return (<>
+  <VaultModal
+        open={vaultOpen}
+        onClose={() => setVaultOpen(false)}
+        initialTab={vaultTab}
+      />
+      <div className="fade-up">
       <h1
         style={{
           fontSize: 22,
@@ -434,12 +439,10 @@ export default function PortfolioPage() {
         <VaultTransactionHistory />
       </div>
 
-      <VaultModal
-        open={vaultOpen}
-        onClose={() => setVaultOpen(false)}
-        initialTab={vaultTab}
-      />
+      
     </div>
+  </>
+    
   );
 }
 

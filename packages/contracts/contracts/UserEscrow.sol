@@ -50,11 +50,6 @@ contract UserEscrow is ReentrancyGuard {
         _;
     }
 
-    modifier onlyOwnerOrRouter() {
-        require(msg.sender == owner || msg.sender == router, "Not authorized");
-        _;
-    }
-
     // ─── Initialize (replaces constructor for clones) ───
     /// @notice One-time initializer set by the router when this clone is deployed.
     /// @param owner_ The user EOA that owns this escrow
@@ -81,10 +76,10 @@ contract UserEscrow is ReentrancyGuard {
     // ─── Withdrawals ───
 
     /// @notice Withdraw collateral to the owner's wallet.
-    /// @dev Callable by the owner directly or by the router (on behalf of the owner).
-    ///      In BOTH cases the recipient is always `owner`; neither caller can redirect funds.
+    /// @dev Callable only by the router so aggregate vault accounting cannot be bypassed.
+    ///      The recipient is always `owner`; the router cannot redirect funds.
     /// @param amount Amount of collateral to withdraw (6 decimals for USDC)
-    function withdraw(uint256 amount) external onlyOwnerOrRouter nonReentrant {
+    function withdraw(uint256 amount) external onlyRouter nonReentrant {
         require(amount > 0, "Zero amount");
         IERC20(collateral).safeTransfer(owner, amount);
         emit Withdrawn(owner, amount);

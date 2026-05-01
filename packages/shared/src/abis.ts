@@ -597,6 +597,27 @@ export const VaultABI = [
   },
   {
     type: "function",
+    name: "totalVaultBalance",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "emergencyRefundMode",
+    inputs: [],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isDepositor",
+    inputs: [{ name: "", type: "address" }],
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "balances",
     inputs: [{ name: "user", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
@@ -607,6 +628,16 @@ export const VaultABI = [
     name: "balanceOf",
     inputs: [{ name: "user", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "balancesOf",
+    inputs: [{ name: "users", type: "address[]" }],
+    outputs: [
+      { name: "userBalances", type: "uint256[]" },
+      { name: "total", type: "uint256" },
+    ],
     stateMutability: "view",
   },
   {
@@ -627,6 +658,20 @@ export const VaultABI = [
     type: "function",
     name: "predictEscrow",
     inputs: [{ name: "user", type: "address" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "depositorCount",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "depositorAt",
+    inputs: [{ name: "index", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
     stateMutability: "view",
   },
@@ -675,6 +720,36 @@ export const VaultABI = [
     stateMutability: "nonpayable",
   },
   {
+    type: "function",
+    name: "setEmergencyRefundMode",
+    inputs: [{ name: "enabled", type: "bool" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "emergencyRefund",
+    inputs: [
+      { name: "start", type: "uint256" },
+      { name: "count", type: "uint256" },
+    ],
+    outputs: [
+      { name: "refunded", type: "uint256" },
+      { name: "processed", type: "uint256" },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "recordEscrowCredit",
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
     type: "event",
     name: "EscrowCreated",
     inputs: [
@@ -704,6 +779,20 @@ export const VaultABI = [
     inputs: [
       { name: "user", type: "address", indexed: true },
       { name: "newBalance", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "EmergencyRefundModeChanged",
+    inputs: [{ name: "enabled", type: "bool", indexed: false }],
+  },
+  {
+    type: "event",
+    name: "EmergencyRefunded",
+    inputs: [
+      { name: "user", type: "address", indexed: true },
+      { name: "escrow", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
     ],
   },
   // Range-market operator entrypoints

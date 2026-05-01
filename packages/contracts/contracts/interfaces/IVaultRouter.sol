@@ -11,4 +11,7 @@ interface IVaultRouter {
 
     /// @notice Returns the escrow address deployed for `user`, or address(0) if none.
     function escrowOf(address user) external view returns (address);
+
+    /// @notice Records USDC sent directly from an authorized pool into `user`'s escrow.
+    function recordEscrowCredit(address user, uint256 amount) external;
 }

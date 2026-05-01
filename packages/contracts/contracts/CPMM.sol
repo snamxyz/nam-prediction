@@ -508,6 +508,9 @@ contract CPMM {
         }
 
         IERC20(collateral).safeTransfer(to, usdcOut);
+        if (to != user) {
+            IVaultRouter(vault).recordEscrowCredit(user, usdcOut);
+        }
 
         emit Redemption(marketId, user, to, balance, usdcOut);
     }

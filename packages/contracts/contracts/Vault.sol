@@ -51,6 +51,14 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     ///         Admin-managed; set to true when a new range pool is deployed.
     mapping(address => bool) public whitelistedPools;
 
+    /// @notice Current USDC held across all user escrows.
+    uint256 public totalVaultBalance;
+    /// @notice Locks deposits and operator trades while refunds are being processed.
+    bool public emergencyRefundMode;
+    /// @notice Users that have ever created an escrow through this vault.
+    address[] private depositors;
+    mapping(address => bool) public isDepositor;
+
     /// @inheritdoc IVaultRouter
     mapping(address => address) public override escrowOf;
     /// @inheritdoc IVaultRouter
@@ -65,6 +73,8 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     event AdminChanged(address indexed admin);
     event MarketFactoryChanged(address indexed factory);
     event PoolWhitelisted(address indexed pool, bool whitelisted);
+    event EmergencyRefundModeChanged(bool enabled);
+    event EmergencyRefunded(address indexed user, address indexed escrow, uint256 amount);
 
     // ─── Modifiers ───
     modifier onlyAdmin() {
@@ -74,6 +84,11 @@ contract Vault is IVaultRouter, ReentrancyGuard {
 
     modifier onlyOperator() {
         require(msg.sender == operator, "Only operator");
+        _;
+    }
+
+    modifier notInEmergencyRefundMode() {
+        require(!emergencyRefundMode, "Emergency refund active");
         _;
     }
 
@@ -97,7 +112,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
 
     /// @notice Deposit USDC into the sender's personal escrow. Creates the escrow on first deposit.
     /// @param amount Amount of USDC to deposit (6 decimals)
-    function deposit(uint256 amount) external nonReentrant {
+    function deposit(uint256 amount) external nonReentrant notInEmergencyRefundMode {
         require(amount > 0, "Zero amount");
 
         address escrow = escrowOf[msg.sender];
@@ -107,6 +122,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
 
         // USDC moves directly from user -> escrow. Router never holds collateral.
         IERC20(collateral).safeTransferFrom(msg.sender, escrow, amount);
+        totalVaultBalance += amount;
 
         emit Deposit(msg.sender, amount);
         emit BalanceUpdated(msg.sender, UserEscrow(escrow).balance());
@@ -122,6 +138,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         // Escrow always transfers to its owner (the caller here), regardless
         // of who calls withdraw() on the escrow.
         UserEscrow(escrow).withdraw(amount);
+        totalVaultBalance -= amount;
 
         emit Withdraw(msg.sender, amount);
         emit BalanceUpdated(msg.sender, UserEscrow(escrow).balance());
@@ -134,11 +151,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         address pool,
         uint256 usdcAmount,
         address user
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyYesFor(pool, usdcAmount, user);
+        totalVaultBalance -= usdcAmount;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -148,11 +166,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         address pool,
         uint256 usdcAmount,
         address user
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyNoFor(pool, usdcAmount, user);
+        totalVaultBalance -= usdcAmount;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -162,11 +181,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         address pool,
         uint256 sharesIn,
         address user
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        UserEscrow(escrow).sellYesFor(pool, sharesIn, user);
+        uint256 usdcOut = UserEscrow(escrow).sellYesFor(pool, sharesIn, user);
+        totalVaultBalance += usdcOut;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -176,11 +196,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         address pool,
         uint256 sharesIn,
         address user
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        UserEscrow(escrow).sellNoFor(pool, sharesIn, user);
+        uint256 usdcOut = UserEscrow(escrow).sellNoFor(pool, sharesIn, user);
+        totalVaultBalance += usdcOut;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -197,11 +218,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         uint256 rangeIndex,
         uint256 usdcAmount,
         address user
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyRangeFor(pool, rangeIndex, usdcAmount, user);
+        totalVaultBalance -= usdcAmount;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -213,11 +235,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         uint256 usdcAmount,
         address user,
         uint256 minSharesOut
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyRangeFor(pool, rangeIndex, usdcAmount, user, minSharesOut);
+        totalVaultBalance -= usdcAmount;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -232,11 +255,12 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         uint256 rangeIndex,
         uint256 sharesIn,
         address user
-    ) external onlyOperator nonReentrant {
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        UserEscrow(escrow).sellRangeFor(pool, rangeIndex, sharesIn, user);
+        uint256 usdcOut = UserEscrow(escrow).sellRangeFor(pool, rangeIndex, sharesIn, user);
+        totalVaultBalance += usdcOut;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -270,6 +294,56 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         emit PoolWhitelisted(pool, flag);
     }
 
+    function setEmergencyRefundMode(bool enabled) external onlyAdmin {
+        emergencyRefundMode = enabled;
+        emit EmergencyRefundModeChanged(enabled);
+    }
+
+    /// @notice Refund current escrow balances to depositor wallets in gas-bounded batches.
+    /// @dev Enable emergency mode first so deposits and trades cannot race the batch.
+    function emergencyRefund(uint256 start, uint256 count)
+        external
+        onlyAdmin
+        nonReentrant
+        returns (uint256 refunded, uint256 processed)
+    {
+        require(emergencyRefundMode, "Emergency refund inactive");
+
+        uint256 length = depositors.length;
+        require(start < length, "Start out of bounds");
+
+        uint256 end = start + count;
+        if (end > length) end = length;
+
+        for (uint256 i = start; i < end; i++) {
+            address user = depositors[i];
+            address escrow = escrowOf[user];
+            processed++;
+            if (escrow == address(0)) continue;
+
+            uint256 balance = UserEscrow(escrow).balance();
+            if (balance == 0) continue;
+
+            UserEscrow(escrow).withdraw(balance);
+            totalVaultBalance -= balance;
+            refunded += balance;
+
+            emit EmergencyRefunded(user, escrow, balance);
+            emit BalanceUpdated(user, 0);
+        }
+    }
+
+    /// @notice Records collateral sent directly from an authorized pool into a user escrow.
+    /// @dev Used by redemption flows where the pool pays an existing escrow directly.
+    function recordEscrowCredit(address user, uint256 amount) external notInEmergencyRefundMode {
+        require(amount > 0, "Zero amount");
+        _requireWhitelistedPool(msg.sender);
+        _requireEscrow(user);
+
+        totalVaultBalance += amount;
+        emit BalanceUpdated(user, balanceOf(user));
+    }
+
     // ─── Views ───
 
     /// @notice USDC balance currently held in `user`'s escrow.
@@ -285,6 +359,28 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         return balanceOf(user);
     }
 
+    /// @notice Current USDC balances for a requested set of wallet addresses.
+    function balancesOf(address[] calldata users)
+        external
+        view
+        returns (uint256[] memory userBalances, uint256 total)
+    {
+        userBalances = new uint256[](users.length);
+        for (uint256 i = 0; i < users.length; i++) {
+            uint256 userBalance = balanceOf(users[i]);
+            userBalances[i] = userBalance;
+            total += userBalance;
+        }
+    }
+
+    function depositorCount() external view returns (uint256) {
+        return depositors.length;
+    }
+
+    function depositorAt(uint256 index) external view returns (address) {
+        return depositors[index];
+    }
+
     /// @notice Deterministic preview of the escrow address that will be (or has been) deployed for `user`.
     function predictEscrow(address user) external view returns (address) {
         return escrowImpl.predictDeterministicAddress(_salt(user), address(this));
@@ -297,6 +393,10 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         UserEscrow(escrow).initialize(user, address(this), collateral);
         escrowOf[user] = escrow;
         isEscrow[escrow] = true;
+        if (!isDepositor[user]) {
+            isDepositor[user] = true;
+            depositors.push(user);
+        }
         emit EscrowCreated(user, escrow);
     }
 

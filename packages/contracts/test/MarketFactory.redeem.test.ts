@@ -127,6 +127,7 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
     // Payout landed in the user's escrow, not the EOA
     const escrowAfter = await vault.balanceOf(alice.address);
     expect(escrowAfter - escrowBefore).to.equal(expectedUsdc);
+    expect(await vault.totalVaultBalance()).to.equal(expectedUsdc);
   });
 
   it("pays NO winner's redemption into their vault escrow", async function () {
@@ -149,6 +150,7 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
 
     const escrowAfter = await vault.balanceOf(bob.address);
     expect(escrowAfter - escrowBefore).to.equal(expectedUsdc);
+    expect(await vault.totalVaultBalance()).to.equal(expectedUsdc);
   });
 
   it("falls back to the user's EOA when no escrow is registered", async function () {

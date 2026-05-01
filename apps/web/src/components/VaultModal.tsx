@@ -161,7 +161,7 @@ export function VaultModal({ open, onClose, initialTab = "deposit" }: VaultModal
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 backdrop-blur-md"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 backdrop-blur-md max-h-screen top-0 left-0 w-screen h-screen"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
