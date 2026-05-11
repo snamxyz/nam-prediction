@@ -37,6 +37,7 @@ export interface AdminMarket {
   cadence: string;
   category?: string;
   marketType?: string;
+  date?: string;
   status?: string;
   resolved: boolean;
   result: number;
@@ -48,6 +49,9 @@ export interface AdminMarket {
   outstandingWinningClaims?: string;
   housePnl?: string;
   liquidityState?: string;
+  seededLiquidity?: string;
+  poolAddress?: string | null;
+  endTime?: string;
   createdAt: string;
 }
 

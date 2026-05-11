@@ -36,10 +36,11 @@ function subBigIntStrings(a: string, b: string): string {
 }
 
 function formatMarketDate(date: Date): string {
-  return date.toLocaleString("en-US", {
+  const marketDay = new Date(date.getTime() - 1);
+  return marketDay.toLocaleString("en-US", {
     month: "long",
     day: "numeric",
-    timeZone: "UTC",
+    timeZone: "America/New_York",
   });
 }
 

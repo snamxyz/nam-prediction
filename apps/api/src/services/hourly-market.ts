@@ -163,7 +163,6 @@ export async function createNextHourlyMarket(
   );
 
   const liquidityUsdc = parseUnits(String(HOURLY_LIQUIDITY), 6);
-  const approvalAmount = (1n << 256n) - 1n;
 
   console.log(`[24h] Creating next market — threshold: $${threshold.toFixed(6)} (${comparison})`);
   console.log(`[24h] Window: now=${now.toISOString()} lock=${lockTime.toISOString()} end=${endTime.toISOString()}`);
@@ -173,13 +172,13 @@ export async function createNextHourlyMarket(
   // because Alchemy treats this EOA as a delegated account.
   const nm = getNonceManager();
 
-  // Step 1: USDC Approval — withNonce handles nonce assignment + active_tx tracking
+  // Step 1: USDC Approval — bounded to this market's seed liquidity.
   const approveHash = await nm.withNonce((nonce) =>
     walletClient.writeContract({
       address: USDC_ADDRESS,
       abi: ERC20ABI,
       functionName: "approve",
-      args: [FACTORY_ADDRESS, approvalAmount],
+      args: [FACTORY_ADDRESS, liquidityUsdc],
       nonce,
     })
   );

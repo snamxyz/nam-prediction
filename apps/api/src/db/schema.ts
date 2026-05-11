@@ -286,7 +286,7 @@ export const dailyMarkets = pgTable("daily_markets", {
   date: text("date").notNull().unique(), // YYYY-MM-DD resolution date
   threshold: numeric("threshold", { precision: 30, scale: 10 }).notNull(),
   settlementPrice: numeric("settlement_price", { precision: 30, scale: 10 }),
-  status: text("status").notNull().default("active"), // active | resolved | creating
+  status: text("status").notNull().default("active"), // active | resolved | creating | failed | cancelled
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -395,7 +395,7 @@ export const rangeMarkets = pgTable(
   "range_markets",
   {
     id: serial("id").primaryKey(),
-    marketType: text("market_type").notNull(), // "receipts" | "nam-distribution"
+    marketType: text("market_type").notNull(), // "receipts" | "participants"
     date: text("date").notNull(),              // YYYY-MM-DD resolution date (unique per type)
     question: text("question").notNull(),
     // JSON arrays stored as jsonb

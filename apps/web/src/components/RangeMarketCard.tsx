@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { RangeMarket, RangeOutcome } from "@nam-prediction/shared";
+import { getRangeMarketAccent, getRangeMarketLabel } from "@/lib/rangeMarketDisplay";
 
 const RANGE_COLORS = [
   "#6c7aff",
@@ -50,24 +51,18 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
   const prices = market.rangePrices as number[];
   const total = prices.reduce((a, b) => a + b, 0) || 1;
 
-  const isReceiptsMarket = market.marketType === "receipts";
-  const typeTextClass = isReceiptsMarket ? "text-[#6c7aff]" : "text-[#f0a832]";
-  const typeBgClass = isReceiptsMarket ? "bg-[#6c7aff]/15" : "bg-[#f0a832]/15";
-  const typeHoverClass = isReceiptsMarket
-    ? "hover:border-[#6c7aff]/35"
-    : "hover:border-[#f0a832]/35";
-  const typeLabel =
-    market.marketType === "receipts" ? "Receipts" : "NAM Distribution";
+  const accent = getRangeMarketAccent(market.marketType);
+  const typeLabel = getRangeMarketLabel(market.marketType);
 
   return (
     <Link href={href} className="block h-full no-underline">
       <div
-        className={`card h-full cursor-pointer px-[22px] py-5 transition duration-150 hover:-translate-y-px ${typeHoverClass}`}
+        className={`card h-full cursor-pointer px-[22px] py-5 transition duration-150 hover:-translate-y-px ${accent.hover}`}
       >
         {/* Header */}
         <div className="mb-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ${typeBgClass} ${typeTextClass}`}>
+            <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] ${accent.bg} ${accent.text}`}>
               {typeLabel}
             </span>
             {market.resolved ? (
@@ -152,7 +147,7 @@ export function RangeMarketCard({ market, href }: RangeMarketCardProps) {
           <span className="text-[11px] text-[var(--muted)]">
             {ranges.length} outcomes · LMSR
           </span>
-          <span className={`text-[11px] font-semibold ${typeTextClass}`}>
+          <span className={`text-[11px] font-semibold ${accent.text}`}>
             Trade →
           </span>
         </div>

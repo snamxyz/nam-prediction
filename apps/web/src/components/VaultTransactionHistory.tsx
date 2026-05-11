@@ -28,7 +28,7 @@ export function VaultTransactionHistory() {
     <div className="glass-card p-6">
       <div className="flex items-center gap-2 mb-5">
         <History className="w-5 h-5 text-yes" />
-        <h2 className="text-base font-semibold text-[#e8e9ed]">
+        <h2 className="text-base font-semibold text-[var(--foreground)]">
           Vault Transactions
         </h2>
       </div>
@@ -42,7 +42,7 @@ export function VaultTransactionHistory() {
             className={`rounded-lg px-3 py-1 text-xs transition-all ${
               tab === t
                 ? "bg-yes/15 text-yes"
-                : "bg-[#1f2028]/50 text-[#717182]"
+                : "bg-[var(--surface-hover)] text-[var(--muted-strong)]"
             }`}
           >
             {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -53,13 +53,13 @@ export function VaultTransactionHistory() {
       {isLoading && (
         <div className="space-y-2">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-12 animate-pulse rounded-lg bg-[#1f2028]/45" />
+            <div key={i} className="h-12 animate-pulse rounded-lg bg-[var(--surface-hover)]" />
           ))}
         </div>
       )}
 
       {!isLoading && filtered.length === 0 && (
-        <p className="py-8 text-center text-xs text-[#717182]">
+        <p className="py-8 text-center text-xs text-[var(--muted)]">
           No {tab === "all" ? "" : tab} transactions yet
         </p>
       )}
@@ -83,7 +83,7 @@ export function VaultTransactionHistory() {
             return (
               <div
                 key={tx.id}
-                className="flex items-center justify-between rounded-lg bg-[#1f2028]/45 px-4 py-3"
+                className="flex items-center justify-between rounded-lg bg-[var(--surface-hover)] px-4 py-3"
               >
                 <div className="flex items-center gap-3">
                   <div
@@ -96,19 +96,19 @@ export function VaultTransactionHistory() {
                     )}
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-[#e8e9ed]">
+                    <p className="text-xs font-semibold text-[var(--foreground)]">
                       {label}
                     </p>
-                    <p className="max-w-[360px] truncate text-[11px] text-[#717182]">
+                    <p className="max-w-[360px] truncate text-[11px] text-[var(--muted)]">
                       {detail}
                     </p>
                     {tx.question && (
-                      <p className="text-[10px] text-[#4c4e68]">
+                      <p className="text-[10px] text-[var(--muted)]/70">
                         {timeAgo(tx.timestamp)}
                       </p>
                     )}
                     {tx.shares && (
-                      <p className="mono text-[10px] text-[#4c4e68]">
+                      <p className="mono text-[10px] text-[var(--muted)]/70">
                         {parseFloat(tx.shares).toFixed(2)} shares
                       </p>
                     )}
@@ -124,7 +124,7 @@ export function VaultTransactionHistory() {
                     rel="noopener noreferrer"
                     className="transition-opacity hover:opacity-70"
                   >
-                    <ExternalLink className="h-3.5 w-3.5 text-[#717182]" />
+                    <ExternalLink className="h-3.5 w-3.5 text-[var(--muted)]" />
                   </a>
                 </div>
               </div>

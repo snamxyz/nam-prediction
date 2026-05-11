@@ -265,7 +265,7 @@ export interface RangeOutcome {
 
 export interface RangeMarket {
   id: number;
-  marketType: string;          // "receipts" | "nam-distribution"
+  marketType: string;          // "receipts" | "participants"
   date: string;                // YYYY-MM-DD resolution date
   question: string;
   ranges: RangeOutcome[];

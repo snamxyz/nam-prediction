@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, AlertTriangle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRangeMarketSocket, useRangePositions, useActiveRangeMarkets, useRangeTrades } from "@/hooks/useRangeMarkets";
+import { useRangeMarketSocket, useRangePositions, useRangeMarkets, useRangeTrades } from "@/hooks/useRangeMarkets";
 import type { RangeMarket, RangeOutcome, RangePosition } from "@nam-prediction/shared";
 import {
   TRADING_DOMAIN,
@@ -19,6 +20,8 @@ import { createWalletClient, custom, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { toast } from "sonner";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
+import { formatEasternShortDate } from "@/lib/dateDisplay";
+import { getRangeMarketAccent, getRangeMarketLabel, type RangeMarketKind } from "@/lib/rangeMarketDisplay";
 
 const RANGE_COLORS = [
   "#6c7aff",
@@ -123,8 +126,8 @@ function RangeCardSelectable({
         selected || isWinner
           ? `${rangeBgClass} ${rangeBorderClass}`
           : isLoser
-            ? "border-white/[0.06] bg-white/[0.02]"
-            : "border-white/[0.06] bg-[var(--surface)]"
+            ? "border-[var(--border-subtle)] bg-[var(--surface-hover)]"
+            : "border-[var(--border-subtle)] bg-[var(--surface)]"
       }`}
     >
       <div className="flex-1">
@@ -142,7 +145,7 @@ function RangeCardSelectable({
           )}
         </div>
         <svg
-          className="block h-[3px] w-full rounded-full bg-white/[0.05]"
+          className="block h-[3px] w-full rounded-full bg-[var(--surface-hover)]"
           viewBox="0 0 100 1"
           preserveAspectRatio="none"
           aria-hidden="true"
@@ -442,7 +445,7 @@ function TradePanelRange({
 
     return (
       <div className="card overflow-hidden">
-        <div className="border-b border-white/[0.04] px-5 py-4">
+        <div className="border-b border-[var(--border-subtle)] px-5 py-4">
           <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Market Resolved</h3>
         </div>
         <div className="px-5 pb-5 pt-4">
@@ -496,7 +499,7 @@ function TradePanelRange({
 
   return (
     <div className="card overflow-hidden">
-      <div className="border-b border-white/[0.04] px-5 py-4">
+      <div className="border-b border-[var(--border-subtle)] px-5 py-4">
         <div className="flex items-center justify-between">
           <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Trade</h3>
           {isAuthenticated && (
@@ -524,7 +527,7 @@ function TradePanelRange({
                     ? m === "BUY"
                       ? "border-yes/30 bg-yes/10 text-yes"
                       : "border-no/30 bg-no/10 text-no"
-                    : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                    : "border-[var(--border-subtle)] bg-[var(--surface-hover)] text-[var(--muted)]"
                 }`}
               >
                 {m}
@@ -534,7 +537,7 @@ function TradePanelRange({
         </div>
 
         {/* Selected range */}
-        <div className="mb-[18px] rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] px-3.5 py-2.5">
+        <div className="mb-[18px] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-3.5 py-2.5">
           {selectedRangeIndex != null && selectedRange ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -576,7 +579,7 @@ function TradePanelRange({
               setAmount(e.target.value);
               clearQuote();
             }}
-            className={`mono w-full rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] py-2.5 pr-3.5 text-right text-[13px] text-[var(--foreground)] outline-none ${
+            className={`mono w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] py-2.5 pr-3.5 text-right text-[13px] text-[var(--foreground)] outline-none ${
               mode === "BUY" ? "pl-7" : "pl-3.5"
             }`}
           />
@@ -590,7 +593,7 @@ function TradePanelRange({
                 setAmount((s) => String((parseFloat(s) || 0) + q));
                 clearQuote();
               }}
-                className="flex-1 cursor-pointer rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)]">
+                className="flex-1 cursor-pointer rounded-md border border-[var(--border-subtle)] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)]">
                 +${q}
               </button>
             ))}
@@ -598,7 +601,7 @@ function TradePanelRange({
               setAmount(usdcBalance);
               clearQuote();
             }}
-              className="flex-1 cursor-pointer rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)]">
+              className="flex-1 cursor-pointer rounded-md border border-[var(--border-subtle)] bg-[var(--surface-hover)] py-1.5 text-[11px] text-[var(--muted)]">
               Max
             </button>
           </div>
@@ -608,7 +611,7 @@ function TradePanelRange({
               const disabled = ownedBalance <= 0;
               return (
                 <button key={p} onClick={() => setSellPercent(p)} disabled={disabled}
-                  className={`flex-1 rounded-md border border-white/[0.04] bg-[var(--surface-hover)] py-1.5 text-[11px] ${
+                  className={`flex-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-hover)] py-1.5 text-[11px] ${
                     disabled
                       ? "cursor-not-allowed text-[var(--muted)]/50"
                       : "cursor-pointer text-[var(--muted)]"
@@ -631,7 +634,7 @@ function TradePanelRange({
                   className={`cursor-pointer rounded border px-2 py-1 text-[10px] ${
                     active
                       ? "border-yes/30 bg-yes/[0.12] text-yes"
-                      : "border-white/[0.04] bg-[var(--surface-hover)] text-[var(--muted)]"
+                      : "border-[var(--border-subtle)] bg-[var(--surface-hover)] text-[var(--muted)]"
                   }`}>
                   {s}%
                 </button>
@@ -641,7 +644,7 @@ function TradePanelRange({
         </div>
 
         {/* Return breakdown */}
-        <div className="mb-[18px] rounded-[10px] border border-white/[0.04] bg-[var(--surface-hover)] p-3.5">
+        <div className="mb-[18px] rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-3.5">
           <div className="mb-2 flex justify-between text-[11px]">
             <span className="text-[var(--muted)]">Probability</span>
             <span className="mono text-[var(--foreground)]">{(selectedPrice * 100).toFixed(1)}¢</span>
@@ -730,7 +733,7 @@ function TradePanelRange({
 
         {/* Current position */}
         {isAuthenticated && selectedRangeIndex != null && ownedBalance > 0.000001 && (
-          <div className="mt-3.5 rounded-[10px] border border-white/[0.04] bg-[var(--surface-hover)] p-3.5">
+          <div className="mt-3.5 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-3.5">
             <p className="mb-2 text-[11px] font-semibold text-[var(--muted)]">Your Position</p>
             <div className="flex items-center justify-between text-[11px]">
               <div className="flex items-center gap-1.5">
@@ -749,14 +752,20 @@ function TradePanelRange({
 }
 
 interface RangeMarketDetailProps {
-  marketType: "receipts" | "nam-distribution";
+  marketType: RangeMarketKind;
   title: string;
   description: string;
 }
 
 export function RangeMarketDetail({ marketType, title, description }: RangeMarketDetailProps) {
-  const { data: allMarkets, isLoading, refetch } = useActiveRangeMarkets();
-  const market = allMarkets?.find((m) => m.marketType === marketType) ?? null;
+  const searchParams = useSearchParams();
+  const selectedMarketId = Number(searchParams.get("marketId"));
+  const { data: allMarkets, isLoading, refetch } = useRangeMarkets(marketType);
+  const market =
+    allMarkets?.find((m) => Number.isFinite(selectedMarketId) && m.id === selectedMarketId) ??
+    allMarkets?.find((m) => m.marketType === marketType && m.status === "active") ??
+    allMarkets?.[0] ??
+    null;
   const { livePrices, setLivePrices } = useRangeMarketSocket(market?.id);
   const queryClient = useQueryClient();
   const { user } = usePrivy();
@@ -770,7 +779,6 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
     void refetchPositions();
     if (market?.id != null) {
       void queryClient.invalidateQueries({ queryKey: ["range-markets-active"] });
-      void queryClient.refetchQueries({ queryKey: ["range-markets-active"] });
       void queryClient.invalidateQueries({ queryKey: ["range-market", market.id] });
       void queryClient.invalidateQueries({ queryKey: ["range-markets"] });
       void queryClient.invalidateQueries({ queryKey: ["range-trades", market.id] });
@@ -800,17 +808,15 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
           <ArrowLeft size={14} /> Back
         </Link>
         <div className="card py-[60px] text-center">
-          <p className="mb-2 text-[var(--muted)]">No active {title} market found.</p>
-          <p className="text-xs text-[#2d2e45]">Markets are created daily at 00:00 ET.</p>
+          <p className="mb-2 text-[var(--muted)]">No {title} markets found.</p>
+          <p className="text-xs text-[var(--muted)]">Markets are created daily at 00:00 ET.</p>
         </div>
       </div>
     );
   }
 
-  const marketTypeClass =
-    marketType === "receipts"
-      ? "bg-[#6c7aff]/[0.12] text-[#6c7aff]"
-      : "bg-[#f0a832]/[0.12] text-[#f0a832]";
+  const marketTypeClass = getRangeMarketAccent(marketType).pill;
+  const marketTypeLabel = getRangeMarketLabel(marketType);
 
   return (
     <div className="fade-up mx-auto max-w-[1200px]">
@@ -824,12 +830,12 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
           <div className="flex-1">
             <div className="mb-2.5 flex items-center gap-2.5">
               <span className={`rounded px-2 py-[3px] text-[10px] font-bold uppercase tracking-[0.1em] ${marketTypeClass}`}>
-                {marketType === "receipts" ? "Receipts" : "NAM Distribution"}
+                {marketTypeLabel}
               </span>
               <span className={`rounded px-2 py-[3px] text-[10px] font-bold ${
                 market.resolved
                   ? "bg-yes/[0.08] text-yes"
-                  : "bg-white/[0.04] text-[#8081a0]"
+                  : "bg-[var(--surface-hover)] text-[var(--muted-strong)]"
               }`}>
                 {market.resolved ? "RESOLVED" : "ACTIVE"}
               </span>
@@ -843,7 +849,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
               <div className="flex items-center gap-1">
                 {[{ v: countdown.h, l: "H" }, { v: countdown.m, l: "M" }, { v: countdown.s, l: "S" }].map(({ v, l }) => (
                   <div key={l} className="text-center">
-                    <div className="mono min-w-10 rounded-md bg-white/[0.04] px-2 py-1 text-[22px] font-bold text-[var(--foreground)]">{v}</div>
+                    <div className="mono min-w-10 rounded-md bg-[var(--surface-hover)] px-2 py-1 text-[22px] font-bold text-[var(--foreground)]">{v}</div>
                     <div className="mt-0.5 text-[9px] text-[var(--muted)]">{l}</div>
                   </div>
                 ))}
@@ -870,8 +876,38 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
         marketCreatedAt={market.createdAt}
       />
 
+      {allMarkets && allMarkets.length > 1 && (
+        <div className="card mb-4 p-3">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
+            Previous Days
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {allMarkets.map((item) => {
+              const isCurrent = item.id === market.id;
+              const displayDate = formatEasternShortDate(item.endTime) ?? item.date;
+              return (
+                <Link
+                  key={item.id}
+                  href={`?marketId=${item.id}`}
+                  className={`shrink-0 rounded-lg border px-3 py-2 text-xs no-underline transition ${
+                    isCurrent
+                      ? "border-yes/40 bg-yes/10 text-yes"
+                      : "border-[var(--border-subtle)] bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  <span className="block font-semibold">{displayDate}</span>
+                  <span className="mt-0.5 block text-[10px] uppercase tracking-[0.06em]">
+                    {item.resolved ? "Resolved" : item.status}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Main content */}
-      <div className="grid grid-cols-[1fr_360px] items-start gap-4">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_360px]">
         {/* Range selection */}
         <div className="card p-5">
           <h2 className="mb-3.5 text-sm font-semibold text-[var(--foreground)]">
@@ -902,14 +938,14 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
 
           {/* Positions summary */}
           {positions.length > 0 && (
-            <div className="mt-4 border-t border-white/[0.05] pt-3.5">
+            <div className="mt-4 border-t border-[var(--border-subtle)] pt-3.5">
               <p className="mb-2.5 text-[11px] text-[var(--muted)]">Your Positions</p>
               <div className="flex flex-col gap-1.5">
                 {positions.filter((p) => parseFloat(p.balance) > 0).map((p) => {
                   const range = ranges[p.rangeIndex];
                   const rangeClass = RANGE_TEXT_CLASSES[p.rangeIndex % RANGE_TEXT_CLASSES.length];
                   return (
-                    <div key={p.id} className="flex items-center justify-between rounded-lg bg-white/[0.02] px-2.5 py-2">
+                    <div key={p.id} className="flex items-center justify-between rounded-lg bg-[var(--surface-hover)] px-2.5 py-2">
                       <span className={`text-xs font-semibold ${rangeClass}`}>{range?.label ?? `Range ${p.rangeIndex}`}</span>
                       <div className="text-right">
                         <span className="mono text-xs text-[var(--foreground)]">{parseFloat(p.balance).toFixed(2)} tokens</span>

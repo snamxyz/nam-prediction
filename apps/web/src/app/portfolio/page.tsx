@@ -523,8 +523,8 @@ function PositionTableRow({
     const currentValue = Number(pos.rangeCurrentValue || "0");
     const pnl = Number(pos.rangePnl || "0");
     const marketHref =
-      pos.marketType === "receipts" || pos.marketType === "nam-distribution"
-        ? `/markets/${pos.marketType}`
+      pos.marketType === "receipts" || pos.marketType === "participants"
+        ? `/markets/${pos.marketType}?marketId=${pos.marketId}`
         : "/portfolio";
     const isWinningRange =
       pos.resolved &&

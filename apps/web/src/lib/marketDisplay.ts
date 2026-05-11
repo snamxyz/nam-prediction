@@ -1,4 +1,5 @@
 import type { Market } from "@nam-prediction/shared";
+import { formatEasternMarketDay } from "@/lib/dateDisplay";
 
 export type OutcomeDisplayLabels = {
   yes: string;
@@ -37,11 +38,8 @@ export function formatMarketQuestion(
   const end = new Date(market.endTime);
   if (Number.isNaN(end.getTime())) return market.question;
 
-  const date = end.toLocaleString("en-US", {
-    month: "long",
-    day: "numeric",
-    timeZone: "UTC",
-  });
+  const date = formatEasternMarketDay(end);
+  if (!date) return market.question;
 
   return `NAM Up or Down on ${date}?`;
 }

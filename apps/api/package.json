@@ -13,6 +13,7 @@
     "db:push:drizzle": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "market:create:hourly": "bun run src/scripts/create-hourly-market.ts",
+    "market:seed:daily": "bun run src/scripts/seed-market.ts",
     "range:replace-active": "bun run scripts/replace-active-range-markets.ts",
     "range:verify-quote": "bun run scripts/verify-range-quote.ts"
   },

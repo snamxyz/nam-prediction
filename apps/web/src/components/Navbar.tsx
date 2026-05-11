@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { LogOut, Moon, Sun } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -12,6 +13,7 @@ export function Navbar() {
   const { login, logout, isAuthenticated, walletAddress } = useAuth();
   const pathname = usePathname();
   const { price } = useNamPrice();
+  const { usdcBalance, isLoading: isBalanceLoading } = useVaultBalance();
   const { theme, toggleTheme } = useTheme();
   const prevPriceRef = useRef<number | null>(null);
   const up =
@@ -92,6 +94,22 @@ export function Navbar() {
             {price !== null ? `$${price.toFixed(5)}` : "$—"}
           </span>
         </div>
+
+        {/* Vault balance chip */}
+        {isAuthenticated && (
+          <Link
+            href="/portfolio"
+            className="mr-3 flex items-center gap-1.5 rounded-[7px] border border-[var(--border)] bg-[var(--surface-hover)] px-3 py-[5px] no-underline"
+            title="Vault Balance"
+          >
+            <span className="text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
+              Vault
+            </span>
+            <span className="mono text-xs font-medium text-[var(--yes)]">
+              {isBalanceLoading ? "$—" : `$${parseFloat(usdcBalance).toFixed(2)}`}
+            </span>
+          </Link>
+        )}
 
         <button
           type="button"

@@ -1,8 +1,8 @@
 /**
  * BullMQ queue for range market lifecycle:
- *  - Creates "receipts" and "nam-distribution" markets daily at 00:00 ET.
+ *  - Creates "receipts" and "participants" markets daily at 00:00 ET.
  *  - Ticks every minute to resolve active markets that have passed their endTime.
- *  - Resolution uses Math.random() (to be swapped for real API data later).
+ *  - Resolution is manual by default until production data sources are wired.
  *
  * Schedule: tick every minute (same pattern as hourly-queue.ts).
  * Creation trigger: checked inside each tick — if today's market for a type
@@ -30,6 +30,7 @@ const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
 const RANGE_MARKET_LIQUIDITY = Number(process.env.RANGE_MARKET_LIQUIDITY) || 1000;
 // When false, markets are created and resolved in DB only (no on-chain txs).
 const RANGE_MARKET_ONCHAIN = process.env.RANGE_MARKET_ONCHAIN !== "false";
+const RANGE_MARKET_RESOLUTION_MODE = process.env.RANGE_MARKET_RESOLUTION_MODE || "manual";
 const CREATING_RETRY_AFTER_MS =
   Number(process.env.RANGE_MARKET_CREATING_RETRY_AFTER_MS) || 30 * 60 * 1000;
 
@@ -49,11 +50,11 @@ const RECEIPTS_RANGES: RangeOutcome[] = [
   { index: 3, min: null, max: null, label: ">25" },
 ];
 
-const NAM_DISTRIBUTION_RANGES: RangeOutcome[] = [
-  { index: 0, min: 0, max: 1000, label: "0–1K" },
-  { index: 1, min: 1001, max: 5000, label: "1K–5K" },
-  { index: 2, min: 5001, max: 10000, label: "5K–10K" },
-  { index: 3, min: null, max: null, label: ">10K" },
+const PARTICIPANTS_RANGES: RangeOutcome[] = [
+  { index: 0, min: 1, max: 25, label: "1–25" },
+  { index: 1, min: 26, max: 50, label: "26–50" },
+  { index: 2, min: 51, max: 100, label: "51–100" },
+  { index: 3, min: null, max: null, label: ">100" },
 ];
 
 // ─── Helpers ───
@@ -122,7 +123,7 @@ function randomRangeIndex(numRanges: number): number {
 
 /**
  * Create a range market on-chain and insert into DB.
- * @param marketType "receipts" | "nam-distribution"
+ * @param marketType "receipts" | "participants"
  * @param ranges     Range outcome definitions.
  * @param date       YYYY-MM-DD resolution date key (used for dedup).
  * @param question   Human-readable market question.
@@ -331,7 +332,8 @@ async function createRangeMarketOnChain(
 
 /**
  * Resolve any active range markets that have passed their endTime.
- * Uses Math.random() to pick the winning range (temporary; swap for real API data).
+ * Uses RANGE_MARKET_RESOLUTION_MODE=random only for demos/dev. Production should
+ * stay manual until the receipts and participants/miners data sources are final.
  */
 async function resolveExpiredMarkets(): Promise<void> {
   const now = new Date();
@@ -351,6 +353,12 @@ async function resolveExpiredMarkets(): Promise<void> {
     console.log(`[RangeMarketQueue] Resolving market id=${market.id} type=${market.marketType}`);
 
     const ranges = market.ranges as RangeOutcome[];
+    if (RANGE_MARKET_RESOLUTION_MODE !== "random") {
+      console.warn(
+        `[RangeMarketQueue] Market id=${market.id} expired but auto-resolution is ${RANGE_MARKET_RESOLUTION_MODE}; waiting for manual/data-source resolution.`
+      );
+      continue;
+    }
     const winningIndex = randomRangeIndex(ranges.length);
 
     try {
@@ -411,8 +419,13 @@ async function ensureTodayMarketsExist(): Promise<void> {
   const endTime = getNextMidnightET();
   const today = getTodayET();
 
-  const receiptsQuestion = `Total receipts uploaded by ${date}?`;
-  const namQuestion = `Number of NAM tokens distributed between ${today} and ${date}?`;
+  const displayDay = new Date(`${today}T12:00:00Z`).toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const receiptsQuestion = `Total receipts uploaded on ${displayDay}?`;
+  const participantsQuestion = `Number of participants/miners on ${displayDay}?`;
 
   await createRangeMarketOnChain(
     "receipts",
@@ -423,12 +436,12 @@ async function ensureTodayMarketsExist(): Promise<void> {
   ).catch((err: unknown) => console.error("[RangeMarketQueue] Receipts creation error:", err));
 
   await createRangeMarketOnChain(
-    "nam-distribution",
-    NAM_DISTRIBUTION_RANGES,
+    "participants",
+    PARTICIPANTS_RANGES,
     date,
-    namQuestion,
+    participantsQuestion,
     endTime,
-  ).catch((err: unknown) => console.error("[RangeMarketQueue] NAM distribution creation error:", err));
+  ).catch((err: unknown) => console.error("[RangeMarketQueue] Participants creation error:", err));
 }
 
 // ─── Core tick ───

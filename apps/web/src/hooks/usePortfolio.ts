@@ -46,7 +46,7 @@ export interface RangePortfolioPosition {
   id: number;
   marketId: number;
   onChainId: number | null;
-  marketType: "receipts" | "nam-distribution" | string;
+  marketType: "receipts" | "participants" | string;
   question: string;
   resolved: boolean;
   status: string;

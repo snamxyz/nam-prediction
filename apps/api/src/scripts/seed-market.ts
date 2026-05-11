@@ -1,7 +1,14 @@
 /**
  * Seed script — creates the first daily NAM market.
  *
- * Usage: bun run apps/api/src/scripts/seed-market.ts
+ * Usage:
+ *   bun --cwd apps/api run market:seed:daily
+ *   bun --cwd apps/api run market:seed:daily 0.05
+ *
+ * This fetches the current NAM price from DexScreener and creates a daily
+ * Required env for live seeding:
+ *   PRIVATE_KEY, MARKET_FACTORY_ADDRESS, RPC_URL, DEXSCREENER_PAIR_ADDRESS
+ *   DAILY_MARKET_LIQUIDITY controls initial USDC depth.
  *
  * This fetches the current NAM price from DexScreener and creates a daily
  * market with that price as the threshold. If no price can be fetched,

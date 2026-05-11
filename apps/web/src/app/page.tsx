@@ -7,10 +7,80 @@ import { MarketCard } from "@/components/MarketCard";
 import { RangeMarketCard } from "@/components/RangeMarketCard";
 import { useMarkets } from "@/hooks/useMarkets";
 import { useActiveRangeMarkets } from "@/hooks/useRangeMarkets";
+import { getRangeMarketPath } from "@/lib/rangeMarketDisplay";
+
+function SkeletonBlock({ className }: { className: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded bg-[var(--surface-hover)] ${className}`}
+    />
+  );
+}
+
+function RangeMarketCardSkeleton() {
+  return (
+    <div className="card h-full px-[22px] py-5">
+      <div className="mb-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="h-[18px] w-24" />
+          <SkeletonBlock className="h-[18px] w-14" />
+        </div>
+        <SkeletonBlock className="h-3 w-16" />
+      </div>
+      <div className="mb-4 space-y-2">
+        <SkeletonBlock className="h-3.5 w-full" />
+        <SkeletonBlock className="h-3.5 w-4/5" />
+      </div>
+      <div className="flex flex-col gap-2">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i}>
+            <div className="mb-1 flex items-center justify-between">
+              <SkeletonBlock className="h-3 w-32" />
+              <SkeletonBlock className="h-3 w-10" />
+            </div>
+            <SkeletonBlock className="h-[3px] w-full rounded-full" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-3.5 flex items-center justify-between border-t border-[var(--border-subtle)] pt-3">
+        <SkeletonBlock className="h-3 w-24" />
+        <SkeletonBlock className="h-3 w-12" />
+      </div>
+    </div>
+  );
+}
+
+function MarketCardSkeleton() {
+  return (
+    <div className="card rounded-xl p-5">
+      <div className="mb-[18px] space-y-2">
+        <SkeletonBlock className="h-3.5 w-full" />
+        <SkeletonBlock className="h-3.5 w-5/6" />
+      </div>
+      <div className="mb-3.5 grid grid-cols-[1fr_1px_1fr] overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+        <div className="px-3 py-2.5">
+          <SkeletonBlock className="mx-auto h-8 w-14" />
+          <SkeletonBlock className="mx-auto mt-2 h-2.5 w-12" />
+        </div>
+        <div className="bg-[var(--border-subtle)]" />
+        <div className="px-3 py-2.5">
+          <SkeletonBlock className="mx-auto h-8 w-14" />
+          <SkeletonBlock className="mx-auto mt-2 h-2.5 w-12" />
+        </div>
+      </div>
+      <SkeletonBlock className="h-[3px] w-full rounded-full" />
+      <div className="mt-3 flex justify-between border-t border-[var(--border-subtle)] pt-3">
+        <SkeletonBlock className="h-3 w-28" />
+        <SkeletonBlock className="h-3 w-16" />
+      </div>
+    </div>
+  );
+}
 
 export default function HomePage() {
-  const { data: markets } = useMarkets();
-  const { data: rangeMarkets = [] } = useActiveRangeMarkets();
+  const { data: markets, isLoading: isMarketsLoading } = useMarkets();
+  const { data: rangeMarkets = [], isLoading: isRangeMarketsLoading } =
+    useActiveRangeMarkets();
   const [tab, setTab] = useState<"all" | "open" | "resolved">("all");
 
   const nonHourly = markets?.filter((m) => m.cadence !== "24h") ?? [];
@@ -47,15 +117,17 @@ export default function HomePage() {
       <StatsBar />
 
       {/* Featured markets */}
-      <div className="mb-7 grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="mb-7 grid grid-cols-1 gap-3 lg:grid-cols-2">
         <HourlyMarketHero />
-        {rangeMarkets.map((m) => (
-          <RangeMarketCard
-            key={m.id}
-            market={m}
-            href={m.marketType === "receipts" ? "/markets/receipts" : "/markets/nam-distribution"}
-          />
-        ))}
+        {isRangeMarketsLoading
+          ? [0,1,2].map((i) => <RangeMarketCardSkeleton key={i} />)
+          : rangeMarkets.map((m) => (
+              <RangeMarketCard
+                key={m.id}
+                market={m}
+                href={getRangeMarketPath(m.marketType)}
+              />
+            ))}
       </div>
 
       {/* Tab filters */}
@@ -81,18 +153,7 @@ export default function HomePage() {
         ))}
       </div>
 
-      {/* Market card grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
-          gap: 12,
-        }}
-      >
-        {filtered.map((m) => (
-          <MarketCard key={m.id} market={m} />
-        ))}
-      </div>
+      
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { createWalletClient, createPublicClient, http, encodePacked, parseUnits, toHex } from "viem";
+import { createWalletClient, createPublicClient, decodeEventLog, http, parseUnits, toHex } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { db } from "../db/client";
@@ -16,7 +16,8 @@ const DAILY_MARKET_LIQUIDITY = Number(process.env.DAILY_MARKET_LIQUIDITY) || 100
 function getWalletClient() {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error("PRIVATE_KEY not set");
-  const account = privateKeyToAccount(`0x${privateKey}` as `0x${string}`);
+  const normalizedPrivateKey = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
+  const account = privateKeyToAccount(normalizedPrivateKey as `0x${string}`);
   return createWalletClient({
     account,
     chain: base,
@@ -76,17 +77,32 @@ export async function fetchNamPrice(): Promise<number | null> {
 }
 
 /**
- * Get the next 00:00 UTC timestamp from now.
+ * Get the next 00:00 Eastern timestamp from now.
  */
-function getNextMidnightUTC(): Date {
+function getNextMidnightET(): Date {
   const now = new Date();
-  const tomorrow = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + 1,
-    0, 0, 0, 0
-  ));
-  return tomorrow;
+  const todayET = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const [y, m, d] = todayET.split("-").map(Number);
+  const nextDayUTC = new Date(Date.UTC(y, m - 1, d + 1));
+  const ny = nextDayUTC.getUTCFullYear();
+  const nm = String(nextDayUTC.getUTCMonth() + 1).padStart(2, "0");
+  const nd = String(nextDayUTC.getUTCDate()).padStart(2, "0");
+  let candidate = new Date(`${ny}-${nm}-${nd}T05:00:00Z`);
+  const etHour =
+    Number(
+      candidate
+        .toLocaleTimeString("en-US", {
+          timeZone: "America/New_York",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        })
+        .split(":")[0]
+    ) % 24;
+  if (etHour !== 0) {
+    candidate = new Date(candidate.getTime() - etHour * 60 * 60 * 1000);
+  }
+  return candidate;
 }
 
 /**
@@ -100,10 +116,11 @@ function formatDate(date: Date): string {
  * Format a date as e.g. "April 25".
  */
 function formatMarketDate(date: Date): string {
-  return date.toLocaleString("en-US", {
+  const marketDay = new Date(date.getTime() - 1);
+  return marketDay.toLocaleString("en-US", {
     month: "long",
     day: "numeric",
-    timeZone: "UTC",
+    timeZone: "America/New_York",
   });
 }
 
@@ -117,7 +134,7 @@ export async function createDailyMarket(threshold: number): Promise<void> {
   const publicClient = getPublicClient();
   const account = walletClient.account;
 
-  const endTime = getNextMidnightUTC();
+  const endTime = getNextMidnightET();
   const endTimeUnix = BigInt(Math.floor(endTime.getTime() / 1000));
   const dateStr = formatDate(endTime);
 
@@ -128,9 +145,13 @@ export async function createDailyMarket(threshold: number): Promise<void> {
     .where(eq(dailyMarkets.date, dateStr))
     .limit(1);
 
-  if (existing.length > 0) {
+  if (existing.length > 0 && !["failed", "cancelled"].includes(existing[0].status)) {
     console.log(`[DailyMarket] Market for ${dateStr} already exists — skipping`);
     return;
+  }
+  if (existing.length > 0) {
+    console.warn(`[DailyMarket] Retrying ${dateStr} after previous ${existing[0].status} state`);
+    await db.delete(dailyMarkets).where(eq(dailyMarkets.id, existing[0].id));
   }
 
   const question = `NAM Up or Down on ${formatMarketDate(endTime)}?`;
@@ -187,24 +208,55 @@ export async function createDailyMarket(threshold: number): Promise<void> {
       })
     );
     console.log(`[DailyMarket] Market creation tx: ${createHash}`);
-    await publicClient.waitForTransactionReceipt({ hash: createHash });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: createHash });
+    if (receipt.status !== "success") {
+      throw new Error(`Market creation tx reverted (status=${receipt.status})`);
+    }
     console.log(`[DailyMarket] Market created for ${dateStr} with threshold $${threshold}`);
+
+    let createdOnChainId: number | null = null;
+    for (const log of receipt.logs) {
+      try {
+        const decoded = decodeEventLog({
+          abi: MarketFactoryABI,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (decoded.eventName === "MarketCreated") {
+          createdOnChainId = Number(decoded.args.marketId);
+          break;
+        }
+      } catch {
+        // Ignore unrelated logs emitted by token approvals/transfers.
+      }
+    }
 
     // Give the indexer a few seconds to process the MarketCreated event
     await new Promise((r) => setTimeout(r, 5000));
 
     // Try to link the daily_markets row to the newly indexed market
     let linkedMarketId: number | null = null;
-    const recentMarkets = await db
-      .select()
-      .from(markets)
-      .where(eq(markets.resolved, false))
-      .orderBy(desc(markets.createdAt));
+    if (createdOnChainId != null) {
+      const created = await db
+        .select()
+        .from(markets)
+        .where(eq(markets.onChainId, createdOnChainId))
+        .limit(1);
+      linkedMarketId = created[0]?.id ?? null;
+    }
 
-    for (const m of recentMarkets) {
-      if (m.question.includes(formatMarketDate(endTime)) && m.resolutionSource === "dexscreener") {
-        linkedMarketId = m.id;
-        break;
+    if (linkedMarketId == null) {
+      const recentMarkets = await db
+        .select()
+        .from(markets)
+        .where(eq(markets.resolved, false))
+        .orderBy(desc(markets.createdAt));
+
+      for (const m of recentMarkets) {
+        if (m.question.includes(formatMarketDate(endTime)) && m.resolutionSource === "dexscreener") {
+          linkedMarketId = m.id;
+          break;
+        }
       }
     }
 
@@ -221,10 +273,9 @@ export async function createDailyMarket(threshold: number): Promise<void> {
 
   } catch (err) {
     console.error(`[DailyMarket] Failed to create market for ${dateStr}:`, err);
-    // Clean up the "creating" record
     await db
       .update(dailyMarkets)
-      .set({ status: "creating" })
+      .set({ status: "failed" })
       .where(eq(dailyMarkets.date, dateStr));
     throw err;
   }

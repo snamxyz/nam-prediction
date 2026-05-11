@@ -181,12 +181,12 @@ export default function WalletPage() {
   if (!isAuthenticated || !activeAddress) {
     return (
       <div className="card fade-up" style={{ textAlign: "center", padding: "80px 20px" }}>
-        <Wallet className="w-8 h-8" style={{ color: "#01d243", margin: "0 auto 16px" }} />
-        <p style={{ fontSize: 18, fontWeight: 600, color: "#e4e5eb", marginBottom: 8 }}>Wallet</p>
-        <p style={{ fontSize: 13, color: "#4c4e68", marginBottom: 24 }}>Connect your wallet to send and receive funds.</p>
+        <Wallet className="w-8 h-8" style={{ color: "var(--yes)", margin: "0 auto 16px" }} />
+        <p style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", marginBottom: 8 }}>Wallet</p>
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>Connect your wallet to send and receive funds.</p>
         <button
           onClick={login}
-          style={{ padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, background: "#01d243", color: "#000", border: "none", cursor: "pointer" }}
+          style={{ padding: "10px 24px", borderRadius: 8, fontSize: 13, fontWeight: 700, background: "var(--yes)", color: "#000", border: "none", cursor: "pointer" }}
         >
           Connect Wallet
         </button>
@@ -197,10 +197,10 @@ export default function WalletPage() {
   return (
     <div className="fade-up" style={{ maxWidth: 880, margin: "0 auto" }}>
       <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.025em", color: "#e4e5eb", marginBottom: 5 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.025em", color: "var(--foreground)", marginBottom: 5 }}>
           Wallet
         </h1>
-        <p style={{ fontSize: 13, color: "#4c4e68" }}>Send and receive assets from your Base wallet.</p>
+        <p style={{ fontSize: 13, color: "var(--muted)" }}>Send and receive assets from your Base wallet.</p>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
@@ -210,11 +210,11 @@ export default function WalletPage() {
           ["NAM", namTokenAddress ? formatTokenAmount(namBalance, 4) : "Not configured", "Token balance"],
         ].map(([label, value, subtitle]) => (
           <div key={label} className="card" style={{ padding: 18 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "#4c4e68", marginBottom: 5 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--muted)", marginBottom: 5 }}>
               {label}
             </div>
-            <div className="mono" style={{ fontSize: 21, color: "#e4e5eb" }}>{value}</div>
-            <div style={{ fontSize: 11, color: "#4c4e68", marginTop: 4 }}>{subtitle}</div>
+            <div className="mono" style={{ fontSize: 21, color: "var(--foreground)" }}>{value}</div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{subtitle}</div>
           </div>
         ))}
       </div>
@@ -222,11 +222,11 @@ export default function WalletPage() {
       <div className="card" style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 10, color: "#4c4e68", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 6 }}>
               Wallet Address
             </div>
-            <div className="mono" style={{ fontSize: 14, color: "#e4e5eb", wordBreak: "break-all" }}>{activeAddress}</div>
-            <div className="mono" style={{ fontSize: 11, color: "#4c4e68", marginTop: 4 }}>{truncateAddress(activeAddress)}</div>
+            <div className="mono" style={{ fontSize: 14, color: "var(--foreground)", wordBreak: "break-all" }}>{activeAddress}</div>
+            <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{truncateAddress(activeAddress)}</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
             <div style={{ padding: 8, borderRadius: 10, background: "#fff", lineHeight: 0 }}>
@@ -234,7 +234,7 @@ export default function WalletPage() {
             </div>
             <button
               onClick={copyAddress}
-              style={{ padding: "9px 13px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.07)", background: "#111320", color: copied ? "#01d243" : "#e4e5eb", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+              style={{ padding: "9px 13px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-hover)", color: copied ? "var(--yes)" : "var(--foreground)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
               {copied ? <CheckCheck className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? "Copied" : "Copy"}
@@ -251,7 +251,7 @@ export default function WalletPage() {
               <button
                 key={value}
                 onClick={() => setTab(value)}
-                style={{ padding: "9px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, border: `1px solid ${active ? "rgba(1,210,67,0.30)" : "rgba(255,255,255,0.04)"}`, background: active ? "rgba(1,210,67,0.12)" : "#111320", color: active ? "#01d243" : "#4c4e68", cursor: "pointer" }}
+                style={{ padding: "9px 0", borderRadius: 8, fontSize: 12, fontWeight: 700, border: active ? "1px solid color-mix(in srgb, var(--yes) 30%, transparent)" : "1px solid var(--border-subtle)", background: active ? "color-mix(in srgb, var(--yes) 12%, transparent)" : "var(--surface-hover)", color: active ? "var(--yes)" : "var(--muted)", cursor: "pointer" }}
               >
                 {value === "receive" ? "Receive" : "Send"}
               </button>
@@ -265,15 +265,15 @@ export default function WalletPage() {
               <QRCodeSVG value={activeAddress} size={188} bgColor="#ffffff" fgColor="#000000" level="M" />
             </div>
             <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#01d243", fontWeight: 700, marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--yes)", fontWeight: 700, marginBottom: 10 }}>
                 <QrCode className="w-4 h-4" /> Receive on Base
               </div>
-              <p style={{ fontSize: 13, color: "#4c4e68", lineHeight: 1.7, marginBottom: 16 }}>
+              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 16 }}>
                 Share this address or QR code to receive ETH, USDC, or NAM on Base. Sending assets from other networks may make them unavailable in this wallet.
               </p>
               <button
                 onClick={copyAddress}
-                style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: "#01d243", color: "#000", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
+                style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: "var(--yes)", color: "#000", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 <Copy className="w-3.5 h-3.5" /> Copy Address
               </button>
@@ -286,7 +286,7 @@ export default function WalletPage() {
                 value={asset}
                 onChange={(e) => setAsset(e.target.value as SendAsset)}
                 className="mono"
-                style={{ borderRadius: 8, padding: "10px 12px", background: "#111320", color: "#e4e5eb", border: "1px solid rgba(255,255,255,0.04)", outline: "none" }}
+                style={{ borderRadius: 8, padding: "10px 12px", background: "var(--surface-hover)", color: "var(--foreground)", border: "1px solid var(--border-subtle)", outline: "none" }}
               >
                 <option value="USDC">USDC</option>
                 <option value="ETH">ETH</option>
@@ -299,7 +299,7 @@ export default function WalletPage() {
                 min="0"
                 placeholder="Amount"
                 className="mono"
-                style={{ borderRadius: 8, padding: "10px 12px", textAlign: "right", background: "#111320", color: "#e4e5eb", border: "1px solid rgba(255,255,255,0.04)", outline: "none" }}
+                style={{ borderRadius: 8, padding: "10px 12px", textAlign: "right", background: "var(--surface-hover)", color: "var(--foreground)", border: "1px solid var(--border-subtle)", outline: "none" }}
               />
             </div>
             <input
@@ -307,12 +307,12 @@ export default function WalletPage() {
               onChange={(e) => setRecipient(e.target.value)}
               placeholder="Recipient address"
               className="mono"
-              style={{ borderRadius: 8, padding: "10px 12px", background: "#111320", color: "#e4e5eb", border: "1px solid rgba(255,255,255,0.04)", outline: "none" }}
+              style={{ borderRadius: 8, padding: "10px 12px", background: "var(--surface-hover)", color: "var(--foreground)", border: "1px solid var(--border-subtle)", outline: "none" }}
             />
             <button
               onClick={sendAsset}
               disabled={sending || !amount || !recipient || (asset === "NAM" && !namTokenAddress)}
-              style={{ padding: "12px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, border: "none", background: !sending && amount && recipient ? "#01d243" : "#111320", color: !sending && amount && recipient ? "#000" : "#4c4e68", cursor: !sending && amount && recipient ? "pointer" : "not-allowed", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7 }}
+              style={{ padding: "12px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, border: "none", background: !sending && amount && recipient ? "var(--yes)" : "var(--surface-hover)", color: !sending && amount && recipient ? "#000" : "var(--muted)", cursor: !sending && amount && recipient ? "pointer" : "not-allowed", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7 }}
             >
               <Send className="w-4 h-4" />
               {sending ? "Sending..." : `Send ${asset}`}
