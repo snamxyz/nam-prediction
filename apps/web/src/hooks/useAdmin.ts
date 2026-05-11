@@ -42,6 +42,7 @@ export interface AdminMarket {
   resolved: boolean;
   result: number;
   tradeCount: number;
+  distinctTraderCount: number;
   totalVolume: string;
   liquidity?: string;
   liquidityWithdrawn?: string;
@@ -53,6 +54,15 @@ export interface AdminMarket {
   poolAddress?: string | null;
   endTime?: string;
   createdAt: string;
+}
+
+export type AdminMarketStatus = "active" | "resolved" | "all";
+export type AdminMarketFamily = "token" | "participants" | "receipts";
+
+interface UseAdminMarketsOptions {
+  status?: AdminMarketStatus;
+  family?: AdminMarketFamily;
+  limit?: number;
 }
 
 export interface AdminTrade {
@@ -101,16 +111,21 @@ export function useAdminUsers(page = 0, limit = 25) {
   });
 }
 
-export function useAdminMarkets(status: "active" | "resolved" | "all" = "all") {
+export function useAdminMarkets(input: AdminMarketStatus | UseAdminMarketsOptions = "all") {
   const getAccessToken = useToken();
+  const options = typeof input === "string" ? { status: input } : input;
+  const status = options.status ?? "all";
+  const limit = options.limit ?? 100;
+
   return useQuery({
-    queryKey: ["admin-markets", status],
+    queryKey: ["admin-markets", status, options.family ?? "all", limit],
     queryFn: async () => {
       const token = await getAccessToken();
       if (!token) throw new Error("Not authenticated");
-      const path = status === "all"
-        ? "/admin/markets?limit=100"
-        : `/admin/markets?limit=100&status=${status}`;
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (status !== "all") params.set("status", status);
+      if (options.family) params.set("family", options.family);
+      const path = `/admin/markets?${params.toString()}`;
       return authedGetApi<{ markets: AdminMarket[] }>(path, token);
     },
     staleTime: 60_000,

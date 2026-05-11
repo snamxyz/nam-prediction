@@ -1,166 +1,247 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { useAdminMarkets, type AdminMarket } from "@/hooks/useAdmin";
+import { useLatestHourlyMarket } from "@/hooks/useMarkets";
+import { useNamPrice } from "@/hooks/useNamPrice";
+import {
+  ADMIN_MARKET_FAMILIES,
+  findCurrentMarket,
+  formatAdminMarketDate,
+  formatCompactMoney,
+  getFamilyMeta,
+} from "@/lib/adminMarketDisplay";
 
-type Status = "all" | "active" | "resolved";
-type FamilyKey = "token" | "participants" | "receipts";
-
-function fmtMoney(value: string | undefined) {
-  const n = parseFloat(value ?? "0");
-  return `$${n.toFixed(2)}`;
+function SkeletonLine({ className }: { className: string }) {
+  return <div className={`animate-pulse rounded bg-[var(--surface-hover)] ${className}`} />;
 }
 
-function formatType(marketType: string | undefined, cadence: string) {
-  if (marketType === "receipts") return "Receipts";
-  if (marketType === "participants") return "Participants";
-  if (marketType === "24h" || cadence === "24h") return "24h";
-  return "Binary";
+function CardShell({
+  href,
+  badge,
+  children,
+}: {
+  href: string;
+  badge: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="card group relative block h-full min-h-[260px] overflow-hidden p-5 no-underline transition duration-150 hover:-translate-y-px hover:border-yes/30"
+    >
+      <div className="pointer-events-none absolute -left-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#01d24307_0%,transparent_65%)]" />
+      <div className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#f0324c05_0%,transparent_65%)]" />
+      <div className="relative">
+        <div className="mb-3.5 flex items-center justify-between">
+          <span className="rounded bg-yes/[0.08] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-yes">
+            {badge}
+          </span>
+          <span className="text-[11px] font-semibold text-yes">
+            View days <ArrowRight className="ml-1 inline h-3 w-3 transition group-hover:translate-x-0.5" />
+          </span>
+        </div>
+        {children}
+      </div>
+    </Link>
+  );
 }
 
-function getFamily(market: AdminMarket): FamilyKey | null {
-  if (market.cadence === "24h" || market.marketType === "24h") return "token";
-  if (market.marketType === "participants") return "participants";
-  if (market.marketType === "receipts") return "receipts";
-  return null;
+function MarketStats({
+  market,
+  volumeLabel = "Volume",
+}: {
+  market: AdminMarket | null | undefined;
+  volumeLabel?: string;
+}) {
+  return (
+    <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+      {[
+        ["Trades", market ? String(market.tradeCount) : "—"],
+        ["Unique Traders", market ? String(market.distinctTraderCount) : "—"],
+        [volumeLabel, market ? formatCompactMoney(market.totalVolume) : "—"],
+      ].map(([label, value]) => (
+        <div key={label} className="border-r border-[var(--border-subtle)] px-3 py-4 last:border-r-0">
+          <div className="mono text-lg font-medium leading-none tracking-[-0.03em] text-[var(--foreground)]">
+            {value}
+          </div>
+          <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
+            {label}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function formatDate(market: AdminMarket) {
-  if (market.date) return market.date;
-  const source = market.endTime ?? market.createdAt;
-  return new Date(source).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "America/New_York",
-  });
-}
+function RangeFamilyCard({
+  market,
+  isLoading,
+  family,
+}: {
+  market: AdminMarket | null;
+  isLoading: boolean;
+  family: "participants" | "receipts";
+}) {
+  const meta = getFamilyMeta(family)!;
 
-function statusText(market: AdminMarket) {
-  if (!market.resolved) return market.status ?? "active";
-  if (market.category === "range") return `Range ${Math.max(0, market.result - 1)} won`;
-  if (market.result === 1) return "YES won";
-  if (market.result === 2) return "NO won";
-  return "Resolved";
+  if (isLoading) {
+    return (
+      <div className="card h-full min-h-[260px] p-5">
+        <SkeletonLine className="mb-4 h-4 w-24" />
+        <SkeletonLine className="mb-2 h-4 w-2/3" />
+        <SkeletonLine className="mb-5 h-3 w-full" />
+        <SkeletonLine className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <CardShell href={meta.path} badge={meta.badge}>
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
+          {meta.label}
+        </h2>
+        <span className="text-[11px] text-[var(--muted)]">
+          {market ? formatAdminMarketDate(market) : "No current day"}
+        </span>
+      </div>
+      <p className="mb-4 min-h-10 text-xs leading-5 text-[var(--muted)]">
+        {market?.question ?? "No active market row exists for today yet."}
+      </p>
+      <MarketStats market={market} />
+      <div className="mt-3.5 border-t border-white/[0.04] pt-3 text-[11px] text-[var(--muted)]">
+        Trading activity on today&apos;s market, not ecosystem totals.
+      </div>
+    </CardShell>
+  );
 }
 
 export default function AdminMarketsPage() {
-  const [status, setStatus] = useState<Status>("all");
-  const [selectedFamily, setSelectedFamily] = useState<FamilyKey>("token");
-  const { data, isLoading } = useAdminMarkets(status);
-  const markets = data?.markets ?? [];
-  const familyMarkets = markets.filter((market) => getFamily(market) === selectedFamily);
-  const families: Array<{ key: FamilyKey; label: string; description: string }> = [
-    { key: "token", label: "Token Price", description: "Daily NAM up/down price markets" },
-    { key: "participants", label: "Participants / Miners", description: "Daily participant or miner count markets" },
-    { key: "receipts", label: "Total Receipts", description: "Daily receipt upload markets" },
-  ];
+  const { data: tokenData, isLoading: isTokenLoading } = useAdminMarkets({
+    family: "token",
+    limit: 200,
+  });
+  const { data: participantsData, isLoading: isParticipantsLoading } = useAdminMarkets({
+    family: "participants",
+    limit: 200,
+  });
+  const { data: receiptsData, isLoading: isReceiptsLoading } = useAdminMarkets({
+    family: "receipts",
+    limit: 200,
+  });
+  const { data: hourlyMarket, isLoading: isHourlyLoading } = useLatestHourlyMarket();
+  const { price: namPrice } = useNamPrice();
+
+  const tokenMarkets = tokenData?.markets ?? [];
+  const tokenMarket =
+    tokenMarkets.find((market) => market.id === hourlyMarket?.id) ??
+    findCurrentMarket(tokenMarkets, "token");
+  const participantsMarket = findCurrentMarket(participantsData?.markets ?? [], "participants");
+  const receiptsMarket = findCurrentMarket(receiptsData?.markets ?? [], "receipts");
+  const tokenMeta = ADMIN_MARKET_FAMILIES[0];
+  const yesPrice = hourlyMarket ? (hourlyMarket.yesPrice * 100).toFixed(1) : null;
+  const noPrice = hourlyMarket ? (hourlyMarket.noPrice * 100).toFixed(1) : null;
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-2" style={{ color: "var(--foreground)" }}>Markets</h1>
-      <p className="mb-6 max-w-3xl text-xs leading-5" style={{ color: "var(--muted)" }}>
-        Monitor the three production market families by day, including seeded liquidity, pool health, claims, and house P&L.
-      </p>
-      <div className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {families.map((family) => {
-          const familyRows = markets.filter((market) => getFamily(market) === family.key);
-          const active = selectedFamily === family.key;
-          const latest = familyRows[0];
-          return (
-            <button
-              key={family.key}
-              onClick={() => setSelectedFamily(family.key)}
-              className="card cursor-pointer p-4 text-left transition hover:border-yes/30"
-              style={{
-                borderColor: active ? "rgba(1,210,67,0.45)" : "var(--border)",
-                background: active ? "rgba(1,210,67,0.08)" : "var(--surface)",
-              }}
-            >
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: active ? "var(--yes)" : "var(--muted)" }}>
-                {familyRows.length} days
-              </div>
-              <div className="mb-1 text-sm font-semibold" style={{ color: "var(--foreground)" }}>{family.label}</div>
-              <p className="mb-3 text-xs" style={{ color: "var(--muted)" }}>{family.description}</p>
-              <div className="flex justify-between text-xs">
-                <span style={{ color: "var(--muted)" }}>Latest</span>
-                <span className="mono" style={{ color: "var(--foreground)" }}>{latest ? formatDate(latest) : "—"}</span>
-              </div>
-            </button>
-          );
-        })}
+    <div className="fade-up">
+      <div className="mb-7">
+        <h1 className="mb-1.5 text-[22px] font-semibold tracking-[-0.025em] text-[var(--foreground)]">
+          Markets
+        </h1>
+        <p className="max-w-3xl text-[13px] leading-5 text-[var(--muted)]">
+          Monitor the three production market families first, then drill into each day&apos;s liquidity, volume, and settlement state.
+        </p>
       </div>
 
-      <div className="flex gap-2 mb-4">
-        {(["all", "active", "resolved"] as Status[]).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatus(s)}
-            className="px-3 py-1.5 rounded-lg text-xs transition-all"
-            style={
-              status === s
-                ? { background: "rgba(1,210,67,0.15)", color: "var(--yes)" }
-                : { background: "var(--surface-hover)", color: "var(--muted)" }
-            }
-          >
-            {s.charAt(0).toUpperCase() + s.slice(1)}
-          </button>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {isTokenLoading || isHourlyLoading ? (
+          <div className="card h-full min-h-[260px] p-5">
+            <SkeletonLine className="mb-4 h-4 w-28" />
+            <SkeletonLine className="mb-2 h-4 w-2/3" />
+            <SkeletonLine className="mb-5 h-3 w-full" />
+            <SkeletonLine className="h-24 w-full" />
+          </div>
+        ) : (
+          <CardShell href={tokenMeta.path} badge={tokenMeta.badge}>
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
+                {tokenMeta.label}
+              </h2>
+              <span className="text-[11px] text-[var(--muted)]">
+                NAM {namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—"}
+              </span>
+            </div>
+            <p className="mb-4 min-h-10 text-xs leading-5 text-[var(--muted)]">
+              {tokenMarket?.question ?? hourlyMarket?.question ?? "No token price market is active yet."}
+            </p>
+            <div className="mb-3.5 grid grid-cols-[1fr_1px_1fr] overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+              <div className="bg-yes/[0.04] px-3 py-4 text-center">
+                <div className="mono text-2xl font-medium leading-none tracking-[-0.03em] text-yes">
+                  {yesPrice ?? "—"}
+                </div>
+                <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
+                  YES %
+                </div>
+              </div>
+              <div className="bg-[var(--border-subtle)]" />
+              <div className="bg-no/[0.03] px-3 py-4 text-center">
+                <div className="mono text-2xl font-medium leading-none tracking-[-0.03em] text-no">
+                  {noPrice ?? "—"}
+                </div>
+                <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
+                  NO %
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between border-t border-white/[0.04] pt-3 text-[11px] text-[var(--muted)]">
+              <span>
+                {tokenMarket ? `${formatCompactMoney(tokenMarket.totalVolume)} volume` : "No volume yet"} · {tokenMarket?.tradeCount ?? 0} trades
+              </span>
+              <span>{tokenMarket?.distinctTraderCount ?? 0} unique traders</span>
+            </div>
+          </CardShell>
+        )}
+
+        <RangeFamilyCard
+          family="participants"
+          isLoading={isParticipantsLoading}
+          market={participantsMarket}
+        />
+        <RangeFamilyCard
+          family="receipts"
+          isLoading={isReceiptsLoading}
+          market={receiptsMarket}
+        />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+        {[
+          ["Token days", tokenMarkets.length],
+          ["Participant days", participantsData?.markets.length ?? 0],
+          ["Receipt days", receiptsData?.markets.length ?? 0],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-4 py-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
+              {label}
+            </div>
+            <div className="mono mt-1 text-sm text-[var(--foreground)]">
+              {value}
+            </div>
+          </div>
         ))}
       </div>
-      {isLoading && (
-        <div className="space-y-2">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="glass-card p-4 h-14 animate-pulse" />
-          ))}
-        </div>
-      )}
-      {!isLoading && (
-        <div className="space-y-3">
-          {familyMarkets.length === 0 && (
-            <div className="glass-card px-5 py-8 text-center text-xs" style={{ color: "var(--muted)" }}>
-              No markets found for this family.
-            </div>
-          )}
-          {familyMarkets.map((m) => (
-            <div key={`${m.marketType ?? m.cadence}-${m.id}`} className="glass-card p-4">
-              <div className="mb-3 flex flex-col justify-between gap-3 md:flex-row md:items-start">
-                <div>
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="rounded-md px-2 py-0.5 text-[11px] font-semibold" style={{ background: "var(--surface-hover)", color: "var(--muted)" }}>
-                      {formatDate(m)}
-                    </span>
-                    <span className="rounded-md px-2 py-0.5 text-[11px] font-semibold" style={{ background: m.resolved ? "var(--surface-hover)" : "rgba(1,210,67,0.15)", color: m.resolved ? "var(--muted)" : "var(--yes)" }}>
-                      {statusText(m)}
-                    </span>
-                    <span className="text-[11px]" style={{ color: "var(--muted)" }}>{formatType(m.marketType, m.cadence)}</span>
-                  </div>
-                  <div className="max-w-3xl text-sm font-medium" style={{ color: "var(--foreground)" }}>{m.question}</div>
-                </div>
-                <div className="text-left md:text-right">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.08em]" style={{ color: "var(--muted)" }}>Liquidity State</div>
-                  <div className="text-xs" style={{ color: "var(--foreground)" }}>{m.liquidityState ?? "—"}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
-                {[
-                  ["Trades", String(m.tradeCount)],
-                  ["Volume", fmtMoney(m.totalVolume)],
-                  ["Seeded", fmtMoney(m.seededLiquidity ?? m.liquidity)],
-                  ["Liquidity", fmtMoney(m.liquidity)],
-                  ["Claims", fmtMoney(m.outstandingWinningClaims)],
-                  ["House P&L", fmtMoney(m.housePnl)],
-                  ["Pool", m.poolAddress ? `${m.poolAddress.slice(0, 6)}…${m.poolAddress.slice(-4)}` : "—"],
-                  ["On-chain", m.onChainId ? `#${m.onChainId}` : "—"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-3 py-2">
-                    <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.07em]" style={{ color: "var(--muted)" }}>{label}</div>
-                    <div className="mono text-xs" style={{ color: label === "House P&L" && parseFloat(m.housePnl ?? "0") < 0 ? "var(--no)" : "var(--foreground)" }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+
+      <p className="mt-5 max-w-3xl text-xs leading-5 text-[var(--muted)]">
+        Participant and receipt cards use trading-derived activity for the current market day: trades and unique wallet traders.
+        They are not ecosystem-wide participant or receipt upload totals.
+      </p>
+
+      <div className="mt-5 text-xs text-[var(--muted)]">
+        Daily operational totals such as liquidity state, claims, pool, and on-chain id live inside each family drill-down.
+      </div>
+
     </div>
   );
 }

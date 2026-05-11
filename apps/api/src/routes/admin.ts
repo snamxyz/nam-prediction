@@ -215,7 +215,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
     { params: t.Object({ id: t.String() }) }
   )
 
-  // ─── GET /admin/markets?status=active|resolved ───
+  // ─── GET /admin/markets?status=active|resolved&family=token|participants|receipts ───
   .get(
     "/markets",
     async ({ headers, query, set }) => {
@@ -224,44 +224,66 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
 
       const limit = Math.min(Number(query?.limit ?? 50), 200);
       const statusFilter = query?.status;
+      const family = query?.family;
+      const validFamilies = new Set(["token", "participants", "receipts"]);
 
-      const rows = await db
-        .select({
-          market: markets,
-          tradeCount: count(trades.id),
-          totalVol: sum(trades.collateral),
-        })
-        .from(markets)
-        .leftJoin(trades, eq(trades.marketId, markets.id))
-        .where(
-          statusFilter === "active"
-            ? eq(markets.resolved, false)
-            : statusFilter === "resolved"
-            ? eq(markets.resolved, true)
-            : undefined
-        )
-        .groupBy(markets.id)
-        .orderBy(desc(markets.createdAt))
-        .limit(limit);
+      if (family && !validFamilies.has(family)) {
+        set.status = 400;
+        return { success: false, error: "Invalid market family" };
+      }
 
-      const rangeRows = await db
-        .select({
-          market: rangeMarkets,
-          tradeCount: count(rangeTrades.id),
-          totalVol: sum(rangeTrades.collateral),
-        })
-        .from(rangeMarkets)
-        .leftJoin(rangeTrades, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
-        .where(
-          statusFilter === "active"
-            ? eq(rangeMarkets.resolved, false)
-            : statusFilter === "resolved"
-            ? eq(rangeMarkets.resolved, true)
-            : undefined
-        )
-        .groupBy(rangeMarkets.id)
-        .orderBy(desc(rangeMarkets.createdAt))
-        .limit(limit);
+      const shouldFetchBinary = !family || family === "token";
+      const shouldFetchRange = !family || family === "participants" || family === "receipts";
+      const binaryFilters = [
+        statusFilter === "active"
+          ? eq(markets.resolved, false)
+          : statusFilter === "resolved"
+          ? eq(markets.resolved, true)
+          : undefined,
+        family === "token" ? eq(markets.cadence, "24h") : undefined,
+      ].filter(Boolean);
+      const rangeFilters = [
+        statusFilter === "active"
+          ? eq(rangeMarkets.resolved, false)
+          : statusFilter === "resolved"
+          ? eq(rangeMarkets.resolved, true)
+          : undefined,
+        family === "participants" || family === "receipts"
+          ? eq(rangeMarkets.marketType, family)
+          : undefined,
+      ].filter(Boolean);
+
+      const rows = shouldFetchBinary
+        ? await db
+            .select({
+              market: markets,
+              tradeCount: count(trades.id),
+              distinctTraderCount: sql<number>`count(distinct ${trades.trader})`,
+              totalVol: sum(trades.collateral),
+            })
+            .from(markets)
+            .leftJoin(trades, eq(trades.marketId, markets.id))
+            .where(binaryFilters.length > 0 ? and(...binaryFilters) : undefined)
+            .groupBy(markets.id)
+            .orderBy(desc(family === "token" ? markets.endTime : markets.createdAt))
+            .limit(limit)
+        : [];
+
+      const rangeRows = shouldFetchRange
+        ? await db
+            .select({
+              market: rangeMarkets,
+              tradeCount: count(rangeTrades.id),
+              distinctTraderCount: sql<number>`count(distinct ${rangeTrades.trader})`,
+              totalVol: sum(rangeTrades.collateral),
+            })
+            .from(rangeMarkets)
+            .leftJoin(rangeTrades, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
+            .where(rangeFilters.length > 0 ? and(...rangeFilters) : undefined)
+            .groupBy(rangeMarkets.id)
+            .orderBy(desc(family ? rangeMarkets.date : rangeMarkets.createdAt))
+            .limit(limit)
+        : [];
 
       const binaryMarkets = rows.map((r) => {
         const liquidity = Number(r.market.liquidity ?? 0);
@@ -273,6 +295,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           category: r.market.cadence === "24h" ? "24h" : "binary",
           marketType: r.market.cadence === "24h" ? "24h" : "binary",
           tradeCount: Number(r.tradeCount ?? 0),
+          distinctTraderCount: Number(r.distinctTraderCount ?? 0),
           totalVolume: Number(r.totalVol ?? 0).toFixed(2),
           liquidity: liquidity.toFixed(2),
           seededLiquidity: liquidity.toFixed(2),
@@ -304,6 +327,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           resolved: r.market.resolved,
           result: r.market.winningRangeIndex == null ? 0 : r.market.winningRangeIndex + 1,
           tradeCount: Number(r.tradeCount ?? 0),
+          distinctTraderCount: Number(r.distinctTraderCount ?? 0),
           totalVolume: Number(r.totalVol ?? 0).toFixed(2),
           createdAt: r.market.createdAt,
           liquidity: liquidity.toFixed(2),
@@ -319,8 +343,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
       });
 
       const allMarkets = [...binaryMarkets, ...rangeAdminMarkets]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, limit);
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       return {
         success: true,
@@ -331,6 +354,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
       query: t.Object({
         limit: t.Optional(t.String()),
         status: t.Optional(t.String()),
+        family: t.Optional(t.String()),
       }),
     }
   )
