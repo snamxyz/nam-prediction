@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  AreaData,
+  AutoscaleInfo,
+  IChartApi,
+  IPriceLine,
+  ISeriesApi,
+  MouseEventParams,
+  Time,
+  UTCTimestamp,
+} from "lightweight-charts";
 
 interface NamPricePoint {
   ts: string;
@@ -19,15 +29,31 @@ interface NamPriceChartProps {
 }
 
 const LAST_NAM_TICKS = 5;
-/** Wide desktop layout: with `meet`, narrow CSS width shrinks the whole viewBox → tiny plot. */
-const W_DESKTOP = 800;
 const H_DESKTOP = 200;
-/** Mobile: viewBox width ≈ container so scale is ~1; extra height for readable ticks/labels. */
 const H_COMPACT = 248;
-const PT = 14;
-const PB = 28;
 const TT_ICON = 18;
 const TT_PAD = 8;
+const MIN_CHART_WIDTH = 300;
+const CHART_BREAKPOINT = 480;
+
+type AreaSeriesApi = ISeriesApi<"Area">;
+
+type ChartPoint = AreaData<UTCTimestamp> & {
+  source: ParsedNamPricePoint;
+};
+
+type TooltipState = {
+  x: number;
+  y: number;
+  price: number;
+  ts: Date;
+};
+
+type ChartTheme = {
+  surface: string;
+  muted: string;
+  borderSubtle: string;
+};
 
 function useContainerWidth<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
@@ -45,13 +71,101 @@ function useContainerWidth<T extends HTMLElement>() {
   return { ref, width };
 }
 
-function clientPointToSvg(svg: SVGSVGElement, clientX: number, clientY: number) {
-  const pt = svg.createSVGPoint();
-  pt.x = clientX;
-  pt.y = clientY;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return null;
-  return pt.matrixTransform(ctm.inverse());
+function cssVar(name: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function readChartTheme(): ChartTheme {
+  return {
+    surface: cssVar("--surface", "#0d0e14"),
+    muted: cssVar("--muted", "#4c4e68"),
+    borderSubtle: cssVar("--border-subtle", "rgba(255,255,255,0.04)"),
+  };
+}
+
+function toChartData(data: ParsedNamPricePoint[]): ChartPoint[] {
+  let lastTime = 0;
+
+  return data.map((point) => {
+    const rawTime = Math.floor(point.ts.getTime() / 1000);
+    const time = Math.max(rawTime, lastTime + 1);
+    lastTime = time;
+
+    return {
+      time: time as UTCTimestamp,
+      value: point.price,
+      source: point,
+    };
+  });
+}
+
+function toTimeKey(time: unknown) {
+  if (typeof time === "number") return time;
+  if (typeof time === "string") {
+    const parsed = Date.parse(time);
+    return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+  }
+  return null;
+}
+
+function getSeriesPrice(data: unknown) {
+  if (data && typeof data === "object" && "value" in data) {
+    const value = Number((data as { value: unknown }).value);
+    return Number.isFinite(value) ? value : null;
+  }
+  return null;
+}
+
+function areaColors(color: string) {
+  return {
+    lineColor: color,
+    topColor: `${color}33`,
+    bottomColor: `${color}00`,
+  };
+}
+
+function formatPrice(price: number, decimals: number) {
+  return `$${price.toFixed(decimals)}`;
+}
+
+function setTightTimeRange(chart: IChartApi, data: ChartPoint[]) {
+  if (data.length < 2) {
+    chart.timeScale().fitContent();
+    return;
+  }
+
+  const timeScale = chart.timeScale();
+  const paneWidth = chart.paneSize().width;
+
+  timeScale.applyOptions({
+    barSpacing: paneWidth / Math.max(data.length - 1, 1),
+    rightOffset: 0,
+  });
+  // Lightweight Charts pads visible logical ranges by about half a bar on
+  // each side. Offset the requested range inward so the real 5-point NAM
+  // window fills the available pane instead of sitting in the middle.
+  timeScale.setVisibleLogicalRange({
+    from: 0.5,
+    to: data.length - 1.5,
+  });
+}
+
+function TradingViewAttribution() {
+  return (
+    <p className="mt-1 text-right text-[9px] leading-none text-[var(--muted)]">
+      Charts by{" "}
+      <a
+        href="https://www.tradingview.com"
+        target="_blank"
+        rel="noreferrer"
+        className="underline-offset-2 hover:underline"
+      >
+        TradingView
+      </a>
+    </p>
+  );
 }
 
 export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChartProps) {
@@ -67,16 +181,19 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
 
   if (data.length < 2) {
     return (
-      <div className="flex h-[200px] max-md:h-[248px] items-center justify-center">
-        <p className="text-xs text-[var(--muted)]">Waiting for NAM price data…</p>
+      <div>
+        <div className="flex h-[200px] items-center justify-center max-md:h-[248px]">
+          <p className="text-xs text-[var(--muted)]">Waiting for NAM price data…</p>
+        </div>
+        <TradingViewAttribution />
       </div>
     );
   }
 
-  return <NamPriceSvgChart data={data} threshold={threshold} tokenIconUrl={tokenIconUrl} />;
+  return <NamPriceLightweightChart data={data} threshold={threshold} tokenIconUrl={tokenIconUrl} />;
 }
 
-function NamPriceSvgChart({
+function NamPriceLightweightChart({
   data,
   threshold,
   tokenIconUrl,
@@ -86,293 +203,285 @@ function NamPriceSvgChart({
   tokenIconUrl?: string | null;
 }) {
   const { ref: wrapRef, width: containerWidth } = useContainerWidth<HTMLDivElement>();
-  const compact = containerWidth > 0 && containerWidth < 480;
-  /** Match viewBox width to layout width so `meet` no longer crushes vertical size on phones. */
-  const svgW =
-    compact && containerWidth > 0
-      ? Math.max(300, Math.min(Math.round(containerWidth), 520))
-      : W_DESKTOP;
-  const svgH = compact && containerWidth > 0 ? H_COMPACT : H_DESKTOP;
-  const PTc = compact ? 16 : PT;
-  const PBc = compact ? 34 : PB;
-  const PL = compact ? 52 : 64;
-  const PR = compact ? 14 : 20;
-  const xLabelCount = compact ? 3 : 5;
-  const yLabelFont = compact ? 10 : 9;
+  const chartElRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<AreaSeriesApi | null>(null);
+  const priceLineRef = useRef<IPriceLine | null>(null);
+  const pointByTimeRef = useRef<Map<number, ParsedNamPricePoint>>(new Map());
+  const chartDataRef = useRef<ChartPoint[]>([]);
+  const thresholdRef = useRef<number | null>(null);
+  const priceDecimalsRef = useRef(5);
+  const colorRef = useRef("#01d243");
+  const [chartVersion, setChartVersion] = useState(0);
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+
+  const compact = containerWidth > 0 && containerWidth < CHART_BREAKPOINT;
+  const chartHeight = compact ? H_COMPACT : H_DESKTOP;
   const priceDecimals = compact ? 4 : 5;
-
-  // Track hover by timestamp so the tooltip stays anchored to the same
-  // data point even when new points arrive and all x-coordinates shift.
-  const [hoveredTs, setHoveredTs] = useState<number | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-
-  const cw = svgW - PL - PR;
-  const ch = svgH - PTc - PBc;
-
-  // ── Time-based x scale ──────────────────────────────────────────────────
-  // Positioning by actual timestamp means a point's pixel x is determined
-  // by WHEN it occurred, not its array index. When new points arrive the
-  // denominator (tsRange) grows by only ~5 s, causing a tiny proportional
-  // shift — far smaller than the index-based shift that was jumping 4-7 px
-  // per update near the right edge.
-  const minTs = data[0].ts.getTime();
-  const maxTs = data[data.length - 1].ts.getTime();
-  const tsRange = Math.max(maxTs - minTs, 1);
-
-  const scaleX = (ts: Date) => PL + ((ts.getTime() - minTs) / tsRange) * cw;
-  const scaleXMs = (ms: number) => PL + ((ms - minTs) / tsRange) * cw;
-
-  // ── Price (y) scale ─────────────────────────────────────────────────────
+  const chartData = useMemo(() => toChartData(data), [data]);
+  const seriesData = useMemo<AreaData<Time>[]>(
+    () => chartData.map(({ time, value }) => ({ time, value })),
+    [chartData]
+  );
+  const finiteThreshold = typeof threshold === "number" && Number.isFinite(threshold) ? threshold : null;
   const vals = data.map((d) => d.price);
-  const target = threshold ?? vals[vals.length - 1];
-  const allVals = [...vals, target];
-  const lo = Math.min(...allVals) * 0.9985;
-  const hi = Math.max(...allVals) * 1.0015;
-  const scaleY = (v: number) => PTc + ch - ((v - lo) / (hi - lo || 1)) * ch;
-  const ty = scaleY(target);
-
   const currentPrice = vals[vals.length - 1];
+  const target = finiteThreshold ?? currentPrice;
   const above = currentPrice >= target;
   const color = above ? "#01d243" : "#f0324c";
-
-  // ── Paths ────────────────────────────────────────────────────────────────
-  const linePath = data
-    .map((d, i) => `${i === 0 ? "M" : "L"}${scaleX(d.ts).toFixed(1)},${scaleY(d.price).toFixed(1)}`)
-    .join(" ");
-  const areaPath = `${linePath} L${scaleX(data[data.length - 1].ts).toFixed(1)},${svgH - PBc} L${PL},${svgH - PBc} Z`;
-
-  // ── Y-axis ticks ─────────────────────────────────────────────────────────
-  const range = hi - lo || 1;
-  const rawStep = range / 5;
-  const mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
-  const step = Math.ceil(rawStep / mag) * mag;
-  const firstTick = Math.ceil(lo / step) * step;
-  const yTicks: number[] = [];
-  for (let v = firstTick; v <= hi; v += step) yTicks.push(Number(v.toFixed(8)));
-
-  // ── X-axis labels ────────────────────────────────────────────────────────
-  // Evenly-spaced TIME positions (not data indices) so labels slide smoothly
-  // as the window widens. Count is reduced on narrow screens to avoid overlap.
-  const xLabels = useMemo(() => {
-    if (xLabelCount < 2) return [];
-    return Array.from({ length: xLabelCount }, (_, i) => {
-      const ms = minTs + (i / (xLabelCount - 1)) * tsRange;
-      return { x: scaleXMs(ms), ts: new Date(ms) };
-    });
-  }, [minTs, maxTs, tsRange, xLabelCount, PL, cw]);
-
-  // ── Hover ─────────────────────────────────────────────────────────────────
-  // Find the nearest data point to the stored timestamp — if new data arrives
-  // while hovering the same timestamp maps to the same (or nearest) point,
-  // so the tooltip content stays stable and the crosshair barely moves.
-  const hoveredPoint = useMemo(() => {
-    if (hoveredTs === null) return null;
-    let best = data[0];
-    let bestDiff = Math.abs(best.ts.getTime() - hoveredTs);
-    for (let i = 1; i < data.length; i++) {
-      const diff = Math.abs(data[i].ts.getTime() - hoveredTs);
-      if (diff < bestDiff) { bestDiff = diff; best = data[i]; }
-    }
-    return best;
-  }, [hoveredTs, data]);
-
-  const hovX = hoveredPoint ? scaleX(hoveredPoint.ts) : 0;
-  const hovY = hoveredPoint ? scaleY(hoveredPoint.price) : 0;
-
-  const updateHoverFromClient = (clientX: number, clientY: number) => {
-    const svgEl = svgRef.current;
-    if (!svgEl) return;
-    const p = clientPointToSvg(svgEl, clientX, clientY);
-    if (!p) return;
-    const svgX = p.x;
-    if (svgX < PL || svgX > svgW - PR) {
-      setHoveredTs(null);
-      return;
-    }
-    const ms = minTs + ((svgX - PL) / cw) * tsRange;
-    setHoveredTs(Math.max(minTs, Math.min(maxTs, ms)));
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<SVGRectElement>) => {
-    updateHoverFromClient(e.clientX, e.clientY);
-  };
-
-  // ── Tooltip layout ────────────────────────────────────────────────────────
   const hasIcon = Boolean(tokenIconUrl);
-  const TT_W = hasIcon ? 148 : 120;
-  const TT_H = hasIcon ? 44 : 36;
-  const ttX = hovX + TT_W + TT_PAD + PR > svgW ? hovX - TT_W - TT_PAD : hovX + TT_PAD;
-  const ttY = Math.max(PTc + 2, hovY - TT_H - TT_PAD);
-
   const timeOpts: Intl.DateTimeFormatOptions = compact
     ? { hour: "2-digit", minute: "2-digit" }
     : { hour: "2-digit", minute: "2-digit", second: "2-digit" };
 
+  chartDataRef.current = chartData;
+  pointByTimeRef.current = new Map(chartData.map((point) => [Number(point.time), point.source]));
+  thresholdRef.current = finiteThreshold;
+  priceDecimalsRef.current = priceDecimals;
+  colorRef.current = color;
+
+  const autoscaleInfoProvider = useMemo(
+    () =>
+      (): AutoscaleInfo | null => {
+        const values = chartDataRef.current.map((point) => point.value);
+        const targetValue = thresholdRef.current;
+        if (targetValue !== null) values.push(targetValue);
+        if (values.length === 0) return null;
+
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const padding = Math.max((max - min) * 0.0015, Math.abs(max || 1) * 0.0002);
+
+        return {
+          priceRange: {
+            minValue: min - padding,
+            maxValue: max + padding,
+          },
+          margins: {
+            above: 8,
+            below: 8,
+          },
+        };
+      },
+    []
+  );
+
+  useEffect(() => {
+    const el = chartElRef.current;
+    if (!el) return;
+
+    let cancelled = false;
+    let unsubscribeCrosshair: (() => void) | null = null;
+
+    import("lightweight-charts").then(({ AreaSeries, ColorType, CrosshairMode, createChart }) => {
+      if (cancelled || !chartElRef.current) return;
+
+      const theme = readChartTheme();
+      const chart = createChart(chartElRef.current, {
+        width: Math.max(chartElRef.current.clientWidth, MIN_CHART_WIDTH),
+        height: chartHeight,
+        layout: {
+          background: { type: ColorType.Solid, color: theme.surface },
+          textColor: theme.muted,
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+        },
+        grid: {
+          vertLines: { color: "transparent" },
+          horzLines: { color: theme.borderSubtle },
+        },
+        rightPriceScale: {
+          borderColor: theme.borderSubtle,
+          scaleMargins: { top: 0.16, bottom: 0.18 },
+        },
+        timeScale: {
+          borderColor: theme.borderSubtle,
+          fixLeftEdge: true,
+          fixRightEdge: true,
+          rightOffset: 0,
+          secondsVisible: !compact,
+          timeVisible: true,
+        },
+        crosshair: {
+          mode: CrosshairMode.Normal,
+          vertLine: { color: "rgba(255,255,255,0.14)", labelVisible: false },
+          horzLine: { color: "rgba(255,255,255,0.14)", labelVisible: false },
+        },
+        localization: {
+          priceFormatter: (price: number) => formatPrice(price, priceDecimalsRef.current),
+        },
+      });
+
+      const series = chart.addSeries(AreaSeries, {
+        ...areaColors(colorRef.current),
+        autoscaleInfoProvider,
+        lastValueVisible: true,
+        lineWidth: 2,
+        priceLineVisible: false,
+      });
+
+      const handleCrosshairMove = (param: MouseEventParams<Time>) => {
+        if (!param.point || param.time === undefined || !seriesRef.current) {
+          setTooltip(null);
+          return;
+        }
+
+        const timeKey = toTimeKey(param.time);
+        const source = timeKey === null ? null : pointByTimeRef.current.get(timeKey);
+        const seriesPoint = param.seriesData.get(seriesRef.current);
+        const price = getSeriesPrice(seriesPoint) ?? source?.price ?? null;
+
+        if (price === null) {
+          setTooltip(null);
+          return;
+        }
+
+        setTooltip({
+          x: param.point.x,
+          y: param.point.y,
+          price,
+          ts: source?.ts ?? (timeKey === null ? new Date() : new Date(timeKey * 1000)),
+        });
+      };
+
+      chart.subscribeCrosshairMove(handleCrosshairMove);
+      unsubscribeCrosshair = () => chart.unsubscribeCrosshairMove(handleCrosshairMove);
+
+      chartRef.current = chart;
+      seriesRef.current = series;
+      setChartVersion((version) => version + 1);
+
+      const themeObserver = new MutationObserver(() => {
+        const nextTheme = readChartTheme();
+        chart.applyOptions({
+          layout: {
+            background: { type: ColorType.Solid, color: nextTheme.surface },
+            textColor: nextTheme.muted,
+          },
+          grid: {
+            horzLines: { color: nextTheme.borderSubtle },
+          },
+          rightPriceScale: {
+            borderColor: nextTheme.borderSubtle,
+          },
+          timeScale: {
+            borderColor: nextTheme.borderSubtle,
+          },
+        });
+      });
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+      if (cancelled) {
+        themeObserver.disconnect();
+        unsubscribeCrosshair();
+        chart.remove();
+        return;
+      }
+
+      unsubscribeCrosshair = () => {
+        themeObserver.disconnect();
+        chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      };
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeCrosshair?.();
+      priceLineRef.current = null;
+      seriesRef.current = null;
+      chartRef.current?.remove();
+      chartRef.current = null;
+      setTooltip(null);
+    };
+  }, [autoscaleInfoProvider, chartHeight, compact]);
+
+  useEffect(() => {
+    if (!chartRef.current || containerWidth <= 0) return;
+    chartRef.current.resize(Math.max(containerWidth, MIN_CHART_WIDTH), chartHeight);
+    setTightTimeRange(chartRef.current, chartDataRef.current);
+  }, [chartHeight, containerWidth]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) return;
+
+    series.setData(seriesData);
+    series.applyOptions({
+      ...areaColors(color),
+      autoscaleInfoProvider,
+    });
+
+    let cancelled = false;
+
+    import("lightweight-charts").then(({ LineStyle }) => {
+      if (cancelled || !seriesRef.current) return;
+
+      if (priceLineRef.current) {
+        seriesRef.current.removePriceLine(priceLineRef.current);
+        priceLineRef.current = null;
+      }
+
+      if (finiteThreshold !== null) {
+        priceLineRef.current = seriesRef.current.createPriceLine({
+          price: finiteThreshold,
+          color: readChartTheme().muted,
+          lineStyle: LineStyle.Dashed,
+          lineWidth: 1,
+          axisLabelVisible: true,
+          title: "Target",
+        });
+      }
+
+      setTightTimeRange(chart, chartDataRef.current);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoscaleInfoProvider, chartVersion, color, finiteThreshold, seriesData]);
+
+  const tooltipWidth = hasIcon ? 148 : 120;
+  const tooltipHeight = hasIcon ? 44 : 36;
+  const tooltipLeft = tooltip
+    ? Math.max(TT_PAD, Math.min(tooltip.x + TT_PAD, Math.max(TT_PAD, containerWidth - tooltipWidth - TT_PAD)))
+    : 0;
+  const tooltipTop = tooltip ? Math.max(TT_PAD, tooltip.y - tooltipHeight - TT_PAD) : 0;
+
   return (
     <div ref={wrapRef} className="w-full">
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${svgW} ${svgH}`}
-      preserveAspectRatio="xMidYMid meet"
-      className="block w-full max-w-full"
-      style={{ height: svgH }}
-    >
-      <defs>
-        <linearGradient id="namFill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.20" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-        <clipPath id="namClip">
-          <rect x={PL} y={PTc} width={cw} height={ch} />
-        </clipPath>
-        <clipPath id="namTTIcon">
-          <circle cx={TT_ICON / 2} cy={TT_ICON / 2} r={TT_ICON / 2} />
-        </clipPath>
-      </defs>
+      <div className="relative w-full" style={{ height: chartHeight }}>
+        <div ref={chartElRef} className="h-full w-full" />
 
-      {/* Horizontal grid lines */}
-      {yTicks.map((v) => (
-        <line
-          key={v}
-          x1={PL} x2={svgW - PR}
-          y1={scaleY(v).toFixed(1)} y2={scaleY(v).toFixed(1)}
-          stroke="rgba(255,255,255,0.04)" strokeWidth="1"
-        />
-      ))}
-
-      {/* Target threshold */}
-      <line
-        x1={PL} x2={svgW - PR}
-        y1={ty.toFixed(1)} y2={ty.toFixed(1)}
-        stroke="#4c4e68" strokeWidth="1" strokeDasharray="5 4" opacity="0.7"
-      />
-      <rect
-        x={svgW - PR - (compact ? 46 : 54)} y={ty - 10} width={compact ? 46 : 54} height={18} rx="4"
-        fill="#111320" stroke="rgba(255,255,255,0.07)"
-      />
-      <text
-        x={svgW - PR - (compact ? 23 : 27)} y={ty + 3}
-        textAnchor="middle" fontSize={compact ? 8 : 9} fill="#4c4e68"
-        fontFamily="'DM Mono', monospace"
-      >
-        Target
-      </text>
-
-      {/* Area + line — React diffs d attribute in-place, no flash */}
-      <g clipPath="url(#namClip)">
-        <path d={areaPath} fill="url(#namFill)" />
-        <path d={linePath} stroke={color} strokeWidth="2" fill="none" />
-
-        {/* Hover dot (only when not on the live trailing dot) */}
-        {hoveredPoint && hoveredPoint !== data[data.length - 1] && (
-          <circle
-            cx={hovX.toFixed(1)} cy={hovY.toFixed(1)}
-            r="4" fill={color} stroke="#07080c" strokeWidth="2"
-          />
+        {tooltip && (
+          <div
+            className="pointer-events-none absolute z-10 flex items-center gap-1.5 rounded-[5px] border border-[var(--border)] bg-[var(--surface-hover)] px-2 py-1.5 shadow-lg"
+            style={{
+              left: tooltipLeft,
+              top: tooltipTop,
+              width: tooltipWidth,
+              minHeight: tooltipHeight,
+            }}
+          >
+            {hasIcon && (
+              <span
+                className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/5"
+                style={{ width: TT_ICON, height: TT_ICON }}
+              >
+                <img src={tokenIconUrl!} alt="" className="h-full w-full object-cover" />
+              </span>
+            )}
+            <span className="min-w-0">
+              <span className="block font-mono text-[11px] font-bold leading-tight" style={{ color }}>
+                {formatPrice(tooltip.price, priceDecimals)}
+              </span>
+              <span className="block font-mono text-[9px] leading-tight text-[var(--muted)]">
+                {tooltip.ts.toLocaleTimeString([], timeOpts)}
+              </span>
+            </span>
+          </div>
         )}
-
-        {/* Live trailing dot */}
-        <circle
-          cx={scaleX(data[data.length - 1].ts).toFixed(1)}
-          cy={scaleY(currentPrice).toFixed(1)}
-          r="4" fill={color} stroke="#07080c" strokeWidth="2"
-          className="nam-live-dot"
-        />
-      </g>
-
-      {/* Y-axis labels */}
-      {yTicks.map((v) => (
-        <text
-          key={`y-${v}`}
-          x={PL - (compact ? 6 : 8)} y={scaleY(v) + 4}
-          textAnchor="end" fontSize={yLabelFont} fill="#4c4e68"
-          fontFamily="'DM Mono', monospace"
-        >
-          ${v.toFixed(priceDecimals)}
-        </text>
-      ))}
-
-      {/* X-axis baseline */}
-      <line
-        x1={PL} x2={svgW - PR}
-        y1={svgH - PBc} y2={svgH - PBc}
-        stroke="rgba(255,255,255,0.06)" strokeWidth="1"
-      />
-
-      {/* X-axis labels: positions are time-based, never jump */}
-      {xLabels.map((lbl, i) => (
-        <g key={i}>
-          <line
-            x1={lbl.x.toFixed(1)} x2={lbl.x.toFixed(1)}
-            y1={svgH - PBc} y2={svgH - PBc + 3}
-            stroke="rgba(255,255,255,0.1)" strokeWidth="1"
-          />
-          <text
-            x={lbl.x.toFixed(1)} y={svgH - 8}
-            textAnchor="middle" fontSize={compact ? 9 : 7} fill="#4c4e68"
-            fontFamily="'DM Mono', monospace"
-          >
-            {lbl.ts.toLocaleTimeString([], timeOpts)}
-          </text>
-        </g>
-      ))}
-
-      {/* Hover crosshair */}
-      {hoveredPoint && (
-        <line
-          x1={hovX.toFixed(1)} x2={hovX.toFixed(1)}
-          y1={PTc} y2={svgH - PBc}
-          stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="3 3"
-        />
-      )}
-
-      {/* Hover tooltip: icon + price (large, colored) + time (small, muted) */}
-      {hoveredPoint && (
-        <g>
-          <rect
-            x={ttX} y={ttY} width={TT_W} height={TT_H} rx="5"
-            fill="#111320" stroke="rgba(255,255,255,0.10)"
-          />
-          {hasIcon && (
-            <g transform={`translate(${ttX + TT_PAD}, ${ttY + TT_PAD})`}>
-              <circle cx={TT_ICON / 2} cy={TT_ICON / 2} r={TT_ICON / 2} fill="rgba(255,255,255,0.06)" />
-              <image
-                href={tokenIconUrl!}
-                x="0" y="0" width={TT_ICON} height={TT_ICON}
-                clipPath="url(#namTTIcon)"
-                preserveAspectRatio="xMidYMid slice"
-              />
-            </g>
-          )}
-          <text
-            x={ttX + TT_PAD + (hasIcon ? TT_ICON + 6 : 0)}
-            y={ttY + TT_PAD + 11}
-            fontSize="11" fontWeight="700" fill={color}
-            fontFamily="'DM Mono', monospace"
-          >
-            ${hoveredPoint.price.toFixed(priceDecimals)}
-          </text>
-          <text
-            x={ttX + TT_PAD + (hasIcon ? TT_ICON + 6 : 0)}
-            y={ttY + TT_PAD + 26}
-            fontSize="9" fill="#4c4e68"
-            fontFamily="'DM Mono', monospace"
-          >
-            {hoveredPoint.ts.toLocaleTimeString([], timeOpts)}
-          </text>
-        </g>
-      )}
-
-      {/* Invisible mouse-tracking overlay — must be last so it's on top */}
-      <rect
-        x={PL} y={PTc} width={cw} height={ch}
-        fill="transparent"
-        className="touch-none cursor-crosshair"
-        onPointerMove={handlePointerMove}
-        onPointerLeave={() => setHoveredTs(null)}
-        onPointerCancel={() => setHoveredTs(null)}
-      />
-    </svg>
+      </div>
+      <TradingViewAttribution />
     </div>
   );
 }
