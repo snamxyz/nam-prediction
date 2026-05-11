@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 
 export default function ReceiptsMarketPage() {
   return (
-    <main className="min-h-screen px-4 py-6">
-      <Suspense fallback={<div className="card mx-auto h-[240px] max-w-[1200px]" />}>
+    <main className="min-h-screen px-3 py-4 pb-20 md:px-4 md:py-6 md:pb-6">
+      <Suspense fallback={<div className="card mx-auto h-[240px] max-w-[1400px]" />}>
         <RangeMarketDetail
           marketType="receipts"
           title="Total Receipts Uploaded"

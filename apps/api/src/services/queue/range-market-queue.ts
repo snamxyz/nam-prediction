@@ -544,6 +544,9 @@ export function startRangeMarketWorker() {
     QUEUE_NAME,
     async (job) => {
       console.log(`[RangeMarketQueue] Processing job: ${job.name}`);
+      if (job.name === "bootstrap") {
+        await bootstrapVaultWhitelist();
+      }
       await processRangeMarketTick();
     },
     { connection: workerConnection, concurrency: 1 }

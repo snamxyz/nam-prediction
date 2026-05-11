@@ -18,7 +18,7 @@ import { featureFlags } from "./config/feature-flags";
 import { initSocketIO } from "./ws/socket";
 import { startNamPricePoller } from "./services/nam-price-poller";
 import { createServer } from "http";
-import { setupRangeMarketSchedule, startRangeMarketWorker } from "./services/queue/range-market-queue";
+import { setupRangeMarketSchedule, startRangeMarketWorker, bootstrapVaultWhitelist } from "./services/queue/range-market-queue";
 
 const ENABLE_24H_MARKETS = (() => {
   const v = (process.env.ENABLE_24H_MARKETS || "").trim().toLowerCase();
@@ -114,8 +114,14 @@ startNamPricePoller();
 
 // Start background services
 initNonceManager()
-  .then(() => console.log("[NonceManager] Initialized successfully"))
-  .catch((err) => console.error("[NonceManager] Init error:", err));
+  .then(() => {
+    console.log("[NonceManager] Initialized successfully");
+    // Whitelist any active range-market CPMM pools that were missed (e.g. created
+    // before the vault was deployed, or whose on-creation whitelist tx failed).
+    return bootstrapVaultWhitelist();
+  })
+  .then(() => console.log("[VaultWhitelist] Bootstrap complete"))
+  .catch((err) => console.error("[NonceManager/VaultWhitelist] Init error:", err));
 startIndexer().catch((err) => console.error("[Indexer] Startup error:", err));
 // Defense-in-depth for the share-balance double-count bug (see
 // services/position-reconciler.ts). Runs every 30s and heals any DB row

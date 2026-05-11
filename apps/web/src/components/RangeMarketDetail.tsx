@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, AlertTriangle } from "lucide-react";
+import { ArrowLeft, AlertTriangle, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRangeMarketSocket, useRangePositions, useRangeMarkets, useRangeTrades } from "@/hooks/useRangeMarkets";
 import type { RangeMarket, RangeOutcome, RangePosition } from "@nam-prediction/shared";
@@ -14,6 +14,14 @@ import {
 } from "@nam-prediction/shared";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { RangeProbabilityChart } from "@/components/RangeProbabilityChart";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/UI/drawer";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAccount } from "wagmi";
 import { createWalletClient, custom, parseUnits } from "viem";
@@ -773,6 +781,8 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   const { data: positions = [], refetch: refetchPositions } = useRangePositions(market?.id, userAddress ?? undefined);
   const { data: trades = [] } = useRangeTrades(market?.id);
   const [selectedRange, setSelectedRange] = useState<number | null>(null);
+  const [mobileTradeOpen, setMobileTradeOpen] = useState(false);
+  const [tab, setTab] = useState<"activity" | "rules">("activity");
   const countdown = useCountdown(market?.endTime);
   const refreshAfterTrade = () => {
     void refetch();
@@ -817,18 +827,38 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
 
   const marketTypeClass = getRangeMarketAccent(marketType).pill;
   const marketTypeLabel = getRangeMarketLabel(marketType);
+  const totalVolume = trades.reduce((sum, trade) => sum + (parseFloat(trade.collateral) || 0), 0);
+  const activePositions = positions.filter((position) => parseFloat(position.balance) > 0);
+  const selectedRangeData = selectedRange != null ? ranges[selectedRange] : null;
+  const selectedPrice = selectedRange != null && total > 0
+    ? (prices[selectedRange] ?? 0) / total
+    : selectedRange != null
+      ? 1 / Math.max(1, ranges.length)
+      : 0;
+  const canOpenMobileTrade = !market.resolved && Boolean(market.rangeCpmmAddress);
+  const marketStats = [
+    ["Volume", `$${totalVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
+    ["Liquidity", `$${parseFloat(market.totalLiquidity || "0").toLocaleString(undefined, { maximumFractionDigits: 2 })}`],
+    ["End Date", formatEasternShortDate(market.endTime) ?? market.date],
+    ["Market ID", `#${market.id}`],
+  ];
+
+  const openMobileTrade = (rangeIndex: number) => {
+    setSelectedRange(rangeIndex);
+    setMobileTradeOpen(true);
+  };
 
   return (
-    <div className="fade-up mx-auto max-w-[1200px]">
+    <>
+    <div className="fade-up relative mx-auto max-w-[1400px] pb-20 min-[901px]:pb-0">
       <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-xs text-[var(--muted)] no-underline transition-colors duration-150 hover:text-[var(--foreground)]">
         <ArrowLeft size={14} /> Back to Markets
       </Link>
 
-      {/* Header card */}
-      <div className="card mb-4 px-7 py-6">
-        <div className="flex items-start justify-between gap-5">
-          <div className="flex-1">
-            <div className="mb-2.5 flex items-center gap-2.5">
+      <div className="mb-4 rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-4 py-[18px] md:px-6 md:py-[22px]">
+        <div className="mb-[18px] flex flex-col items-start gap-3.5 md:mb-5 md:flex-row md:justify-between md:gap-5">
+          <div className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className={`rounded px-2 py-[3px] text-[10px] font-bold uppercase tracking-[0.1em] ${marketTypeClass}`}>
                 {marketTypeLabel}
               </span>
@@ -840,21 +870,21 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
                 {market.resolved ? "RESOLVED" : "ACTIVE"}
               </span>
             </div>
-            <h1 className="mb-2 text-xl font-bold text-[var(--foreground)]">{market.question}</h1>
-            <p className="text-xs text-[var(--muted)]">{description}</p>
+            <h1 className="max-w-[720px] text-base font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)] md:text-xl">{market.question}</h1>
+            <p className="mt-2 max-w-[820px] text-xs leading-[1.6] text-[var(--muted)]">{description}</p>
           </div>
 
           {!market.resolved && (
-            <div className="shrink-0 text-center">
-              <div className="flex items-center gap-1">
-                {[{ v: countdown.h, l: "H" }, { v: countdown.m, l: "M" }, { v: countdown.s, l: "S" }].map(({ v, l }) => (
+            <div className="w-full shrink-0 md:w-auto">
+              <div className="flex w-full items-end justify-between gap-2.5 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-3.5 py-2.5 md:w-auto md:justify-start md:border-0 md:bg-transparent md:p-0">
+                {[{ v: countdown.h, l: "HRS" }, { v: countdown.m, l: "MINS" }, { v: countdown.s, l: "SECS" }].map(({ v, l }) => (
                   <div key={l} className="text-center">
-                    <div className="mono min-w-10 rounded-md bg-[var(--surface-hover)] px-2 py-1 text-[22px] font-bold text-[var(--foreground)]">{v}</div>
-                    <div className="mt-0.5 text-[9px] text-[var(--muted)]">{l}</div>
+                    <div className="mono text-[22px] font-medium leading-none md:text-[28px]">{v}</div>
+                    <div className="mt-[3px] text-[8px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">{l}</div>
                   </div>
                 ))}
               </div>
-              <p className="mt-1.5 text-[10px] text-[var(--muted)]">Resolves {market.date}</p>
+              <p className="mt-1.5 text-right text-[10px] text-[var(--muted)] max-md:text-left">Resolves {market.date}</p>
             </div>
           )}
           {market.resolved && market.winningRangeIndex != null && (
@@ -866,15 +896,26 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
             </div>
           )}
         </div>
-      </div>
 
-      <RangeProbabilityChart
-        ranges={ranges}
-        trades={trades}
-        currentPrices={prices}
-        colors={RANGE_COLORS}
-        marketCreatedAt={market.createdAt}
-      />
+        <div className="grid grid-cols-2 gap-3 border-t border-[var(--border-subtle)] pt-[18px] md:grid-cols-4">
+          {marketStats.map(([label, value]) => (
+            <div key={label} className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0">
+              <div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">{label}</div>
+              <div className="mono truncate text-sm text-[var(--foreground)]">{value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-[18px] border-t border-[var(--border-subtle)] pt-[18px]">
+          <RangeProbabilityChart
+            ranges={ranges}
+            trades={trades}
+            currentPrices={prices}
+            colors={RANGE_COLORS}
+            marketCreatedAt={market.createdAt}
+          />
+        </div>
+      </div>
 
       {allMarkets && allMarkets.length > 1 && (
         <div className="card mb-4 p-3">
@@ -906,10 +947,8 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
         </div>
       )}
 
-      {/* Main content */}
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_360px]">
-        {/* Range selection */}
-        <div className="card p-5">
+      <div className="grid grid-cols-1 items-start gap-4 min-[901px]:grid-cols-[1fr_360px]">
+        <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] p-4 md:p-5">
           <h2 className="mb-3.5 text-sm font-semibold text-[var(--foreground)]">
             Outcomes
             <span className="ml-2 text-[11px] font-normal text-[var(--muted)]">probabilities sum to 100%</span>
@@ -937,11 +976,11 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
           </div>
 
           {/* Positions summary */}
-          {positions.length > 0 && (
+          {activePositions.length > 0 && (
             <div className="mt-4 border-t border-[var(--border-subtle)] pt-3.5">
               <p className="mb-2.5 text-[11px] text-[var(--muted)]">Your Positions</p>
               <div className="flex flex-col gap-1.5">
-                {positions.filter((p) => parseFloat(p.balance) > 0).map((p) => {
+                {activePositions.map((p) => {
                   const range = ranges[p.rangeIndex];
                   const rangeClass = RANGE_TEXT_CLASSES[p.rangeIndex % RANGE_TEXT_CLASSES.length];
                   return (
@@ -959,16 +998,123 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
           )}
         </div>
 
-        {/* Trade panel */}
-        <TradePanelRange
-          market={market}
-          selectedRangeIndex={selectedRange}
-          prices={prices}
-          positions={positions}
-          onSuccess={refreshAfterTrade}
-          onPricesUpdate={setLivePrices}
-        />
+        <div className="hidden min-[901px]:sticky min-[901px]:top-[70px] min-[901px]:block">
+          <TradePanelRange
+            market={market}
+            selectedRangeIndex={selectedRange}
+            prices={prices}
+            positions={positions}
+            onSuccess={refreshAfterTrade}
+            onPricesUpdate={setLivePrices}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-3 flex gap-1">
+          {[["activity", "Activity"], ["rules", "Rules"]].map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setTab(value as "activity" | "rules")}
+              className={`cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold ${
+                tab === value
+                  ? "border border-[var(--border)] bg-[var(--surface-hover)] text-[var(--foreground)]"
+                  : "border border-transparent bg-transparent text-[var(--muted)]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "activity" ? (
+          <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-4 py-[18px] md:px-5">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2.5 border-b border-[var(--border-subtle)] pb-2.5 md:grid-cols-[120px_1fr_80px_80px_80px]">
+              {["Outcome", "Trader", "Shares", "Amount", "Time"].map((heading) => (
+                <span key={heading} className={`text-[9px] font-bold uppercase tracking-[0.07em] text-[var(--muted)] ${heading === "Shares" || heading === "Time" ? "hidden md:inline" : ""}`}>
+                  {heading}
+                </span>
+              ))}
+            </div>
+            {trades.slice(0, 8).map((trade, index, arr) => {
+              const range = ranges[trade.rangeIndex];
+              const rangeClass = RANGE_TEXT_CLASSES[trade.rangeIndex % RANGE_TEXT_CLASSES.length];
+              return (
+                <div key={trade.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-[11px] md:grid-cols-[120px_1fr_80px_80px_80px] ${index < arr.length - 1 ? "border-b border-[var(--border-subtle)]" : ""}`}>
+                  <span className={`w-fit rounded px-2 py-[3px] text-[9px] font-bold tracking-[0.04em] ${rangeClass}`}>
+                    {trade.isBuy ? "BUY" : "SELL"} {range?.label ?? `Range ${trade.rangeIndex}`}
+                  </span>
+                  <span className="truncate font-mono text-[11px] text-[var(--muted)]">{trade.trader.slice(0, 6)}...{trade.trader.slice(-4)}</span>
+                  <span className="hidden font-mono text-[11px] md:inline">{Number(trade.shares).toFixed(1)}</span>
+                  <span className="font-mono text-[11px]">${Number(trade.collateral).toFixed(2)}</span>
+                  <span className="hidden text-[10px] text-[var(--muted)] md:inline">{new Date(trade.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+              );
+            })}
+            {trades.length === 0 && <p className="mt-3 text-xs text-[var(--muted)]">No trades yet</p>}
+          </div>
+        ) : (
+          <div className="rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-5 py-5">
+            <div className="mb-5 text-[13px] leading-[1.75] text-[var(--foreground)]">{description}</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {[["Opened", new Date(market.createdAt).toLocaleString()], ["End Date", new Date(market.endTime).toLocaleString()], ["Market Type", marketTypeLabel], ["Status", market.status]].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-3.5 py-3">
+                  <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">{label}</div>
+                  <div className="font-mono text-xs">{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
+
+      {canOpenMobileTrade && ranges.length > 0 && (
+        <div className="fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-[50] grid grid-flow-cols grid-cols-4 gap-2 overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-[0_8px_24px_rgba(0,0,0,0.28)] min-[901px]:hidden">
+          {ranges.map((range, index) => {
+            const displayPrice = total > 0 ? (prices[index] ?? 0) / total : 1 / ranges.length;
+            const selected = selectedRange === index;
+            return (
+              <button
+                key={range.index}
+                type="button"
+                onClick={() => openMobileTrade(index)}
+                className={`shrink-0 cursor-pointer rounded-xl border px-3.5 py-2.5 text-left ${
+                  selected
+                    ? "border-yes/40 bg-yes/10 text-yes"
+                    : "border-[var(--border-subtle)] bg-[var(--surface-hover)]"
+                }`}
+              >
+                <span className="block max-w-[120px] truncate text-[11px] font-semibold text-[var(--foreground)]">{range.label}</span>
+                <span className={`mt-0.5 block font-mono text-sm font-bold ${RANGE_TEXT_CLASSES[index % RANGE_TEXT_CLASSES.length]}`}>
+                  {(displayPrice * 100).toFixed(1)}¢
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {canOpenMobileTrade && (
+        <Drawer open={mobileTradeOpen} onOpenChange={setMobileTradeOpen}>
+          <DrawerContent className="min-[901px]:hidden">
+            <DrawerHeader>
+              
+             
+            </DrawerHeader>
+            <div className="overflow-y-auto">
+              <TradePanelRange
+                market={market}
+                selectedRangeIndex={selectedRange}
+                prices={prices}
+                positions={positions}
+                onSuccess={refreshAfterTrade}
+                onPricesUpdate={setLivePrices}
+              />
+            </div>
+          </DrawerContent>
+        </Drawer>
+      )}
+    </>
   );
 }
