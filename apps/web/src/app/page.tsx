@@ -117,10 +117,10 @@ export default function HomePage() {
       <StatsBar />
 
       {/* Featured markets */}
-      <div className="mb-7 grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="mb-7 grid grid-cols-1 gap-3 lg:grid-cols-3">
         <HourlyMarketHero />
         {isRangeMarketsLoading
-          ? [0,1,2].map((i) => <RangeMarketCardSkeleton key={i} />)
+          ? [0,1].map((i) => <RangeMarketCardSkeleton key={i} />)
           : rangeMarkets.map((m) => (
               <RangeMarketCard
                 key={m.id}

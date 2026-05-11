@@ -109,6 +109,9 @@ export function HourlyMarketHero() {
         </span>
       </div>
 
+      <div className="">
+
+      
       {/* Question */}
       <h2 className="mb-4 text-sm font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
         {question}
@@ -116,7 +119,7 @@ export function HourlyMarketHero() {
 
       {/* Large probability display */}
       <div className="mb-3.5 grid grid-cols-[1fr_1px_1fr] gap-0 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
-        <div className="bg-yes/[0.04] px-3 py-2.5 text-center">
+        <div className="bg-yes/[0.04] px-3 py-6 text-center">
           <div className="mono text-[30px] font-medium leading-none tracking-[-0.03em] text-yes">
             {yp}
           </div>
@@ -125,7 +128,7 @@ export function HourlyMarketHero() {
           </div>
         </div>
         <div className="bg-[var(--border-subtle)]" />
-        <div className="bg-no/[0.03] px-3 py-2.5 text-center">
+        <div className="bg-no/[0.03] px-3 py-6 text-center">
           <div className="mono text-[30px] font-medium leading-none tracking-[-0.03em] text-no">
             {np}
           </div>
@@ -136,6 +139,8 @@ export function HourlyMarketHero() {
       </div>
 
       <ProbBar yes={parseFloat(yp)} height={4} />
+      </div>
+      
 
       {/* Footer */}
       <div className="mt-3.5 flex items-center justify-between border-t border-white/[0.04] pt-3">
