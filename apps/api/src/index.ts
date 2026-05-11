@@ -143,7 +143,7 @@ if (ENABLE_24H_MARKETS) {
   console.log("[24h] 24h markets disabled (set ENABLE_24H_MARKETS=true to enable)");
 }
 
-// Start range market lifecycle worker (daily receipts + NAM distribution markets)
+// Start range market lifecycle worker (daily receipts; participants/NAM-distribution optional)
 if (ENABLE_RANGE_MARKETS) {
   setupRangeMarketSchedule().catch((err) => console.error("[RangeMarket] Schedule setup error:", err));
   startRangeMarketWorker();

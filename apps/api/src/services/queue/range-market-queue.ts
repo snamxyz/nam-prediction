@@ -1,6 +1,8 @@
 /**
  * BullMQ queue for range market lifecycle:
- *  - Creates "receipts" and "participants" markets daily at 00:00 ET.
+ *  - Creates the "receipts" market daily at 00:00 ET.
+ *  - Optionally creates the "participants" (NAM distribution) market when
+ *    ENABLE_PARTICIPANTS_RANGE_MARKET=true.
  *  - Ticks every minute to resolve active markets that have passed their endTime.
  *  - Resolution is manual by default until production data sources are wired.
  *
@@ -31,6 +33,11 @@ const RANGE_MARKET_LIQUIDITY = Number(process.env.RANGE_MARKET_LIQUIDITY) || 100
 // When false, markets are created and resolved in DB only (no on-chain txs).
 const RANGE_MARKET_ONCHAIN = process.env.RANGE_MARKET_ONCHAIN !== "false";
 const RANGE_MARKET_RESOLUTION_MODE = process.env.RANGE_MARKET_RESOLUTION_MODE || "manual";
+/** Daily participants / "NAM tokens distributed" range market — off unless explicitly enabled. */
+const ENABLE_PARTICIPANTS_RANGE_MARKET = (() => {
+  const v = (process.env.ENABLE_PARTICIPANTS_RANGE_MARKET || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(v);
+})();
 const CREATING_RETRY_AFTER_MS =
   Number(process.env.RANGE_MARKET_CREATING_RETRY_AFTER_MS) || 30 * 60 * 1000;
 
@@ -425,7 +432,6 @@ async function ensureTodayMarketsExist(): Promise<void> {
     timeZone: "UTC",
   });
   const receiptsQuestion = `Total receipts uploaded on ${displayDay}?`;
-  const participantsQuestion = `Number of participants/miners on ${displayDay}?`;
 
   await createRangeMarketOnChain(
     "receipts",
@@ -435,13 +441,16 @@ async function ensureTodayMarketsExist(): Promise<void> {
     endTime,
   ).catch((err: unknown) => console.error("[RangeMarketQueue] Receipts creation error:", err));
 
-  await createRangeMarketOnChain(
-    "participants",
-    PARTICIPANTS_RANGES,
-    date,
-    participantsQuestion,
-    endTime,
-  ).catch((err: unknown) => console.error("[RangeMarketQueue] Participants creation error:", err));
+  if (ENABLE_PARTICIPANTS_RANGE_MARKET) {
+    const participantsQuestion = `Number of participants/miners on ${displayDay}?`;
+    await createRangeMarketOnChain(
+      "participants",
+      PARTICIPANTS_RANGES,
+      date,
+      participantsQuestion,
+      endTime,
+    ).catch((err: unknown) => console.error("[RangeMarketQueue] Participants creation error:", err));
+  }
 }
 
 // ─── Core tick ───
