@@ -61,9 +61,9 @@ export default function AdminUsersPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="mb-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-semibold" style={{ color: "var(--foreground)" }}>Users</h1>
-        <div className="relative w-full max-w-xs">
+        <div className="relative w-full sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style={{ color: "var(--muted)" }} />
           <input
             value={search}
@@ -86,12 +86,12 @@ export default function AdminUsersPage() {
         </div>
       )}
       {!isLoading && (
-        <div className="glass-card overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                 {["User", "Wallet", "Vault Holdings", "Trades", "Volume", "Joined"].map((h) => (
-                  <th key={h} className="px-5 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
+                  <th key={h} className="whitespace-nowrap px-5 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -108,12 +108,12 @@ export default function AdminUsersPage() {
                 const vaultBalance = walletKey ? vaultBalances?.balances[walletKey] : undefined;
                 return (
                   <tr key={u.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                    <td className="px-5 py-3">
+                    <td className="whitespace-nowrap px-5 py-3">
                       <span className="text-xs" style={{ color: getIdentity(u.loginMethod, u.displayName) ? "var(--foreground)" : "var(--muted)" }}>
                         {getIdentity(u.loginMethod, u.displayName) || "—"}
                       </span>
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="whitespace-nowrap px-5 py-3">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs" style={{ color: "var(--foreground)" }}>
                           {u.walletAddress ? truncateAddress(u.walletAddress) : "—"}
@@ -142,12 +142,12 @@ export default function AdminUsersPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-3 text-xs font-medium" style={{ color: "var(--yes)" }}>
+                    <td className="whitespace-nowrap px-5 py-3 text-xs font-medium" style={{ color: "var(--yes)" }}>
                       {vaultBalancesLoading ? "…" : fmt(vaultBalance ?? "0")}
                     </td>
-                    <td className="px-5 py-3 text-xs" style={{ color: "var(--foreground)" }}>{u.tradeCount}</td>
-                    <td className="px-5 py-3 text-xs" style={{ color: "var(--yes)" }}>{fmt(u.totalVolume)}</td>
-                    <td className="px-5 py-3 text-xs" style={{ color: "var(--muted)" }}>{timeAgo(u.createdAt)}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-xs" style={{ color: "var(--foreground)" }}>{u.tradeCount}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-xs" style={{ color: "var(--yes)" }}>{fmt(u.totalVolume)}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-xs" style={{ color: "var(--muted)" }}>{timeAgo(u.createdAt)}</td>
                   </tr>
                 );
               })}

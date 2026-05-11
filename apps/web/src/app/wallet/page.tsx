@@ -195,7 +195,7 @@ export default function WalletPage() {
   }
 
   return (
-    <div className="fade-up" style={{ maxWidth: 880, margin: "0 auto" }}>
+    <div className="fade-up mx-auto max-w-[880px] px-3 sm:px-0">
       <div style={{ marginBottom: 22 }}>
         <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.025em", color: "var(--foreground)", marginBottom: 5 }}>
           Wallet
@@ -203,7 +203,7 @@ export default function WalletPage() {
         <p style={{ fontSize: 13, color: "var(--muted)" }}>Send and receive assets from your Base wallet.</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-3 mb-4">
         {[
           ["USDC", `$${formatTokenAmount(usdcBalance, 2)}`, "Base wallet"],
           ["ETH", formatTokenAmount(ethBalance, 6), "Gas balance"],
@@ -220,15 +220,15 @@ export default function WalletPage() {
       </div>
 
       <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "center" }}>
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3.5">
+          <div className="min-w-0">
             <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 6 }}>
               Wallet Address
             </div>
             <div className="mono" style={{ fontSize: 14, color: "var(--foreground)", wordBreak: "break-all" }}>{activeAddress}</div>
             <div className="mono" style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>{truncateAddress(activeAddress)}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div className="flex shrink-0 flex-wrap items-center gap-3 sm:justify-end">
             <div style={{ padding: 8, borderRadius: 10, background: "#fff", lineHeight: 0 }}>
               <QRCodeSVG value={activeAddress} size={92} bgColor="#ffffff" fgColor="#000000" level="M" />
             </div>
@@ -260,8 +260,8 @@ export default function WalletPage() {
         </div>
 
         {tab === "receive" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 22, alignItems: "center" }}>
-            <div style={{ padding: 16, borderRadius: 12, background: "#fff", width: "fit-content" }}>
+          <div className="grid grid-cols-1 items-center gap-6 sm:grid-cols-[220px_1fr] sm:gap-[22px]">
+            <div className="mx-auto w-fit rounded-xl bg-white p-4 sm:mx-0" style={{ lineHeight: 0 }}>
               <QRCodeSVG value={activeAddress} size={188} bgColor="#ffffff" fgColor="#000000" level="M" />
             </div>
             <div>
@@ -281,7 +281,7 @@ export default function WalletPage() {
           </div>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: 10 }}>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[130px_1fr]">
               <select
                 value={asset}
                 onChange={(e) => setAsset(e.target.value as SendAsset)}

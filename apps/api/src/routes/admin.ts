@@ -78,10 +78,14 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         [totalUsersRow],
         [users24hRow],
         [users7dRow],
-        [totalTradesRow],
-        [trades24hRow],
-        [totalVolumeRow],
-        [volume24hRow],
+        [totalTradesBinaryRow],
+        [totalTradesRangeRow],
+        [trades24hBinaryRow],
+        [trades24hRangeRow],
+        [totalVolumeMarketsRow],
+        [totalVolumeRangeTradesRow],
+        [volume24hBinaryRow],
+        [volume24hRangeRow],
         [activeMarketsRow],
         [resolvedMarketsRow],
         [totalDepositsRow],
@@ -91,9 +95,16 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         db.select({ c: count() }).from(users).where(gte(users.createdAt, ago24h)),
         db.select({ c: count() }).from(users).where(gte(users.createdAt, ago7d)),
         db.select({ c: count() }).from(trades),
+        db.select({ c: count() }).from(rangeTrades),
         db.select({ c: count() }).from(trades).where(gte(trades.timestamp, ago24h)),
+        db.select({ c: count() }).from(rangeTrades).where(gte(rangeTrades.timestamp, ago24h)),
         db.select({ v: sum(markets.volume) }).from(markets),
+        db.select({ v: sum(rangeTrades.collateral) }).from(rangeTrades),
         db.select({ v: sum(trades.collateral) }).from(trades).where(gte(trades.timestamp, ago24h)),
+        db
+          .select({ v: sum(rangeTrades.collateral) })
+          .from(rangeTrades)
+          .where(gte(rangeTrades.timestamp, ago24h)),
         db.select({ c: count() }).from(markets).where(eq(markets.resolved, false)),
         db.select({ c: count() }).from(markets).where(eq(markets.resolved, true)),
         db.select({ s: sum(vaultTransactions.amount) }).from(vaultTransactions).where(eq(vaultTransactions.type, "deposit")),
@@ -109,10 +120,15 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           totalUsers: Number(totalUsersRow?.c ?? 0),
           users24h: Number(users24hRow?.c ?? 0),
           users7d: Number(users7dRow?.c ?? 0),
-          totalTrades: Number(totalTradesRow?.c ?? 0),
-          trades24h: Number(trades24hRow?.c ?? 0),
-          totalVolume: Number(totalVolumeRow?.v ?? 0).toFixed(2),
-          volume24h: Number(volume24hRow?.v ?? 0).toFixed(2),
+          totalTrades:
+            Number(totalTradesBinaryRow?.c ?? 0) + Number(totalTradesRangeRow?.c ?? 0),
+          trades24h: Number(trades24hBinaryRow?.c ?? 0) + Number(trades24hRangeRow?.c ?? 0),
+          totalVolume: (
+            Number(totalVolumeMarketsRow?.v ?? 0) + Number(totalVolumeRangeTradesRow?.v ?? 0)
+          ).toFixed(2),
+          volume24h: (
+            Number(volume24hBinaryRow?.v ?? 0) + Number(volume24hRangeRow?.v ?? 0)
+          ).toFixed(2),
           activeMarkets: Number(activeMarketsRow?.c ?? 0),
           resolvedMarkets: Number(resolvedMarketsRow?.c ?? 0),
           totalDeposits: totalDeposits.toFixed(2),
@@ -367,29 +383,68 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
       if (!claims) { set.status = 403; return forbidden(); }
 
       const limit = Math.min(Number(query?.limit ?? 100), 500);
-      const cursor = query?.cursor ? Number(query.cursor) : undefined;
 
-      const rows = await db
-        .select({ trade: trades, market: markets })
-        .from(trades)
-        .innerJoin(markets, eq(trades.marketId, markets.id))
-        .orderBy(desc(trades.timestamp))
-        .limit(limit);
+      const [binaryRows, rangeRows] = await Promise.all([
+        db
+          .select({ trade: trades, market: markets })
+          .from(trades)
+          .innerJoin(markets, eq(trades.marketId, markets.id))
+          .orderBy(desc(trades.timestamp))
+          .limit(limit),
+        db
+          .select({ trade: rangeTrades, market: rangeMarkets })
+          .from(rangeTrades)
+          .innerJoin(rangeMarkets, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
+          .orderBy(desc(rangeTrades.timestamp))
+          .limit(limit),
+      ]);
 
-      const page = cursor ? rows.filter((r) => r.trade.id < cursor).slice(0, limit) : rows.slice(0, limit);
+      type Merged = {
+        sortTs: number;
+        source: "binary" | "range";
+        id: number;
+        payload: Record<string, unknown>;
+      };
 
-      return {
-        success: true,
-        data: {
-          trades: page.map((r) => ({
+      const merged: Merged[] = [
+        ...binaryRows.map((r) => ({
+          sortTs: new Date(r.trade.timestamp).getTime(),
+          source: "binary" as const,
+          id: r.trade.id,
+          payload: {
             ...r.trade,
             traderAddress: r.trade.trader,
             side: r.trade.isYes ? "YES" : "NO",
             createdAt: r.trade.timestamp,
             question: r.market.question,
             cadence: r.market.cadence,
-          })),
-          nextCursor: page.length === limit ? page[page.length - 1]?.trade.id : null,
+            source: "binary" as const,
+          },
+        })),
+        ...rangeRows.map((r) => ({
+          sortTs: new Date(r.trade.timestamp).getTime(),
+          source: "range" as const,
+          id: r.trade.id,
+          payload: {
+            ...r.trade,
+            marketId: r.trade.rangeMarketId,
+            traderAddress: r.trade.trader,
+            side: `R${r.trade.rangeIndex + 1}`,
+            createdAt: r.trade.timestamp,
+            question: r.market.question,
+            cadence: "range",
+            source: "range" as const,
+          },
+        })),
+      ]
+        .sort((a, b) => b.sortTs - a.sortTs)
+        .slice(0, limit);
+
+      return {
+        success: true,
+        data: {
+          trades: merged.map((m) => m.payload),
+          nextCursor: null,
         },
       };
     },

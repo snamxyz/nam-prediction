@@ -168,7 +168,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold" style={{ color: "var(--foreground)" }}>Dashboard</h1>
         <button
           type="button"

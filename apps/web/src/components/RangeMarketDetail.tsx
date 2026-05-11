@@ -851,9 +851,6 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   return (
     <>
     <div className="fade-up relative mx-auto max-w-[1400px] pb-20 min-[901px]:pb-0">
-      <Link href="/" className="mb-4 inline-flex items-center gap-1.5 text-xs text-[var(--muted)] no-underline transition-colors duration-150 hover:text-[var(--foreground)]">
-        <ArrowLeft size={14} /> Back to Markets
-      </Link>
 
       <div className="mb-4 rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-4 py-[18px] md:px-6 md:py-[22px]">
         <div className="mb-[18px] flex flex-col items-start gap-3.5 md:mb-5 md:flex-row md:justify-between md:gap-5">

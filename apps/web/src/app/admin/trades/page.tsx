@@ -26,12 +26,12 @@ export default function AdminTradesPage() {
         </div>
       )}
       {!isLoading && (
-        <div className="glass-card overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                 {["Trader", "Market", "Side", "Type", "Amount", "Shares", "Time", "Tx"].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
+                  <th key={h} className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -49,33 +49,33 @@ export default function AdminTradesPage() {
                 const sideBg = isYes ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)";
                 const typeBg = isBuy ? "rgba(1,210,67,0.12)" : "rgba(240,50,76,0.12)";
                 return (
-                  <tr key={t.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                    <td className="px-4 py-3 text-xs font-mono" style={{ color: "var(--foreground)" }}>
+                  <tr key={`${t.source ?? "binary"}-${t.id}`} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs font-mono" style={{ color: "var(--foreground)" }}>
                       {t.traderAddress ? `${t.traderAddress.slice(0, 6)}…${t.traderAddress.slice(-4)}` : "—"}
                     </td>
-                    <td className="px-4 py-3 text-xs max-w-[160px]" style={{ color: "var(--muted)" }}>
-                      <span className="line-clamp-1">{t.question}</span>
+                    <td className="max-w-[120px] whitespace-nowrap px-4 py-3 text-xs sm:max-w-[160px]" style={{ color: "var(--muted)" }}>
+                      <span className="block truncate" title={t.question}>{t.question}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3">
                       <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: sideBg, color: sideColor }}>
                         {t.side}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3">
                       <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: typeBg, color: typeColor }}>
                         {isBuy ? "BUY" : "SELL"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "var(--foreground)" }}>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs" style={{ color: "var(--foreground)" }}>
                       ${parseFloat(t.collateral).toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "var(--foreground)" }}>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs" style={{ color: "var(--foreground)" }}>
                       {parseFloat(t.shares).toFixed(4)}
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "var(--muted)" }}>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs" style={{ color: "var(--muted)" }}>
                       {timeAgo(t.createdAt)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3">
                       <a
                         href={`https://basescan.org/tx/${t.txHash}`}
                         target="_blank"

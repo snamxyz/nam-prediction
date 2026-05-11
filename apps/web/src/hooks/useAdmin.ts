@@ -67,6 +67,8 @@ interface UseAdminMarketsOptions {
 
 export interface AdminTrade {
   id: number;
+  /** Distinguishes id namespaces between `trades` and `range_trades` for list keys. */
+  source?: "binary" | "range";
   traderAddress: string;
   marketId: number;
   question: string;

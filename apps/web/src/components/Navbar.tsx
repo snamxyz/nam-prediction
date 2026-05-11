@@ -47,10 +47,14 @@ export function Navbar() {
   const isActiveLink = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
+  const isAdminRoute = pathname.startsWith("/admin");
+
   return (
     <>
       <header
-        className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_95%,transparent)] backdrop-blur-2xl"
+        className={`sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_95%,transparent)] backdrop-blur-2xl ${
+          isAdminRoute ? "hidden md:block" : ""
+        }`}
       >
         <div className="mx-auto hidden h-[54px] max-w-[1280px] items-center px-6 md:flex">
           {/* Logo */}
@@ -269,7 +273,9 @@ export function Navbar() {
 
       <nav
         aria-label="Mobile page navigation"
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_95%,transparent)] px-3 pb-2 pt-2 backdrop-blur-2xl md:hidden"
+        className={`fixed inset-x-0 bottom-0 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_95%,transparent)] px-3 pb-2 pt-2 backdrop-blur-2xl md:hidden ${
+          isAdminRoute ? "z-40" : "z-50"
+        }`}
       >
         <div className={`mx-auto grid max-w-md gap-2 ${navLinks.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
           {navLinks.map(({ href, label, icon: Icon }) => {
