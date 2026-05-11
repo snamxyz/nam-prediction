@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Activity, BarChart3, LayoutDashboard, Lock, TrendingUp, Users } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { ADMIN_WALLETS } from "@/lib/adminWallets";
 
 const NAV = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -11,13 +12,6 @@ const NAV = [
   { href: "/admin/markets", label: "Markets", icon: BarChart3 },
   { href: "/admin/trades", label: "Trades", icon: Activity },
 ];
-
-const ADMIN_WALLETS = new Set([
-  "0xfeb6ca810ca03f02139a6eac52fe1fcb5410cb28",
-  "0x706709a08f95387f3afa207dc030320ca0ea2d91",
-  "0xdd9f8b4994ece2ef1f15a42b6c346e0ed0428fa6",
-  "0x1ce256752fba067675f09291d12a1f069f34f5e8",
-]);
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

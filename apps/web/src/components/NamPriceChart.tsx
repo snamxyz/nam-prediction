@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface NamPricePoint {
   ts: string;
@@ -19,15 +19,40 @@ interface NamPriceChartProps {
 }
 
 const LAST_NAM_TICKS = 5;
-const W = 800;
-const H = 200;
-const PL = 64;
-const PR = 20;
+/** Wide desktop layout: with `meet`, narrow CSS width shrinks the whole viewBox → tiny plot. */
+const W_DESKTOP = 800;
+const H_DESKTOP = 200;
+/** Mobile: viewBox width ≈ container so scale is ~1; extra height for readable ticks/labels. */
+const H_COMPACT = 248;
 const PT = 14;
-const PB = 26;
-const X_LABELS = LAST_NAM_TICKS;
+const PB = 28;
 const TT_ICON = 18;
 const TT_PAD = 8;
+
+function useContainerWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el);
+    setWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  return { ref, width };
+}
+
+function clientPointToSvg(svg: SVGSVGElement, clientX: number, clientY: number) {
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  return pt.matrixTransform(ctm.inverse());
+}
 
 export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChartProps) {
   const data = useMemo(
@@ -42,7 +67,7 @@ export function NamPriceChart({ points, threshold, tokenIconUrl }: NamPriceChart
 
   if (data.length < 2) {
     return (
-      <div className="flex h-[200px] items-center justify-center">
+      <div className="flex h-[200px] max-md:h-[248px] items-center justify-center">
         <p className="text-xs text-[var(--muted)]">Waiting for NAM price data…</p>
       </div>
     );
@@ -60,13 +85,29 @@ function NamPriceSvgChart({
   threshold: number | null;
   tokenIconUrl?: string | null;
 }) {
+  const { ref: wrapRef, width: containerWidth } = useContainerWidth<HTMLDivElement>();
+  const compact = containerWidth > 0 && containerWidth < 480;
+  /** Match viewBox width to layout width so `meet` no longer crushes vertical size on phones. */
+  const svgW =
+    compact && containerWidth > 0
+      ? Math.max(300, Math.min(Math.round(containerWidth), 520))
+      : W_DESKTOP;
+  const svgH = compact && containerWidth > 0 ? H_COMPACT : H_DESKTOP;
+  const PTc = compact ? 16 : PT;
+  const PBc = compact ? 34 : PB;
+  const PL = compact ? 52 : 64;
+  const PR = compact ? 14 : 20;
+  const xLabelCount = compact ? 3 : 5;
+  const yLabelFont = compact ? 10 : 9;
+  const priceDecimals = compact ? 4 : 5;
+
   // Track hover by timestamp so the tooltip stays anchored to the same
   // data point even when new points arrive and all x-coordinates shift.
   const [hoveredTs, setHoveredTs] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const cw = W - PL - PR;
-  const ch = H - PT - PB;
+  const cw = svgW - PL - PR;
+  const ch = svgH - PTc - PBc;
 
   // ── Time-based x scale ──────────────────────────────────────────────────
   // Positioning by actual timestamp means a point's pixel x is determined
@@ -87,7 +128,7 @@ function NamPriceSvgChart({
   const allVals = [...vals, target];
   const lo = Math.min(...allVals) * 0.9985;
   const hi = Math.max(...allVals) * 1.0015;
-  const scaleY = (v: number) => PT + ch - ((v - lo) / (hi - lo || 1)) * ch;
+  const scaleY = (v: number) => PTc + ch - ((v - lo) / (hi - lo || 1)) * ch;
   const ty = scaleY(target);
 
   const currentPrice = vals[vals.length - 1];
@@ -98,7 +139,7 @@ function NamPriceSvgChart({
   const linePath = data
     .map((d, i) => `${i === 0 ? "M" : "L"}${scaleX(d.ts).toFixed(1)},${scaleY(d.price).toFixed(1)}`)
     .join(" ");
-  const areaPath = `${linePath} L${scaleX(data[data.length - 1].ts).toFixed(1)},${H - PB} L${PL},${H - PB} Z`;
+  const areaPath = `${linePath} L${scaleX(data[data.length - 1].ts).toFixed(1)},${svgH - PBc} L${PL},${svgH - PBc} Z`;
 
   // ── Y-axis ticks ─────────────────────────────────────────────────────────
   const range = hi - lo || 1;
@@ -110,19 +151,15 @@ function NamPriceSvgChart({
   for (let v = firstTick; v <= hi; v += step) yTicks.push(Number(v.toFixed(8)));
 
   // ── X-axis labels ────────────────────────────────────────────────────────
-  // Derived from X_LABELS evenly-spaced TIME positions, not data indices.
-  // This means the label set never jumps when data.length crosses a modulo
-  // boundary — each label simply slides a tiny amount when the time window
-  // widens by ~5 s.
-  const xLabels = useMemo(
-    () =>
-      Array.from({ length: X_LABELS }, (_, i) => {
-        const ms = minTs + (i / (X_LABELS - 1)) * tsRange;
-        return { x: scaleXMs(ms), ts: new Date(ms) };
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [minTs, maxTs]
-  );
+  // Evenly-spaced TIME positions (not data indices) so labels slide smoothly
+  // as the window widens. Count is reduced on narrow screens to avoid overlap.
+  const xLabels = useMemo(() => {
+    if (xLabelCount < 2) return [];
+    return Array.from({ length: xLabelCount }, (_, i) => {
+      const ms = minTs + (i / (xLabelCount - 1)) * tsRange;
+      return { x: scaleXMs(ms), ts: new Date(ms) };
+    });
+  }, [minTs, maxTs, tsRange, xLabelCount, PL, cw]);
 
   // ── Hover ─────────────────────────────────────────────────────────────────
   // Find the nearest data point to the stored timestamp — if new data arrives
@@ -142,28 +179,43 @@ function NamPriceSvgChart({
   const hovX = hoveredPoint ? scaleX(hoveredPoint.ts) : 0;
   const hovY = hoveredPoint ? scaleY(hoveredPoint.price) : 0;
 
-  const handleMouseMove = (e: React.MouseEvent<SVGRectElement>) => {
+  const updateHoverFromClient = (clientX: number, clientY: number) => {
     const svgEl = svgRef.current;
     if (!svgEl) return;
-    const rect = svgEl.getBoundingClientRect();
-    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const p = clientPointToSvg(svgEl, clientX, clientY);
+    if (!p) return;
+    const svgX = p.x;
+    if (svgX < PL || svgX > svgW - PR) {
+      setHoveredTs(null);
+      return;
+    }
     const ms = minTs + ((svgX - PL) / cw) * tsRange;
     setHoveredTs(Math.max(minTs, Math.min(maxTs, ms)));
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<SVGRectElement>) => {
+    updateHoverFromClient(e.clientX, e.clientY);
   };
 
   // ── Tooltip layout ────────────────────────────────────────────────────────
   const hasIcon = Boolean(tokenIconUrl);
   const TT_W = hasIcon ? 148 : 120;
   const TT_H = hasIcon ? 44 : 36;
-  const ttX = hovX + TT_W + TT_PAD + PR > W ? hovX - TT_W - TT_PAD : hovX + TT_PAD;
-  const ttY = Math.max(PT + 2, hovY - TT_H - TT_PAD);
+  const ttX = hovX + TT_W + TT_PAD + PR > svgW ? hovX - TT_W - TT_PAD : hovX + TT_PAD;
+  const ttY = Math.max(PTc + 2, hovY - TT_H - TT_PAD);
+
+  const timeOpts: Intl.DateTimeFormatOptions = compact
+    ? { hour: "2-digit", minute: "2-digit" }
+    : { hour: "2-digit", minute: "2-digit", second: "2-digit" };
 
   return (
+    <div ref={wrapRef} className="w-full">
     <svg
       ref={svgRef}
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
-      className="block h-[200px] w-full"
+      viewBox={`0 0 ${svgW} ${svgH}`}
+      preserveAspectRatio="xMidYMid meet"
+      className="block w-full max-w-full"
+      style={{ height: svgH }}
     >
       <defs>
         <linearGradient id="namFill" x1="0" y1="0" x2="0" y2="1">
@@ -171,7 +223,7 @@ function NamPriceSvgChart({
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
         <clipPath id="namClip">
-          <rect x={PL} y={PT} width={cw} height={ch} />
+          <rect x={PL} y={PTc} width={cw} height={ch} />
         </clipPath>
         <clipPath id="namTTIcon">
           <circle cx={TT_ICON / 2} cy={TT_ICON / 2} r={TT_ICON / 2} />
@@ -182,7 +234,7 @@ function NamPriceSvgChart({
       {yTicks.map((v) => (
         <line
           key={v}
-          x1={PL} x2={W - PR}
+          x1={PL} x2={svgW - PR}
           y1={scaleY(v).toFixed(1)} y2={scaleY(v).toFixed(1)}
           stroke="rgba(255,255,255,0.04)" strokeWidth="1"
         />
@@ -190,17 +242,17 @@ function NamPriceSvgChart({
 
       {/* Target threshold */}
       <line
-        x1={PL} x2={W - PR}
+        x1={PL} x2={svgW - PR}
         y1={ty.toFixed(1)} y2={ty.toFixed(1)}
         stroke="#4c4e68" strokeWidth="1" strokeDasharray="5 4" opacity="0.7"
       />
       <rect
-        x={W - PR - 54} y={ty - 10} width={54} height={18} rx="4"
+        x={svgW - PR - (compact ? 46 : 54)} y={ty - 10} width={compact ? 46 : 54} height={18} rx="4"
         fill="#111320" stroke="rgba(255,255,255,0.07)"
       />
       <text
-        x={W - PR - 27} y={ty + 3}
-        textAnchor="middle" fontSize="9" fill="#4c4e68"
+        x={svgW - PR - (compact ? 23 : 27)} y={ty + 3}
+        textAnchor="middle" fontSize={compact ? 8 : 9} fill="#4c4e68"
         fontFamily="'DM Mono', monospace"
       >
         Target
@@ -232,18 +284,18 @@ function NamPriceSvgChart({
       {yTicks.map((v) => (
         <text
           key={`y-${v}`}
-          x={PL - 8} y={scaleY(v) + 4}
-          textAnchor="end" fontSize="9" fill="#4c4e68"
+          x={PL - (compact ? 6 : 8)} y={scaleY(v) + 4}
+          textAnchor="end" fontSize={yLabelFont} fill="#4c4e68"
           fontFamily="'DM Mono', monospace"
         >
-          ${v.toFixed(5)}
+          ${v.toFixed(priceDecimals)}
         </text>
       ))}
 
       {/* X-axis baseline */}
       <line
-        x1={PL} x2={W - PR}
-        y1={H - PB} y2={H - PB}
+        x1={PL} x2={svgW - PR}
+        y1={svgH - PBc} y2={svgH - PBc}
         stroke="rgba(255,255,255,0.06)" strokeWidth="1"
       />
 
@@ -252,15 +304,15 @@ function NamPriceSvgChart({
         <g key={i}>
           <line
             x1={lbl.x.toFixed(1)} x2={lbl.x.toFixed(1)}
-            y1={H - PB} y2={H - PB + 3}
+            y1={svgH - PBc} y2={svgH - PBc + 3}
             stroke="rgba(255,255,255,0.1)" strokeWidth="1"
           />
           <text
-            x={lbl.x.toFixed(1)} y={H - 7}
-            textAnchor="middle" fontSize="7" fill="#4c4e68"
+            x={lbl.x.toFixed(1)} y={svgH - 8}
+            textAnchor="middle" fontSize={compact ? 9 : 7} fill="#4c4e68"
             fontFamily="'DM Mono', monospace"
           >
-            {lbl.ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            {lbl.ts.toLocaleTimeString([], timeOpts)}
           </text>
         </g>
       ))}
@@ -269,7 +321,7 @@ function NamPriceSvgChart({
       {hoveredPoint && (
         <line
           x1={hovX.toFixed(1)} x2={hovX.toFixed(1)}
-          y1={PT} y2={H - PB}
+          y1={PTc} y2={svgH - PBc}
           stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="3 3"
         />
       )}
@@ -298,7 +350,7 @@ function NamPriceSvgChart({
             fontSize="11" fontWeight="700" fill={color}
             fontFamily="'DM Mono', monospace"
           >
-            ${hoveredPoint.price.toFixed(5)}
+            ${hoveredPoint.price.toFixed(priceDecimals)}
           </text>
           <text
             x={ttX + TT_PAD + (hasIcon ? TT_ICON + 6 : 0)}
@@ -306,19 +358,21 @@ function NamPriceSvgChart({
             fontSize="9" fill="#4c4e68"
             fontFamily="'DM Mono', monospace"
           >
-            {hoveredPoint.ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            {hoveredPoint.ts.toLocaleTimeString([], timeOpts)}
           </text>
         </g>
       )}
 
       {/* Invisible mouse-tracking overlay — must be last so it's on top */}
       <rect
-        x={PL} y={PT} width={cw} height={ch}
+        x={PL} y={PTc} width={cw} height={ch}
         fill="transparent"
-        className="cursor-crosshair"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoveredTs(null)}
+        className="touch-none cursor-crosshair"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoveredTs(null)}
+        onPointerCancel={() => setHoveredTs(null)}
       />
     </svg>
+    </div>
   );
 }

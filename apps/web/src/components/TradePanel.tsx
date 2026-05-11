@@ -36,6 +36,7 @@ interface TradePanelProps {
   yesPrice: number;
   noPrice: number;
   outcomeLabels?: OutcomeDisplayLabels;
+  defaultSide?: "YES" | "NO";
 }
 
 interface EstimateBuyResponse {
@@ -72,7 +73,7 @@ interface NonceResponse {
   suggestedDeadline: string;
 }
 
-export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, noPrice, outcomeLabels }: TradePanelProps) {
+export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, noPrice, outcomeLabels, defaultSide = "YES" }: TradePanelProps) {
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login } = useAuth();
   const { getAccessToken } = usePrivy();
@@ -91,7 +92,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const noShares = parseFloat(noSharesStr) || 0;
 
   const [mode, setMode] = useState<"BUY" | "SELL">("BUY");
-  const [side, setSide] = useState<"YES" | "NO">("YES");
+  const [side, setSide] = useState<"YES" | "NO">(defaultSide);
   const [amount, setAmount] = useState("");
   const [slippagePct, setSlippagePct] = useState<number>(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -112,6 +113,13 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
       }
     | null
   >(null);
+
+  useEffect(() => {
+    setSide(defaultSide);
+    setAmount("");
+    setEstimate(null);
+    setError(null);
+  }, [defaultSide]);
 
   // Fetch estimate when amount changes
   useEffect(() => {
