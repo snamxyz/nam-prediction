@@ -473,6 +473,30 @@ describe("Prediction Market — Full Lifecycle", function () {
       expect(await usdc.balanceOf(alice.address)).to.equal(balanceBefore + 200n * ONE_USDC);
     });
 
+    it("allows full withdrawal when escrow balance exceeds tracked aggregate balance", async function () {
+      const trackedAmount = 360n * 10n ** 4n; // 3.60 USDC
+      const untrackedCredit = 16n * 10n ** 4n; // 0.16 USDC
+      const fullBalance = trackedAmount + untrackedCredit;
+
+      await usdc.connect(alice).approve(await vault.getAddress(), trackedAmount);
+      await vault.connect(alice).deposit(trackedAmount);
+
+      const escrow = await vault.escrowOf(alice.address);
+      await usdc.connect(alice).transfer(escrow, untrackedCredit);
+
+      expect(await vault.balanceOf(alice.address)).to.equal(fullBalance);
+      expect(await vault.totalVaultBalance()).to.equal(trackedAmount);
+
+      const balanceBefore = await usdc.balanceOf(alice.address);
+      await expect(vault.connect(alice).withdraw(fullBalance))
+        .to.emit(vault, "VaultAccountingAdjusted")
+        .withArgs(trackedAmount, fullBalance);
+
+      expect(await vault.balanceOf(alice.address)).to.equal(0n);
+      expect(await vault.totalVaultBalance()).to.equal(0n);
+      expect(await usdc.balanceOf(alice.address)).to.equal(balanceBefore + fullBalance);
+    });
+
     it("should reject withdrawal exceeding balance", async function () {
       const amount = 100n * ONE_USDC;
       await usdc.connect(alice).approve(await vault.getAddress(), amount);

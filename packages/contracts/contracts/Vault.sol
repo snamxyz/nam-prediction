@@ -75,6 +75,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     event PoolWhitelisted(address indexed pool, bool whitelisted);
     event EmergencyRefundModeChanged(bool enabled);
     event EmergencyRefunded(address indexed user, address indexed escrow, uint256 amount);
+    event VaultAccountingAdjusted(uint256 trackedBefore, uint256 debitAmount);
 
     // ─── Modifiers ───
     modifier onlyAdmin() {
@@ -138,7 +139,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         // Escrow always transfers to its owner (the caller here), regardless
         // of who calls withdraw() on the escrow.
         UserEscrow(escrow).withdraw(amount);
-        totalVaultBalance -= amount;
+        _debitTotalVaultBalance(amount);
 
         emit Withdraw(msg.sender, amount);
         emit BalanceUpdated(msg.sender, UserEscrow(escrow).balance());
@@ -157,7 +158,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyYesFor(pool, usdcAmount, minSharesOut, user);
-        totalVaultBalance -= usdcAmount;
+        _debitTotalVaultBalance(usdcAmount);
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -173,7 +174,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyNoFor(pool, usdcAmount, minSharesOut, user);
-        totalVaultBalance -= usdcAmount;
+        _debitTotalVaultBalance(usdcAmount);
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -227,7 +228,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyRangeFor(pool, rangeIndex, usdcAmount, user);
-        totalVaultBalance -= usdcAmount;
+        _debitTotalVaultBalance(usdcAmount);
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -244,7 +245,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         _requireWhitelistedPool(pool);
 
         UserEscrow(escrow).buyRangeFor(pool, rangeIndex, usdcAmount, user, minSharesOut);
-        totalVaultBalance -= usdcAmount;
+        _debitTotalVaultBalance(usdcAmount);
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
     }
@@ -329,7 +330,7 @@ contract Vault is IVaultRouter, ReentrancyGuard {
             if (balance == 0) continue;
 
             UserEscrow(escrow).withdraw(balance);
-            totalVaultBalance -= balance;
+            _debitTotalVaultBalance(balance);
             refunded += balance;
 
             emit EmergencyRefunded(user, escrow, balance);
@@ -416,6 +417,17 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         address factory = marketFactory;
         if (factory == address(0)) return; // Whitelist disabled (local/testing)
         require(IMarketFactoryView(factory).isPool(pool), "Pool not whitelisted");
+    }
+
+    function _debitTotalVaultBalance(uint256 amount) internal {
+        uint256 tracked = totalVaultBalance;
+        if (tracked >= amount) {
+            totalVaultBalance = tracked - amount;
+            return;
+        }
+
+        totalVaultBalance = 0;
+        emit VaultAccountingAdjusted(tracked, amount);
     }
 
     function _salt(address user) internal pure returns (bytes32) {
