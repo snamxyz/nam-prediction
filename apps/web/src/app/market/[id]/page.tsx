@@ -101,7 +101,7 @@ export default function MarketPage() {
   return (
     <>
       {!isResolved && !isLocked && (
-        <div className="fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-[60] grid grid-cols-2 gap-2 md:hidden">
+        <div className="fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-[50] grid grid-cols-2 gap-2 md:hidden">
           <button type="button" onClick={() => openMobileTrade("YES")} className="flex cursor-pointer items-center justify-between rounded-xl border border-yes/30 bg-yes px-4 py-3 text-left text-white shadow-[0_8px_24px_rgba(1,210,67,0.16)]">
             <span className="text-sm font-bold">Up</span>
             <span className="font-mono text-sm font-bold">{Math.round(currentYesPrice * 100)}¢</span>
