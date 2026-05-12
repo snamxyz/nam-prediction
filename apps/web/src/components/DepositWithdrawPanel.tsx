@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
-import { parseUnits, createPublicClient, createWalletClient, custom, http } from "viem";
+import { parseUnits, createPublicClient, createWalletClient, custom, formatUnits, http } from "viem";
 import { base } from "viem/chains";
 import { VaultABI, ERC20ABI } from "@nam-prediction/shared";
 import { USDC_ADDRESS } from "@/lib/contracts";
+import { floorBalance } from "@/lib/format";
 import { useAuth } from "@/hooks/useAuth";
 import { useContractConfig } from "@/hooks/useContractConfig";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
-import { useWallets } from "@privy-io/react-auth";
+import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { toast } from "sonner";
 
 const publicClient = createPublicClient({
@@ -22,7 +23,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export function DepositWithdrawPanel() {
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login } = useAuth();
-  const { wallets } = useWallets();
+  const preferredWallet = usePreferredWallet();
   const { usdcBalance, refetch } = useVaultBalance();
   const { vaultAddress } = useContractConfig();
   const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
@@ -57,7 +58,7 @@ export function DepositWithdrawPanel() {
   }, [address, vaultAddress]);
 
   const handleDeposit = async () => {
-    if (!address || !amount || !wallets.length) return;
+    if (!preferredWallet || !amount) return;
     setIsLoading(true);
     const toastId = `deposit-${Date.now()}`;
     const amountLabel = amount;
@@ -66,11 +67,12 @@ export function DepositWithdrawPanel() {
         throw new Error("Vault address is not configured on the API.");
       }
 
-      const wallet = wallets[0];
+      const wallet = preferredWallet;
+      const signerAddress = wallet.address as `0x${string}`;
       await wallet.switchChain(8453);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
-        account: address,
+        account: signerAddress,
         chain: base,
         transport: custom(provider),
       });
@@ -110,7 +112,7 @@ export function DepositWithdrawPanel() {
   };
 
   const handleWithdraw = async () => {
-    if (!address || !amount || !wallets.length) return;
+    if (!preferredWallet || !amount) return;
     setIsLoading(true);
     const toastId = `withdraw-${Date.now()}`;
     const amountLabel = amount;
@@ -119,16 +121,39 @@ export function DepositWithdrawPanel() {
         throw new Error("Vault address is not configured on the API.");
       }
 
-      const wallet = wallets[0];
+      const wallet = preferredWallet;
+      const signerAddress = wallet.address as `0x${string}`;
       await wallet.switchChain(8453);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
-        account: address,
+        account: signerAddress,
         chain: base,
         transport: custom(provider),
       });
 
       const usdcAmount = parseUnits(amount, 6);
+      const onChainRaw = (await publicClient.readContract({
+        address: vaultAddress,
+        abi: VaultABI,
+        functionName: "balanceOf",
+        args: [signerAddress],
+      })) as bigint;
+
+      if (usdcAmount > onChainRaw) {
+        toast.error(
+          `Insufficient balance. Available: ${floorBalance(formatUnits(onChainRaw, 6))} USDC`,
+          { id: toastId },
+        );
+        return;
+      }
+
+      const gasEstimate = await publicClient.estimateContractGas({
+        address: vaultAddress,
+        abi: VaultABI,
+        functionName: "withdraw",
+        args: [usdcAmount],
+        account: signerAddress,
+      });
 
       toast.loading("Confirm withdrawal in your wallet\u2026", { id: toastId });
       const withdrawHash = await walletClient.writeContract({
@@ -136,6 +161,7 @@ export function DepositWithdrawPanel() {
         abi: VaultABI,
         functionName: "withdraw",
         args: [usdcAmount],
+        gas: (gasEstimate * BigInt(120)) / BigInt(100),
       });
       toast.loading("Processing withdrawal\u2026", { id: toastId });
       await publicClient.waitForTransactionReceipt({ hash: withdrawHash });
@@ -161,7 +187,7 @@ export function DepositWithdrawPanel() {
         <h3 className="text-sm font-semibold text-[#e8e9ed]">Vault Balance</h3>
         {isAuthenticated && (
           <p className="mt-1 text-2xl font-bold text-yes">
-            ${parseFloat(usdcBalance).toFixed(2)}
+            ${floorBalance(usdcBalance)}
           </p>
         )}
       </div>
@@ -205,10 +231,24 @@ export function DepositWithdrawPanel() {
 
         {tab === "withdraw" && (
           <button
-            onClick={() => setAmount(usdcBalance)}
+            onClick={async () => {
+              if (!address || !vaultAddress) return;
+              try {
+                const raw = (await publicClient.readContract({
+                  address: vaultAddress,
+                  abi: VaultABI,
+                  functionName: "balanceOf",
+                  args: [address],
+                })) as bigint;
+                setAmount(formatUnits(raw, 6));
+              } catch (err: any) {
+                console.error("Failed to fetch live vault balance:", err);
+                toast.error(err.shortMessage || err.message || "Failed to fetch vault balance");
+              }
+            }}
             className="mb-3 rounded bg-yes/10 px-2 py-1 text-xs text-yes transition-all"
           >
-            Max: ${parseFloat(usdcBalance).toFixed(2)}
+            Max: ${floorBalance(usdcBalance)}
           </button>
         )}
 
@@ -242,7 +282,7 @@ export function DepositWithdrawPanel() {
             {isLoading
               ? "Processing..."
               : num > 0
-              ? `${tab === "deposit" ? "Deposit" : "Withdraw"} $${num.toFixed(2)}`
+              ? `${tab === "deposit" ? "Deposit" : "Withdraw"} $${floorBalance(amount)}`
               : "Enter an amount"}
           </button>
         )}

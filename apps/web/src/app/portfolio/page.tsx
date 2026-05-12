@@ -11,6 +11,7 @@ import { VaultModal } from "@/components/VaultModal";
 import { VaultTransactionHistory } from "@/components/VaultTransactionHistory";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { MARKET_FACTORY_ADDRESS } from "@/lib/contracts";
+import { floorBalance } from "@/lib/format";
 import { toast } from "sonner";
 import type { PositionWithMarket } from "@/hooks/usePortfolio";
 import { Wallet, TrendingUp, Trophy, ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
@@ -234,7 +235,7 @@ export default function PortfolioPage() {
             <div style={{ height: 28, width: 80, borderRadius: 6, background: "var(--surface-hover)", marginTop: 2 }} />
           ) : (
             <div className="mono" style={{ fontSize: 21, color: "#01d243" }}>
-              ${parseFloat(usdcBalance).toFixed(2)}
+              ${floorBalance(usdcBalance)}
             </div>
           )}
         </div>

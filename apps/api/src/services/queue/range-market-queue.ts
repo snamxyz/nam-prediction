@@ -32,7 +32,6 @@ const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
 const RANGE_MARKET_LIQUIDITY = Number(process.env.RANGE_MARKET_LIQUIDITY) || 1000;
 // When false, markets are created and resolved in DB only (no on-chain txs).
 const RANGE_MARKET_ONCHAIN = process.env.RANGE_MARKET_ONCHAIN !== "false";
-const RANGE_MARKET_RESOLUTION_MODE = process.env.RANGE_MARKET_RESOLUTION_MODE || "manual";
 /** Daily participants / "NAM tokens distributed" range market — off unless explicitly enabled. */
 const ENABLE_PARTICIPANTS_RANGE_MARKET = (() => {
   const v = (process.env.ENABLE_PARTICIPANTS_RANGE_MARKET || "").trim().toLowerCase();
@@ -360,12 +359,6 @@ async function resolveExpiredMarkets(): Promise<void> {
     console.log(`[RangeMarketQueue] Resolving market id=${market.id} type=${market.marketType}`);
 
     const ranges = market.ranges as RangeOutcome[];
-    if (RANGE_MARKET_RESOLUTION_MODE !== "random") {
-      console.warn(
-        `[RangeMarketQueue] Market id=${market.id} expired but auto-resolution is ${RANGE_MARKET_RESOLUTION_MODE}; waiting for manual/data-source resolution.`
-      );
-      continue;
-    }
     const winningIndex = randomRangeIndex(ranges.length);
 
     try {

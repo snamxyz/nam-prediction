@@ -22,13 +22,15 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/UI/drawer";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 import { useAccount } from "wagmi";
 import { createWalletClient, custom, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { toast } from "sonner";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
+import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { formatEasternShortDate } from "@/lib/dateDisplay";
+import { floorBalance } from "@/lib/format";
 import { getRangeMarketAccent, getRangeMarketLabel, type RangeMarketKind } from "@/lib/rangeMarketDisplay";
 
 const RANGE_COLORS = [
@@ -213,7 +215,7 @@ function TradePanelRange({
 }: TradePanelRangeProps) {
   const { address, isConnected } = useAccount();
   const { getAccessToken, user } = usePrivy();
-  const { wallets } = useWallets();
+  const preferredWallet = usePreferredWallet();
   const { usdcBalance } = useVaultBalance();
 
   const [mode, setMode] = useState<"BUY" | "SELL">("BUY");
@@ -302,7 +304,7 @@ function TradePanelRange({
   };
 
   const handleTrade = async () => {
-    if (!address || !amount || !wallets.length || selectedRangeIndex == null) return;
+    if (!preferredWallet || !amount || selectedRangeIndex == null) return;
     if (!market.rangeCpmmAddress) return;
 
     setIsLoading(true);
@@ -313,10 +315,11 @@ function TradePanelRange({
       const token = await getAccessToken();
       if (!token) throw new Error("Not authenticated");
 
-      const wallet = wallets[0];
+      const wallet = preferredWallet;
+      const signerAddress = wallet.address as `0x${string}`;
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
-        account: address,
+        account: signerAddress,
         chain: base,
         transport: custom(provider),
       });
@@ -331,18 +334,18 @@ function TradePanelRange({
 
       toast.loading("Preparing trade…", { id: toastId });
       const { nonce, suggestedDeadline } = await fetchApi<NonceResponse>(
-        `/trading/nonce/${address}`
+        `/trading/nonce/${signerAddress}`
       );
       const deadline = BigInt(suggestedDeadline);
 
       toast.loading("Sign the trade in your wallet…", { id: toastId });
       const signature = await walletClient.signTypedData({
-        account: address,
+        account: signerAddress,
         domain: { ...TRADING_DOMAIN, chainId: base.id },
         types: RANGE_TRADE_INTENT_TYPES,
         primaryType: RANGE_TRADE_INTENT_PRIMARY_TYPE,
         message: {
-          trader: address,
+          trader: signerAddress,
           marketId: BigInt(market.onChainMarketId ?? market.id),
           cpmmAddress: market.rangeCpmmAddress as `0x${string}`,
           rangeIndex: BigInt(selectedRangeIndex),
@@ -367,7 +370,7 @@ function TradePanelRange({
           ...(mode === "BUY"
             ? { usdcAmount: parseFloat(amount) }
             : { shares: parseFloat(amount) }),
-          userAddress: address,
+          userAddress: signerAddress,
           minOutput: minOutputRaw.toString(),
           signature,
           nonce,
@@ -497,7 +500,7 @@ function TradePanelRange({
     isConnected &&
     num > 0 &&
     !isLoading &&
-    wallets.length > 0 &&
+    !!preferredWallet &&
     selectedRangeIndex != null &&
     hasCurrentBuyQuote;
   const selectedColorIndex =
@@ -514,7 +517,7 @@ function TradePanelRange({
             <span className="mono text-[11px] text-[var(--muted)]">
               Balance:{" "}
               <span className="text-yes">
-                ${parseFloat(usdcBalance).toFixed(2)}
+                ${floorBalance(usdcBalance)}
               </span>
             </span>
           )}
