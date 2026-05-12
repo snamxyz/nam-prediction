@@ -1,11 +1,12 @@
 "use client";
 
-import { PrivyProvider } from "@privy-io/react-auth";
+import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "@privy-io/wagmi";
+import { WagmiProvider, useSetActiveWallet } from "@privy-io/wagmi";
 import { wagmiConfig } from "@/lib/wagmi";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { base } from "viem/chains";
+import { useAccount } from "wagmi";
 import { Toaster } from "sonner";
 import { NavigationProgress } from "@/components/NavigationProgress";
 import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
@@ -52,13 +53,14 @@ function ThemedProviders({
           accentColor: "#01d243",
         },
         embeddedWallets: {
-          createOnLogin: "users-without-wallets",
+          createOnLogin: "all-users",
         },
         loginMethods: ["email", "wallet", "google", "twitter"],
       }}
     >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>
+          <WalletActivator />
           <NavigationProgress />
           {children}
           <Toaster
@@ -71,4 +73,35 @@ function ThemedProviders({
       </QueryClientProvider>
     </PrivyProvider>
   );
+}
+
+function WalletActivator() {
+  const { authenticated, user } = usePrivy();
+  const { wallets } = useWallets();
+  const { setActiveWallet } = useSetActiveWallet();
+  const { address } = useAccount();
+
+  useEffect(() => {
+    if (!authenticated || !user) return;
+
+    const embeddedWallet = wallets.find(
+      (wallet) => wallet.walletClientType === "privy",
+    );
+    if (!embeddedWallet) return;
+
+    const hasSocialOrEmailLogin = user.linkedAccounts?.some((account) =>
+      ["email", "phone", "google_oauth", "twitter_oauth"].includes(
+        account.type,
+      ),
+    );
+    if (!hasSocialOrEmailLogin) return;
+
+    if (address?.toLowerCase() === embeddedWallet.address.toLowerCase()) return;
+
+    setActiveWallet(embeddedWallet).catch((error) => {
+      console.error("[WalletActivator] Failed to activate embedded wallet:", error);
+    });
+  }, [address, authenticated, setActiveWallet, user, wallets]);
+
+  return null;
 }

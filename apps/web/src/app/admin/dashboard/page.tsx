@@ -5,7 +5,7 @@ import { useAdminOverview } from "@/hooks/useAdmin";
 import { useContractConfig } from "@/hooks/useContractConfig";
 import { useVaultChainTvl } from "@/hooks/useVaultChainTvl";
 import { VaultABI } from "@nam-prediction/shared";
-import { useWallets } from "@privy-io/react-auth";
+import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { createPublicClient, createWalletClient, custom, http } from "viem";
 import { base } from "viem/chains";
 import { AlertTriangle, DollarSign, Users, Activity, BarChart3, TrendingUp, ArrowDownLeft, ArrowUpRight, Layers } from "lucide-react";
@@ -38,7 +38,7 @@ function fmt(n: string | number) {
 export default function AdminDashboardPage() {
   const { data, isLoading } = useAdminOverview();
   const { vaultAddress } = useContractConfig();
-  const { wallets } = useWallets();
+  const preferredWallet = usePreferredWallet();
   const [isRefunding, setIsRefunding] = useState(false);
   const {
     data: chainTvl,
@@ -58,9 +58,9 @@ export default function AdminDashboardPage() {
     const toastId = `emergency-refund-${Date.now()}`;
     try {
       if (!vaultAddress) throw new Error("Vault address is not configured.");
-      if (!wallets.length) throw new Error("Connect the admin wallet first.");
+      if (!preferredWallet) throw new Error("Connect the admin wallet first.");
 
-      const wallet = wallets[0];
+      const wallet = preferredWallet;
       await wallet.switchChain(8453);
       const provider = await wallet.getEthereumProvider();
       const account = wallet.address as `0x${string}`;

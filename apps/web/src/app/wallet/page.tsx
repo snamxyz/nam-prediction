@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { useAccount, useBalance, useReadContract } from "wagmi";
-import { useWallets } from "@privy-io/react-auth";
 import {
   createPublicClient,
   createWalletClient,
@@ -20,6 +19,7 @@ import { ERC20ABI } from "@nam-prediction/shared";
 import { NAM_TOKEN_ADDRESS, USDC_ADDRESS } from "@/lib/contracts";
 import { fetchApi } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { Copy, CheckCheck, QrCode, Send, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
@@ -58,7 +58,7 @@ function formatTokenAmount(value: string, max = 6) {
 export default function WalletPage() {
   const { address } = useAccount();
   const { login, isAuthenticated, walletAddress } = useAuth();
-  const { wallets } = useWallets();
+  const preferredWallet = usePreferredWallet();
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<"receive" | "send">("receive");
   const [asset, setAsset] = useState<SendAsset>("USDC");
@@ -76,8 +76,8 @@ export default function WalletPage() {
     () => (NAM_TOKEN_ADDRESS || namMeta?.tokenAddress || "") as `0x${string}`,
     [namMeta?.tokenAddress]
   );
-  const walletFallbackAddress = wallets[0]?.address;
-  const activeAddress = (address || walletAddress || walletFallbackAddress) as `0x${string}` | undefined;
+  const walletFallbackAddress = preferredWallet?.address;
+  const activeAddress = (walletFallbackAddress || address || walletAddress) as `0x${string}` | undefined;
 
   const { data: ethData, refetch: refetchEth } = useBalance({
     address: activeAddress,
@@ -128,7 +128,7 @@ export default function WalletPage() {
   };
 
   const sendAsset = async () => {
-    if (!activeAddress || !wallets.length || !amount) return;
+    if (!activeAddress || !preferredWallet || !amount) return;
     if (!isAddress(recipient)) {
       toast.error("Enter a valid recipient address");
       return;
@@ -137,7 +137,7 @@ export default function WalletPage() {
     setSending(true);
     const toastId = `wallet-send-${Date.now()}`;
     try {
-      const wallet = wallets[0];
+      const wallet = preferredWallet;
       await wallet.switchChain(base.id);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({

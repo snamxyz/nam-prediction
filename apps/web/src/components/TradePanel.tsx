@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAccount } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 import { createWalletClient, custom, parseUnits } from "viem";
 import { base } from "viem/chains";
 import {
@@ -15,7 +15,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { usePortfolio, type BinaryPositionWithMarket, type PositionWithMarket } from "@/hooks/usePortfolio";
 import { fetchApi, authedPostApi } from "@/lib/api";
+import { floorBalance } from "@/lib/format";
 import type { OutcomeDisplayLabels } from "@/lib/marketDisplay";
+import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 
@@ -77,7 +79,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login } = useAuth();
   const { getAccessToken } = usePrivy();
-  const { wallets } = useWallets();
+  const preferredWallet = usePreferredWallet();
   const { usdcBalance, refetch: refetchBalance } = useVaultBalance();
   const { data: positions } = usePortfolio();
   const queryClient = useQueryClient();
@@ -167,7 +169,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   }, [amount, side, mode, marketId]);
 
   const handleTrade = async () => {
-    if (!address || !amount || !wallets.length) return;
+    if (!preferredWallet || !amount) return;
     setIsLoading(true);
     setError(null);
     const toastId = `trade-${Date.now()}`;
@@ -177,10 +179,11 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
       if (!token) throw new Error("Not authenticated");
 
       // Build the wallet client for signing
-      const wallet = wallets[0];
+      const wallet = preferredWallet;
+      const signerAddress = wallet.address as `0x${string}`;
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
-        account: address,
+        account: signerAddress,
         chain: base,
         transport: custom(provider),
       });
@@ -203,18 +206,18 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
       toast.loading("Preparing trade\u2026", { id: toastId });
       const { nonce, suggestedDeadline } = await fetchApi<NonceResponse>(
-        `/trading/nonce/${address}`
+        `/trading/nonce/${signerAddress}`
       );
       const deadline = BigInt(suggestedDeadline);
 
       toast.loading("Sign the trade in your wallet\u2026", { id: toastId });
       const signature = await walletClient.signTypedData({
-        account: address,
+        account: signerAddress,
         domain: { ...TRADING_DOMAIN, chainId: base.id },
         types: TRADE_INTENT_TYPES,
         primaryType: TRADE_INTENT_PRIMARY_TYPE,
         message: {
-          trader: address,
+          trader: signerAddress,
           marketId: BigInt(onChainMarketId),
           ammAddress,
           isYes: side === "YES",
@@ -246,7 +249,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
       queryClient.invalidateQueries({ queryKey: ["market", String(marketId)] });
       queryClient.invalidateQueries({ queryKey: ["market-trades", String(marketId)] });
       queryClient.invalidateQueries({ queryKey: ["markets"] });
-      queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
+      queryClient.invalidateQueries({ queryKey: ["portfolio", signerAddress] });
       refetchBalance();
 
       const successMsg =
@@ -341,7 +344,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           <h3 className="text-[13px] font-semibold text-[var(--foreground)]">Trade</h3>
           {isAuthenticated && (
             <span className="mono text-[11px] text-[var(--muted)]">
-              Balance: <span className="text-yes">${parseFloat(usdcBalance).toFixed(2)}</span>
+              Balance: <span className="text-yes">${floorBalance(usdcBalance)}</span>
             </span>
           )}
         </div>
@@ -619,9 +622,9 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         ) : (
           <button
             onClick={handleTrade}
-            disabled={!isConnected || num <= 0 || isLoading || !wallets.length}
+            disabled={!isConnected || num <= 0 || isLoading || !preferredWallet}
             className={`w-full rounded-[10px] border-0 py-3 text-[13px] font-bold transition-all duration-150 ${
-              isConnected && num > 0 && !isLoading && wallets.length > 0
+              isConnected && num > 0 && !isLoading && preferredWallet
                 ? `cursor-pointer ${sideButtonClass}`
                 : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]"
             }`}

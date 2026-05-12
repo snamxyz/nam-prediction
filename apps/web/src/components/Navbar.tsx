@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import { ADMIN_WALLETS } from "@/lib/adminWallets";
+import { floorBalance } from "@/lib/format";
 
 export function Navbar() {
   const { login, logout, isAuthenticated, walletAddress } = useAuth();
@@ -125,7 +126,7 @@ export function Navbar() {
               <span className="mono text-xs font-medium text-[var(--yes)]">
                 {isBalanceLoading
                   ? "$—"
-                  : `$${parseFloat(usdcBalance).toFixed(2)}`}
+                  : `$${floorBalance(usdcBalance)}`}
               </span>
             </Link>
           )}
@@ -263,7 +264,7 @@ export function Navbar() {
                 <span className="mono text-xs font-medium text-[var(--yes)]">
                   {isBalanceLoading
                     ? "$—"
-                    : `$${parseFloat(usdcBalance).toFixed(2)}`}
+                    : `$${floorBalance(usdcBalance)}`}
                 </span>
               )}
             </Link>
