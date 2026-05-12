@@ -21,7 +21,7 @@
 [data-theme="light"] {
   --background: #f4f6fb;
   --foreground: #10121a;
-  --accent: #00c43e;
+  --accent: #00df46;
   --muted: #596177;
   --muted-strong: #394052;
   --surface: #ffffff;
@@ -29,7 +29,7 @@
   --surface-raised: #e7ebf3;
   --border: rgba(16,18,26,0.14);
   --border-subtle: rgba(16,18,26,0.09);
-  --yes: #00c43e;
+  --yes: #00df46;
   --no: #d92740;
   color-scheme: light;
 }

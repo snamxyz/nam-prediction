@@ -329,6 +329,7 @@ export const CPMMABI = [
     name: "buyYesFor",
     inputs: [
       { name: "usdcIn", type: "uint256" },
+      { name: "minSharesOut", type: "uint256" },
       { name: "recipient", type: "address" },
     ],
     outputs: [{ name: "sharesOut", type: "uint256" }],
@@ -339,6 +340,7 @@ export const CPMMABI = [
     name: "buyNoFor",
     inputs: [
       { name: "usdcIn", type: "uint256" },
+      { name: "minSharesOut", type: "uint256" },
       { name: "recipient", type: "address" },
     ],
     outputs: [{ name: "sharesOut", type: "uint256" }],
@@ -349,6 +351,7 @@ export const CPMMABI = [
     name: "sellYesFor",
     inputs: [
       { name: "sharesIn", type: "uint256" },
+      { name: "minUsdcOut", type: "uint256" },
       { name: "seller", type: "address" },
     ],
     outputs: [{ name: "usdcOut", type: "uint256" }],
@@ -359,10 +362,31 @@ export const CPMMABI = [
     name: "sellNoFor",
     inputs: [
       { name: "sharesIn", type: "uint256" },
+      { name: "minUsdcOut", type: "uint256" },
       { name: "seller", type: "address" },
     ],
     outputs: [{ name: "usdcOut", type: "uint256" }],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "quoteBuy",
+    inputs: [
+      { name: "isYes", type: "bool" },
+      { name: "usdcIn", type: "uint256" },
+    ],
+    outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "quoteSell",
+    inputs: [
+      { name: "isYes", type: "bool" },
+      { name: "sharesIn", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -681,6 +705,7 @@ export const VaultABI = [
     inputs: [
       { name: "pool", type: "address" },
       { name: "usdcAmount", type: "uint256" },
+      { name: "minSharesOut", type: "uint256" },
       { name: "user", type: "address" },
     ],
     outputs: [],
@@ -692,6 +717,7 @@ export const VaultABI = [
     inputs: [
       { name: "pool", type: "address" },
       { name: "usdcAmount", type: "uint256" },
+      { name: "minSharesOut", type: "uint256" },
       { name: "user", type: "address" },
     ],
     outputs: [],
@@ -703,6 +729,7 @@ export const VaultABI = [
     inputs: [
       { name: "pool", type: "address" },
       { name: "sharesIn", type: "uint256" },
+      { name: "minUsdcOut", type: "uint256" },
       { name: "user", type: "address" },
     ],
     outputs: [],
@@ -714,6 +741,7 @@ export const VaultABI = [
     inputs: [
       { name: "pool", type: "address" },
       { name: "sharesIn", type: "uint256" },
+      { name: "minUsdcOut", type: "uint256" },
       { name: "user", type: "address" },
     ],
     outputs: [],

@@ -179,6 +179,32 @@ describe("Prediction Market — Full Lifecycle", function () {
       expect(yesPrice).to.be.gt(5n * 10n ** 17n); // > 0.5
     });
 
+    it("quotes a 50c tiny YES buy near two shares per USDC", async function () {
+      const buyAmount = ONE_USDC / 100n; // $0.01
+      const quotedShares = await pool.quoteBuy(true, buyAmount);
+
+      // 2% LP fee means $0.0098 enters the AMM; at a deep 50/50 pool this
+      // should mint just under 0.0196 YES shares, not ~0.0098.
+      const expected = 196n * 10n ** 14n; // 0.0196 shares
+      expect(quotedShares).to.be.closeTo(expected, 10n ** 12n);
+
+      await usdc.connect(alice).approve(await pool.getAddress(), buyAmount);
+      await pool.connect(alice).buyYes(buyAmount);
+      expect(await yesToken.balanceOf(alice.address)).to.equal(quotedShares);
+    });
+
+    it("sell quote is the inverse around the current pool price", async function () {
+      const buyAmount = ONE_USDC / 100n;
+      await usdc.connect(alice).approve(await pool.getAddress(), buyAmount);
+      await pool.connect(alice).buyYes(buyAmount);
+
+      const yesBalance = await yesToken.balanceOf(alice.address);
+      const sellQuote = await pool.quoteSell(true, yesBalance);
+
+      expect(sellQuote).to.be.gt(0n);
+      expect(sellQuote).to.be.lt(buyAmount); // round trip pays fees
+    });
+
     it("should allow buying NO tokens", async function () {
       const buyAmount = 100n * ONE_USDC;
       await usdc.connect(bob).approve(await pool.getAddress(), buyAmount);
@@ -466,7 +492,7 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Operator (admin) executes buy on behalf of alice
       const buyAmount = 100n * ONE_USDC;
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, alice.address);
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, 0n, alice.address);
 
       // Alice should have YES tokens in her wallet
       const yesBalance = await yesToken.balanceOf(alice.address);
@@ -477,13 +503,29 @@ describe("Prediction Market — Full Lifecycle", function () {
       expect(await vault.totalVaultBalance()).to.equal(400n * ONE_USDC);
     });
 
+    it("enforces min shares on delegated buys", async function () {
+      const depositAmount = 500n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+
+      const buyAmount = 100n * ONE_USDC;
+      const quotedShares = await pool.quoteBuy(true, buyAmount);
+
+      await expect(
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, quotedShares + 1n, alice.address)
+      ).to.be.revertedWith("Slippage: insufficient shares");
+
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, quotedShares, alice.address);
+      expect(await yesToken.balanceOf(alice.address)).to.equal(quotedShares);
+    });
+
     it("should allow operator to execute buy NO", async function () {
       const depositAmount = 500n * ONE_USDC;
       await usdc.connect(bob).approve(await vault.getAddress(), depositAmount);
       await vault.connect(bob).deposit(depositAmount);
 
       const buyAmount = 100n * ONE_USDC;
-      await vault.connect(admin).executeBuyNo(await pool.getAddress(), buyAmount, bob.address);
+      await vault.connect(admin).executeBuyNo(await pool.getAddress(), buyAmount, 0n, bob.address);
 
       const noBalance = await noToken.balanceOf(bob.address);
       expect(noBalance).to.be.gt(0n);
@@ -496,14 +538,14 @@ describe("Prediction Market — Full Lifecycle", function () {
       const depositAmount = 500n * ONE_USDC;
       await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
       await vault.connect(alice).deposit(depositAmount);
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, alice.address);
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, 0n, alice.address);
 
       const yesBalance = await yesToken.balanceOf(alice.address);
       const vaultBalanceBefore = await vault.balances(alice.address);
 
       // Sell half the YES tokens
       const sellAmount = yesBalance / 2n;
-      await vault.connect(admin).executeSellYes(await pool.getAddress(), sellAmount, alice.address);
+      await vault.connect(admin).executeSellYes(await pool.getAddress(), sellAmount, 0n, alice.address);
 
       // Vault balance should increase (USDC credited)
       expect(await vault.balances(alice.address)).to.be.gt(vaultBalanceBefore);
@@ -516,13 +558,13 @@ describe("Prediction Market — Full Lifecycle", function () {
       const depositAmount = 500n * ONE_USDC;
       await usdc.connect(bob).approve(await vault.getAddress(), depositAmount);
       await vault.connect(bob).deposit(depositAmount);
-      await vault.connect(admin).executeBuyNo(await pool.getAddress(), 100n * ONE_USDC, bob.address);
+      await vault.connect(admin).executeBuyNo(await pool.getAddress(), 100n * ONE_USDC, 0n, bob.address);
 
       const noBalance = await noToken.balanceOf(bob.address);
       const vaultBalanceBefore = await vault.balances(bob.address);
 
       const sellAmount = noBalance / 2n;
-      await vault.connect(admin).executeSellNo(await pool.getAddress(), sellAmount, bob.address);
+      await vault.connect(admin).executeSellNo(await pool.getAddress(), sellAmount, 0n, bob.address);
 
       expect(await vault.balances(bob.address)).to.be.gt(vaultBalanceBefore);
       expect(await vault.totalVaultBalance()).to.equal(await vault.balances(bob.address));
@@ -535,7 +577,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(alice).deposit(depositAmount);
 
       await expect(
-        vault.connect(alice).executeBuyYes(await pool.getAddress(), 50n * ONE_USDC, alice.address)
+        vault.connect(alice).executeBuyYes(await pool.getAddress(), 50n * ONE_USDC, 0n, alice.address)
       ).to.be.revertedWith("Only operator");
     });
 
@@ -546,7 +588,7 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Escrow only holds 50 USDC; CPMM safeTransferFrom will revert when it tries to pull 100.
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, alice.address)
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, 0n, alice.address)
       ).to.be.reverted;
     });
 
@@ -579,12 +621,12 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(alice).deposit(depositAmount);
 
       // Buy YES
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 200n * ONE_USDC, alice.address);
+      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 200n * ONE_USDC, 0n, alice.address);
       const yesBalance = await yesToken.balanceOf(alice.address);
       expect(yesBalance).to.be.gt(0n);
 
       // Sell YES
-      await vault.connect(admin).executeSellYes(await pool.getAddress(), yesBalance, alice.address);
+      await vault.connect(admin).executeSellYes(await pool.getAddress(), yesBalance, 0n, alice.address);
       expect(await yesToken.balanceOf(alice.address)).to.equal(0n);
 
       // Withdraw everything
@@ -629,7 +671,7 @@ describe("Prediction Market — Full Lifecycle", function () {
         vault.connect(alice).deposit(1n * ONE_USDC)
       ).to.be.revertedWith("Emergency refund active");
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), 1n * ONE_USDC, alice.address)
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), 1n * ONE_USDC, 0n, alice.address)
       ).to.be.revertedWith("Emergency refund active");
 
       await expect(vault.connect(admin).emergencyRefund(0, 1))
@@ -737,6 +779,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(admin).executeBuyYes(
         await pool.getAddress(),
         300n * ONE_USDC,
+        0n,
         alice.address
       );
 
@@ -758,10 +801,10 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Admin (who is also the vault operator) is NOT the router, so it must revert.
       await expect(
-        escrow.connect(admin).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, alice.address)
+        escrow.connect(admin).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, 0n, alice.address)
       ).to.be.revertedWith("Only router");
       await expect(
-        escrow.connect(alice).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, alice.address)
+        escrow.connect(alice).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, 0n, alice.address)
       ).to.be.revertedWith("Only router");
     });
 
@@ -796,20 +839,20 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // bob.address is clearly not a pool created by the factory.
       await expect(
-        vault.connect(admin).executeBuyYes(bob.address, 10n * ONE_USDC, alice.address)
+        vault.connect(admin).executeBuyYes(bob.address, 10n * ONE_USDC, 0n, alice.address)
       ).to.be.revertedWith("Pool not whitelisted");
     });
 
     it("rejects operator trades for a user who never deposited (no escrow)", async function () {
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), 10n * ONE_USDC, bob.address)
+        vault.connect(admin).executeBuyYes(await pool.getAddress(), 10n * ONE_USDC, 0n, bob.address)
       ).to.be.revertedWith("No escrow");
     });
 
     it("CPMM rejects direct *For calls from non-escrow addresses", async function () {
       // Admin is the vault admin but is NOT a registered escrow — call must revert.
       await expect(
-        pool.connect(admin).buyYesFor(10n * ONE_USDC, alice.address)
+        pool.connect(admin).buyYesFor(10n * ONE_USDC, 0n, alice.address)
       ).to.be.revertedWith("Only user escrow");
     });
 

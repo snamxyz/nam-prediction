@@ -165,6 +165,91 @@ contract CPMM {
         return grossOut - fee;
     }
 
+    // ─── Quote helpers ───
+
+    function _sqrt(uint256 x) internal pure returns (uint256 z) {
+        if (x == 0) return 0;
+        z = x;
+        uint256 y = (x + 1) / 2;
+        while (y < z) {
+            z = y;
+            y = (x / y + y) / 2;
+        }
+    }
+
+    function _quoteBuyState(
+        bool isYes,
+        uint256 scaledIn
+    ) internal view returns (uint256 sharesOut, uint256 newYesReserve, uint256 newNoReserve) {
+        uint256 k = yesReserve * noReserve;
+        if (isYes) {
+            newNoReserve = noReserve + scaledIn;
+            newYesReserve = k / newNoReserve;
+            // Buying an outcome mints a complete set with the collateral and
+            // swaps the opposite leg into more of the desired outcome.
+            sharesOut = scaledIn + (yesReserve - newYesReserve);
+        } else {
+            newYesReserve = yesReserve + scaledIn;
+            newNoReserve = k / newYesReserve;
+            sharesOut = scaledIn + (noReserve - newNoReserve);
+        }
+    }
+
+    function _quoteSellGrossScaled(bool isYes, uint256 sharesIn) internal view returns (uint256 scaledOut) {
+        if (sharesIn == 0) return 0;
+
+        uint256 k = yesReserve * noReserve;
+        uint256 counterReserve = isYes ? noReserve : yesReserve;
+        uint256 b = yesReserve + noReserve + sharesIn;
+        uint256 discriminant = (b * b) - (4 * sharesIn * counterReserve);
+        uint256 root = _sqrt(discriminant);
+        scaledOut = (b - root) / 2;
+
+        uint256 maxOut = sharesIn < counterReserve ? sharesIn : counterReserve;
+        if (scaledOut > maxOut) scaledOut = maxOut;
+
+        // The integer square root can round the root down, which rounds
+        // scaledOut up. Nudge down so reserves never cross the invariant.
+        while (scaledOut > 0) {
+            uint256 newYesReserve = isYes ? yesReserve + sharesIn - scaledOut : yesReserve - scaledOut;
+            uint256 newNoReserve = isYes ? noReserve - scaledOut : noReserve + sharesIn - scaledOut;
+            if (newYesReserve * newNoReserve >= k) break;
+            scaledOut -= 1;
+        }
+    }
+
+    function _quoteSellState(
+        bool isYes,
+        uint256 sharesIn
+    ) internal view returns (uint256 grossOut, uint256 newYesReserve, uint256 newNoReserve) {
+        uint256 scaledOut = _quoteSellGrossScaled(isYes, sharesIn);
+        grossOut = scaledOut / DECIMAL_SCALE;
+        if (isYes) {
+            newYesReserve = yesReserve + sharesIn - scaledOut;
+            newNoReserve = noReserve - scaledOut;
+        } else {
+            newYesReserve = yesReserve - scaledOut;
+            newNoReserve = noReserve + sharesIn - scaledOut;
+        }
+    }
+
+    /// @notice Estimate outcome shares for a buy, including configured fees.
+    function quoteBuy(bool isYes, uint256 usdcIn) external view returns (uint256 sharesOut) {
+        uint256 protocolFee = (usdcIn * protocolFeeBps) / BPS;
+        uint256 netIn = usdcIn - protocolFee;
+        uint256 lpFee = (netIn * feeBps) / BPS;
+        (sharesOut,,) = _quoteBuyState(isYes, (netIn - lpFee) * DECIMAL_SCALE);
+    }
+
+    /// @notice Estimate net USDC proceeds for a sell, including configured fees.
+    function quoteSell(bool isYes, uint256 sharesIn) external view returns (uint256 usdcOut) {
+        (uint256 grossOut,,) = _quoteSellState(isYes, sharesIn);
+        uint256 lpFee = (grossOut * feeBps) / BPS;
+        uint256 afterLpFee = grossOut - lpFee;
+        uint256 protocolFee = (afterLpFee * protocolFeeBps) / BPS;
+        usdcOut = afterLpFee - protocolFee;
+    }
+
     // ─── Trading ───
 
     /// @notice Buy YES outcome tokens with USDC
@@ -185,17 +270,9 @@ contract CPMM {
         // LP swap fee stays in the pool by being excluded from the AMM input.
         uint256 lpFee = (netIn * feeBps) / BPS;
         uint256 usdcAfterFee = netIn - lpFee;
-
-        // Scale to 18 decimals for AMM math
-        uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
-
-        // Constant product: k = x * y
-        // Adding collateral increases noReserve (other side), buyer gets YES tokens
-        uint256 k = yesReserve * noReserve;
-        uint256 newNoReserve = noReserve + scaledIn;
-        uint256 newYesReserve = k / newNoReserve;
-
-        sharesOut = yesReserve - newYesReserve;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        (sharesOut, newYesReserve, newNoReserve) = _quoteBuyState(true, usdcAfterFee * DECIMAL_SCALE);
         require(sharesOut > 0, "Insufficient output");
         require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
 
@@ -226,13 +303,9 @@ contract CPMM {
 
         uint256 lpFee = (netIn * feeBps) / BPS;
         uint256 usdcAfterFee = netIn - lpFee;
-        uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
-
-        uint256 k = yesReserve * noReserve;
-        uint256 newYesReserve = yesReserve + scaledIn;
-        uint256 newNoReserve = k / newYesReserve;
-
-        sharesOut = noReserve - newNoReserve;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        (sharesOut, newYesReserve, newNoReserve) = _quoteBuyState(false, usdcAfterFee * DECIMAL_SCALE);
         require(sharesOut > 0, "Insufficient output");
         require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
 
@@ -256,15 +329,10 @@ contract CPMM {
         // Burn YES tokens from seller
         IOutcomeToken(yesToken).burn(msg.sender, sharesIn);
 
-        // Returning YES tokens increases yesReserve
-        uint256 k = yesReserve * noReserve;
-        uint256 newYesReserve = yesReserve + sharesIn;
-        uint256 newNoReserve = k / newYesReserve;
-
-        uint256 scaledOut = noReserve - newNoReserve;
-
-        // Scale back from 18 to 6 decimals
-        uint256 grossOut = scaledOut / DECIMAL_SCALE;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        uint256 grossOut;
+        (grossOut, newYesReserve, newNoReserve) = _quoteSellState(true, sharesIn);
 
         // LP swap fee retained inside the pool
         uint256 lpFee = (grossOut * feeBps) / BPS;
@@ -296,12 +364,10 @@ contract CPMM {
 
         IOutcomeToken(noToken).burn(msg.sender, sharesIn);
 
-        uint256 k = yesReserve * noReserve;
-        uint256 newNoReserve = noReserve + sharesIn;
-        uint256 newYesReserve = k / newNoReserve;
-
-        uint256 scaledOut = yesReserve - newYesReserve;
-        uint256 grossOut = scaledOut / DECIMAL_SCALE;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        uint256 grossOut;
+        (grossOut, newYesReserve, newNoReserve) = _quoteSellState(false, sharesIn);
 
         uint256 lpFee = (grossOut * feeBps) / BPS;
         uint256 afterLpFee = grossOut - lpFee;
@@ -344,9 +410,10 @@ contract CPMM {
 
     /// @notice Buy YES tokens on behalf of a user. Called by Vault.
     /// @param usdcIn Amount of USDC to spend (6 decimals), transferred from msg.sender (Vault)
+    /// @param minSharesOut Minimum YES shares the caller will accept (slippage guard)
     /// @param recipient Address to mint YES tokens to
     /// @return sharesOut Number of YES tokens minted (18 decimals)
-    function buyYesFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut) {
+    function buyYesFor(uint256 usdcIn, uint256 minSharesOut, address recipient) external returns (uint256 sharesOut) {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(usdcIn > 0, "Zero input");
         require(recipient != address(0), "Zero recipient");
@@ -357,14 +424,12 @@ contract CPMM {
 
         uint256 lpFee = (netIn * feeBps) / BPS;
         uint256 usdcAfterFee = netIn - lpFee;
-        uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
 
-        uint256 k = yesReserve * noReserve;
-        uint256 newNoReserve = noReserve + scaledIn;
-        uint256 newYesReserve = k / newNoReserve;
-
-        sharesOut = yesReserve - newYesReserve;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        (sharesOut, newYesReserve, newNoReserve) = _quoteBuyState(true, usdcAfterFee * DECIMAL_SCALE);
         require(sharesOut > 0, "Insufficient output");
+        require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
 
         yesReserve = newYesReserve;
         noReserve = newNoReserve;
@@ -376,9 +441,10 @@ contract CPMM {
 
     /// @notice Buy NO tokens on behalf of a user. Called by Vault.
     /// @param usdcIn Amount of USDC to spend (6 decimals), transferred from msg.sender (Vault)
+    /// @param minSharesOut Minimum NO shares the caller will accept (slippage guard)
     /// @param recipient Address to mint NO tokens to
     /// @return sharesOut Number of NO tokens minted (18 decimals)
-    function buyNoFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut) {
+    function buyNoFor(uint256 usdcIn, uint256 minSharesOut, address recipient) external returns (uint256 sharesOut) {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(usdcIn > 0, "Zero input");
         require(recipient != address(0), "Zero recipient");
@@ -389,14 +455,12 @@ contract CPMM {
 
         uint256 lpFee = (netIn * feeBps) / BPS;
         uint256 usdcAfterFee = netIn - lpFee;
-        uint256 scaledIn = usdcAfterFee * DECIMAL_SCALE;
 
-        uint256 k = yesReserve * noReserve;
-        uint256 newYesReserve = yesReserve + scaledIn;
-        uint256 newNoReserve = k / newYesReserve;
-
-        sharesOut = noReserve - newNoReserve;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        (sharesOut, newYesReserve, newNoReserve) = _quoteBuyState(false, usdcAfterFee * DECIMAL_SCALE);
         require(sharesOut > 0, "Insufficient output");
+        require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
 
         yesReserve = newYesReserve;
         noReserve = newNoReserve;
@@ -408,9 +472,10 @@ contract CPMM {
 
     /// @notice Sell YES tokens on behalf of a user. Called by Vault.
     /// @param sharesIn Number of YES tokens to sell (18 decimals)
+    /// @param minUsdcOut Minimum USDC the caller will accept (slippage guard)
     /// @param seller Address whose YES tokens are burned
     /// @return usdcOut Amount of USDC sent to msg.sender (Vault) (6 decimals)
-    function sellYesFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut) {
+    function sellYesFor(uint256 sharesIn, uint256 minUsdcOut, address seller) external returns (uint256 usdcOut) {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(sharesIn > 0, "Zero input");
         require(seller != address(0), "Zero seller");
@@ -418,18 +483,17 @@ contract CPMM {
 
         IOutcomeToken(yesToken).burn(seller, sharesIn);
 
-        uint256 k = yesReserve * noReserve;
-        uint256 newYesReserve = yesReserve + sharesIn;
-        uint256 newNoReserve = k / newYesReserve;
-
-        uint256 scaledOut = noReserve - newNoReserve;
-        uint256 grossOut = scaledOut / DECIMAL_SCALE;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        uint256 grossOut;
+        (grossOut, newYesReserve, newNoReserve) = _quoteSellState(true, sharesIn);
 
         uint256 lpFee = (grossOut * feeBps) / BPS;
         uint256 afterLpFee = grossOut - lpFee;
 
         usdcOut = _takeSellFee(seller, afterLpFee, true);
         require(usdcOut > 0, "Insufficient output");
+        require(usdcOut >= minUsdcOut, "Slippage: insufficient output");
 
         yesReserve = newYesReserve;
         noReserve = newNoReserve;
@@ -442,9 +506,10 @@ contract CPMM {
 
     /// @notice Sell NO tokens on behalf of a user. Called by Vault.
     /// @param sharesIn Number of NO tokens to sell (18 decimals)
+    /// @param minUsdcOut Minimum USDC the caller will accept (slippage guard)
     /// @param seller Address whose NO tokens are burned
     /// @return usdcOut Amount of USDC sent to msg.sender (Vault) (6 decimals)
-    function sellNoFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut) {
+    function sellNoFor(uint256 sharesIn, uint256 minUsdcOut, address seller) external returns (uint256 usdcOut) {
         require(_isAuthorizedEscrow(msg.sender), "Only user escrow");
         require(sharesIn > 0, "Zero input");
         require(seller != address(0), "Zero seller");
@@ -452,18 +517,17 @@ contract CPMM {
 
         IOutcomeToken(noToken).burn(seller, sharesIn);
 
-        uint256 k = yesReserve * noReserve;
-        uint256 newNoReserve = noReserve + sharesIn;
-        uint256 newYesReserve = k / newNoReserve;
-
-        uint256 scaledOut = yesReserve - newYesReserve;
-        uint256 grossOut = scaledOut / DECIMAL_SCALE;
+        uint256 newYesReserve;
+        uint256 newNoReserve;
+        uint256 grossOut;
+        (grossOut, newYesReserve, newNoReserve) = _quoteSellState(false, sharesIn);
 
         uint256 lpFee = (grossOut * feeBps) / BPS;
         uint256 afterLpFee = grossOut - lpFee;
 
         usdcOut = _takeSellFee(seller, afterLpFee, false);
         require(usdcOut > 0, "Insufficient output");
+        require(usdcOut >= minUsdcOut, "Slippage: insufficient output");
 
         yesReserve = newYesReserve;
         noReserve = newNoReserve;

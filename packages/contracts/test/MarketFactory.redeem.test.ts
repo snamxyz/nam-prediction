@@ -93,7 +93,7 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
     await vault.connect(alice).deposit(usdcAmount);
     await vault
       .connect(admin)
-      .executeBuyYes(await pool.getAddress(), usdcAmount, alice.address);
+      .executeBuyYes(await pool.getAddress(), usdcAmount, 0n, alice.address);
   }
 
   /// Bob deposits & buys NO via the vault.
@@ -102,7 +102,7 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
     await vault.connect(bob).deposit(usdcAmount);
     await vault
       .connect(admin)
-      .executeBuyNo(await pool.getAddress(), usdcAmount, bob.address);
+      .executeBuyNo(await pool.getAddress(), usdcAmount, 0n, bob.address);
   }
 
   it("pays YES winner's redemption into their vault escrow", async function () {

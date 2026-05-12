@@ -40,6 +40,8 @@ const WRITE_RPC_URL =
   process.env.RPC_URL ||
   "https://mainnet.base.org";
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}`;
+const DECIMAL_SCALE = 10n ** 12n;
+const BPS_DENOM = 10000n;
 
 // Read both pool reserves in a single multicall to stay under RPC rate limits.
 async function readReserves(ammAddress: `0x${string}`): Promise<[bigint, bigint]> {
@@ -89,9 +91,20 @@ function getWalletClient() {
 
 // ─── AMM math helpers for estimates ───
 
-// Mirrors CPMM.buyYes/buyNo: protocol fee is skimmed first off the gross input,
-// the LP fee is then withheld from the AMM math, and the remainder drives the
-// constant-product swap.
+function sqrt(value: bigint): bigint {
+  if (value < 2n) return value;
+  let z = value;
+  let y = (value + 1n) / 2n;
+  while (y < z) {
+    z = y;
+    y = (value / y + y) / 2n;
+  }
+  return z;
+}
+
+// Mirrors CPMM.buyYes/buyNo: protocol fee is skimmed first, LP fee is withheld
+// from AMM math, and the remaining collateral mints a complete set plus swaps
+// the opposite leg into more of the desired outcome.
 function estimateBuy(
   usdcIn: bigint,
   lpFeeBps: bigint,
@@ -100,29 +113,57 @@ function estimateBuy(
   noReserve: bigint,
   isYes: boolean
 ): { sharesOut: bigint; protocolFee: bigint; netIn: bigint } {
-  const protocolFee = (usdcIn * protocolFeeBps) / 10000n;
+  const protocolFee = (usdcIn * protocolFeeBps) / BPS_DENOM;
   const netIn = usdcIn - protocolFee;
-  const lpFee = (netIn * lpFeeBps) / 10000n;
+  const lpFee = (netIn * lpFeeBps) / BPS_DENOM;
   const usdcAfterFee = netIn - lpFee;
-  const scaledIn = usdcAfterFee * 10n ** 12n;
+  const scaledIn = usdcAfterFee * DECIMAL_SCALE;
   const k = yesReserve * noReserve;
 
   let sharesOut: bigint;
   if (isYes) {
     const newNoReserve = noReserve + scaledIn;
     const newYesReserve = k / newNoReserve;
-    sharesOut = yesReserve - newYesReserve;
+    sharesOut = scaledIn + (yesReserve - newYesReserve);
   } else {
     const newYesReserve = yesReserve + scaledIn;
     const newNoReserve = k / newYesReserve;
-    sharesOut = noReserve - newNoReserve;
+    sharesOut = scaledIn + (noReserve - newNoReserve);
   }
 
   return { sharesOut, protocolFee, netIn };
 }
 
-// Mirrors CPMM.sellYes/sellNo: AMM math first, then LP fee retained in the pool,
-// then the protocol fee is routed to the fee wallet. User receives what's left.
+function estimateSellGrossScaled(
+  sharesIn: bigint,
+  yesReserve: bigint,
+  noReserve: bigint,
+  isYes: boolean
+): bigint {
+  const k = yesReserve * noReserve;
+  const counterReserve = isYes ? noReserve : yesReserve;
+  const b = yesReserve + noReserve + sharesIn;
+  const discriminant = b * b - 4n * sharesIn * counterReserve;
+  let scaledOut = (b - sqrt(discriminant)) / 2n;
+  const maxOut = sharesIn < counterReserve ? sharesIn : counterReserve;
+  if (scaledOut > maxOut) scaledOut = maxOut;
+
+  while (scaledOut > 0n) {
+    const newYesReserve = isYes
+      ? yesReserve + sharesIn - scaledOut
+      : yesReserve - scaledOut;
+    const newNoReserve = isYes
+      ? noReserve - scaledOut
+      : noReserve + sharesIn - scaledOut;
+    if (newYesReserve * newNoReserve >= k) break;
+    scaledOut -= 1n;
+  }
+
+  return scaledOut;
+}
+
+// Mirrors CPMM.sellYes/sellNo: solve the inverse complete-set AMM equation,
+// then retain LP fee and route protocol fee. User receives what's left.
 function estimateSell(
   sharesIn: bigint,
   lpFeeBps: bigint,
@@ -131,23 +172,11 @@ function estimateSell(
   noReserve: bigint,
   isYes: boolean
 ): { usdcOut: bigint; grossOut: bigint; protocolFee: bigint } {
-  const k = yesReserve * noReserve;
-
-  let scaledOut: bigint;
-  if (isYes) {
-    const newYesReserve = yesReserve + sharesIn;
-    const newNoReserve = k / newYesReserve;
-    scaledOut = noReserve - newNoReserve;
-  } else {
-    const newNoReserve = noReserve + sharesIn;
-    const newYesReserve = k / newNoReserve;
-    scaledOut = yesReserve - newYesReserve;
-  }
-
-  const grossOut = scaledOut / 10n ** 12n;
-  const lpFee = (grossOut * lpFeeBps) / 10000n;
+  const scaledOut = estimateSellGrossScaled(sharesIn, yesReserve, noReserve, isYes);
+  const grossOut = scaledOut / DECIMAL_SCALE;
+  const lpFee = (grossOut * lpFeeBps) / BPS_DENOM;
   const afterLpFee = grossOut - lpFee;
-  const protocolFee = (afterLpFee * protocolFeeBps) / 10000n;
+  const protocolFee = (afterLpFee * protocolFeeBps) / BPS_DENOM;
   const usdcOut = afterLpFee - protocolFee;
 
   return { usdcOut, grossOut, protocolFee };
@@ -295,7 +324,11 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         isYes
       );
       // Avg price is USDC spent per share (gross input includes protocol fee).
-      const avgPrice = sharesOut > 0n ? Number(usdcIn) / (Number(sharesOut) / 1e18) : 0;
+      // usdcIn is 6 decimals; sharesOut is 18 — normalize both before dividing.
+      const avgPrice =
+        sharesOut > 0n
+          ? Number(formatUnits(usdcIn, 6)) / Number(formatUnits(sharesOut, 18))
+          : 0;
 
       return {
         success: true,
@@ -359,8 +392,11 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         noReserve,
         isYes
       );
-      // Avg price is net USDC received per share sold.
-      const avgPrice = Number(sharesIn) > 0 ? (Number(usdcOut) * 1e18) / Number(sharesIn) : 0;
+      // Avg price is net USDC received per share sold (human USDC / human shares).
+      const avgPrice =
+        sharesIn > 0n
+          ? Number(formatUnits(usdcOut, 6)) / Number(formatUnits(sharesIn, 18))
+          : 0;
 
       return {
         success: true,
@@ -618,7 +654,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
             address: VAULT_ADDRESS,
             abi: VaultABI,
             functionName: fnName,
-            args: [ammAddress, usdcParsed, walletAddress],
+            args: [ammAddress, usdcParsed, minOutputParsed, walletAddress],
             nonce,
           })
         );
@@ -799,7 +835,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
             address: VAULT_ADDRESS,
             abi: VaultABI,
             functionName: fnName,
-            args: [ammAddress, sharesParsed, walletAddress],
+            args: [ammAddress, sharesParsed, minOutputParsed, walletAddress],
             nonce,
           })
         );

@@ -294,24 +294,53 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
     ? `${(Number(estimate.protocolFeeBps) / 100).toFixed(2)}%`
     : "";
 
-  // Price impact % vs the mid-price the user saw pre-trade.
+  // Slippage vs mid: how much worse the fill is than trading at the headline mid
+  // (constant-product pools can show huge "avg vs mid %" even when the intuitive
+  // gap is "you received X% fewer shares / USDC than the mid implied").
   const priceImpactPct = useMemo(() => {
-    if (!estimate?.avgPrice || price <= 0) return 0;
-    const avg = parseFloat(estimate.avgPrice);
-    if (!Number.isFinite(avg) || avg <= 0) return 0;
+    if (price <= 0 || !Number.isFinite(price)) return 0;
     if (mode === "BUY") {
-      return ((avg - price) / price) * 100;
+      const midBasis =
+        netAmountNum > 0 && Number.isFinite(netAmountNum) ? netAmountNum : num;
+      if (midBasis <= 0) return 0;
+      const idealShares = midBasis / price;
+      if (!Number.isFinite(idealShares) || idealShares <= 0) return 0;
+      if (!Number.isFinite(estimatedShares) || estimatedShares <= 0) return 0;
+      return Math.max(0, ((idealShares - estimatedShares) / idealShares) * 100);
     }
-    // Sell: user receives `avg` per share; lower than current price = impact.
-    return ((price - avg) / price) * 100;
-  }, [estimate?.avgPrice, price, mode]);
+    const idealUsdc = num * price;
+    if (!Number.isFinite(idealUsdc) || idealUsdc <= 0) return 0;
+    if (!Number.isFinite(estimatedUsdc) || estimatedUsdc <= 0) return 0;
+    return Math.max(0, ((idealUsdc - estimatedUsdc) / idealUsdc) * 100);
+  }, [
+    mode,
+    price,
+    num,
+    netAmountNum,
+    estimatedShares,
+    estimatedUsdc,
+  ]);
 
   const highImpact = priceImpactPct >= WARN_PRICE_IMPACT_PCT;
 
   const potentialPayout = mode === "BUY" ? estimatedShares : estimatedUsdc;
-  const pct = num > 0 && mode === "BUY" ? ((potentialPayout - num) / num) * 100 : 0;
+  /** ROI if the outcome wins, relative to the headline mid (binary: pay ~p for $1). Not the filled-size PnL. */
+  const buyRoiAtMidPct = mode === "BUY" && price > 0 ? ((1 / price) - 1) * 100 : 0;
 
   const formatCents = (p: number) => `${(p * 100).toFixed(1)}¢`;
+  /** USDC under $1 uses extra decimals so payouts are not rounded up to the cent. */
+  const formatTradeUsd = (n: number) => {
+    if (!Number.isFinite(n)) return "$0";
+    const abs = Math.abs(n);
+    const frac = abs >= 1 ? 2 : 4;
+    return `$${n.toFixed(frac)}`;
+  };
+  /** Mid / spot outcome prices are 0–1; avg execution can exceed $1/share on thin liquidity. */
+  const formatAvgOutcomePrice = (p: number) => {
+    if (!Number.isFinite(p) || p <= 0) return "—";
+    if (p > 1) return `$${p.toFixed(3)}/$1`;
+    return formatCents(p);
+  };
   const yesAvgDisplay = position?.yesAvgPrice ?? yesPrice;
   const noAvgDisplay = position?.noAvgPrice ?? noPrice;
 
@@ -496,13 +525,13 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           <div className="mb-2 flex justify-between text-[11px]">
             <span className="text-[var(--muted)]">Avg price</span>
             <span className="mono text-[var(--foreground)]">
-              {estimate?.avgPrice ? formatCents(avgPriceNum) : formatCents(price)}
+              {estimate?.avgPrice ? formatAvgOutcomePrice(avgPriceNum) : formatCents(price)}
             </span>
           </div>
 
           {num > 0 && (
             <div className="mb-2 flex justify-between text-[11px]">
-              <span className="text-[var(--muted)]">Price impact</span>
+              <span className="text-[var(--muted)]">Price impact (vs mid)</span>
               <span className={`mono ${highImpact ? "text-no" : "text-[var(--foreground)]"}`}>
                 {priceImpactPct.toFixed(2)}%
               </span>
@@ -546,16 +575,28 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
                 </span>
               </div>
               <div className="my-2 h-px bg-white/[0.04]" />
-              <div className="mb-2 flex justify-between text-[11px]">
-                <span className="text-[var(--muted)]">Potential return</span>
-                <span className={`mono ${num > 0 ? `${sideAccentClass} font-semibold` : "text-[var(--muted)] font-normal"}`}>
-                  {num > 0 ? `$${potentialPayout.toFixed(2)} (+${pct.toFixed(1)}%)` : "—"}
-                </span>
+              <div className="mb-2 flex justify-between gap-2 text-[11px]">
+                <span className="shrink-0 text-[var(--muted)]">Potential return</span>
+                <div className={`min-w-0 text-right ${num > 0 ? sideAccentClass : "text-[var(--muted)]"}`}>
+                  {num > 0 ? (
+                    <>
+                      <span className="mono font-semibold">
+                        {buyRoiAtMidPct >= 0 ? "+" : ""}
+                        {buyRoiAtMidPct.toFixed(1)}%
+                      </span>
+                      <span className="mt-0.5 block font-sans text-[9px] font-normal leading-snug text-[var(--muted)]">
+                        if {sideLabel} wins ($1/share) vs {formatCents(price)} mid
+                      </span>
+                    </>
+                  ) : (
+                    <span className="mono font-normal">—</span>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between text-[11px]">
                 <span className="text-[var(--muted)]">Payout if {sideLabel} wins</span>
                 <span className="mono text-[var(--foreground)]/80">
-                  {num > 0 ? `$${potentialPayout.toFixed(2)}` : "—"}
+                  {num > 0 ? formatTradeUsd(potentialPayout) : "—"}
                 </span>
               </div>
             </>

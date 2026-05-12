@@ -21,10 +21,12 @@ interface ICPMM {
     function sellYes(uint256 sharesIn) external returns (uint256 usdcOut);
     function sellNo(uint256 sharesIn) external returns (uint256 usdcOut);
 
-    function buyYesFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut);
-    function buyNoFor(uint256 usdcIn, address recipient) external returns (uint256 sharesOut);
-    function sellYesFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut);
-    function sellNoFor(uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+    function buyYesFor(uint256 usdcIn, uint256 minSharesOut, address recipient) external returns (uint256 sharesOut);
+    function buyNoFor(uint256 usdcIn, uint256 minSharesOut, address recipient) external returns (uint256 sharesOut);
+    function sellYesFor(uint256 sharesIn, uint256 minUsdcOut, address seller) external returns (uint256 usdcOut);
+    function sellNoFor(uint256 sharesIn, uint256 minUsdcOut, address seller) external returns (uint256 usdcOut);
+    function quoteBuy(bool isYes, uint256 usdcIn) external view returns (uint256 sharesOut);
+    function quoteSell(bool isYes, uint256 sharesIn) external view returns (uint256 usdcOut);
 
     function redeemFor(address user, bool yesWins) external returns (uint256 usdcOut);
 

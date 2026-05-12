@@ -150,12 +150,13 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     function executeBuyYes(
         address pool,
         uint256 usdcAmount,
+        uint256 minSharesOut,
         address user
     ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        UserEscrow(escrow).buyYesFor(pool, usdcAmount, user);
+        UserEscrow(escrow).buyYesFor(pool, usdcAmount, minSharesOut, user);
         totalVaultBalance -= usdcAmount;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
@@ -165,12 +166,13 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     function executeBuyNo(
         address pool,
         uint256 usdcAmount,
+        uint256 minSharesOut,
         address user
     ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        UserEscrow(escrow).buyNoFor(pool, usdcAmount, user);
+        UserEscrow(escrow).buyNoFor(pool, usdcAmount, minSharesOut, user);
         totalVaultBalance -= usdcAmount;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
@@ -180,12 +182,13 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     function executeSellYes(
         address pool,
         uint256 sharesIn,
+        uint256 minUsdcOut,
         address user
     ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        uint256 usdcOut = UserEscrow(escrow).sellYesFor(pool, sharesIn, user);
+        uint256 usdcOut = UserEscrow(escrow).sellYesFor(pool, sharesIn, minUsdcOut, user);
         totalVaultBalance += usdcOut;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());
@@ -195,12 +198,13 @@ contract Vault is IVaultRouter, ReentrancyGuard {
     function executeSellNo(
         address pool,
         uint256 sharesIn,
+        uint256 minUsdcOut,
         address user
     ) external onlyOperator nonReentrant notInEmergencyRefundMode {
         address escrow = _requireEscrow(user);
         _requireWhitelistedPool(pool);
 
-        uint256 usdcOut = UserEscrow(escrow).sellNoFor(pool, sharesIn, user);
+        uint256 usdcOut = UserEscrow(escrow).sellNoFor(pool, sharesIn, minUsdcOut, user);
         totalVaultBalance += usdcOut;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());

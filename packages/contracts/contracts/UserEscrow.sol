@@ -94,12 +94,13 @@ contract UserEscrow is ReentrancyGuard {
     function buyYesFor(
         address pool,
         uint256 usdcIn,
+        uint256 minSharesOut,
         address recipient
     ) external onlyRouter nonReentrant returns (uint256 sharesOut) {
         require(usdcIn > 0, "Zero input");
         require(recipient == owner, "Recipient must be owner");
         IERC20(collateral).forceApprove(pool, usdcIn);
-        sharesOut = ICPMM(pool).buyYesFor(usdcIn, recipient);
+        sharesOut = ICPMM(pool).buyYesFor(usdcIn, minSharesOut, recipient);
         // Clear any leftover allowance defensively
         IERC20(collateral).forceApprove(pool, 0);
         emit TradeExecuted(pool, true, true, usdcIn, sharesOut);
@@ -109,12 +110,13 @@ contract UserEscrow is ReentrancyGuard {
     function buyNoFor(
         address pool,
         uint256 usdcIn,
+        uint256 minSharesOut,
         address recipient
     ) external onlyRouter nonReentrant returns (uint256 sharesOut) {
         require(usdcIn > 0, "Zero input");
         require(recipient == owner, "Recipient must be owner");
         IERC20(collateral).forceApprove(pool, usdcIn);
-        sharesOut = ICPMM(pool).buyNoFor(usdcIn, recipient);
+        sharesOut = ICPMM(pool).buyNoFor(usdcIn, minSharesOut, recipient);
         IERC20(collateral).forceApprove(pool, 0);
         emit TradeExecuted(pool, false, true, usdcIn, sharesOut);
     }
@@ -123,12 +125,13 @@ contract UserEscrow is ReentrancyGuard {
     function sellYesFor(
         address pool,
         uint256 sharesIn,
+        uint256 minUsdcOut,
         address seller
     ) external onlyRouter nonReentrant returns (uint256 usdcOut) {
         require(sharesIn > 0, "Zero input");
         require(seller == owner, "Seller must be owner");
         // CPMM transfers USDC to msg.sender (this escrow)
-        usdcOut = ICPMM(pool).sellYesFor(sharesIn, seller);
+        usdcOut = ICPMM(pool).sellYesFor(sharesIn, minUsdcOut, seller);
         emit TradeExecuted(pool, true, false, sharesIn, usdcOut);
     }
 
@@ -136,11 +139,12 @@ contract UserEscrow is ReentrancyGuard {
     function sellNoFor(
         address pool,
         uint256 sharesIn,
+        uint256 minUsdcOut,
         address seller
     ) external onlyRouter nonReentrant returns (uint256 usdcOut) {
         require(sharesIn > 0, "Zero input");
         require(seller == owner, "Seller must be owner");
-        usdcOut = ICPMM(pool).sellNoFor(sharesIn, seller);
+        usdcOut = ICPMM(pool).sellNoFor(sharesIn, minUsdcOut, seller);
         emit TradeExecuted(pool, false, false, sharesIn, usdcOut);
     }
 

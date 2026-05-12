@@ -93,6 +93,11 @@ export default function MarketPage() {
     ["Liquidity", `$${Number(market.liquidity).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "text-[var(--foreground)]"],
     ["Created", new Date(market.createdAt).toLocaleString(), "text-[var(--muted)]"],
   ];
+  const formatTradeShares = (value: string) => {
+    const shares = Number(value);
+    if (!Number.isFinite(shares) || shares <= 0) return "0";
+    return shares >= 1 ? shares.toFixed(2) : shares.toFixed(4);
+  };
   const openMobileTrade = (side: "YES" | "NO") => {
     setMobileSide(side);
     setMobileTradeOpen(true);
@@ -237,7 +242,7 @@ export default function MarketPage() {
                   <div key={trade.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-[11px] md:grid-cols-[110px_1fr_80px_80px_80px] ${i < arr.length - 1 ? "border-b border-[var(--border-subtle)]" : ""}`}>
                     <span className={`w-fit rounded px-2 py-[3px] text-[9px] font-bold tracking-[0.04em] ${trade.isYes ? "bg-yes/10 text-yes" : "bg-no/10 text-no"}`}>{trade.isBuy ? "BUY" : "SELL"} {trade.isYes ? outcomeLabels.yesShort : outcomeLabels.noShort}</span>
                     <span className="truncate font-mono text-[11px] text-[var(--muted)]">{trade.trader.slice(0, 6)}…{trade.trader.slice(-4)}</span>
-                    <span className="hidden font-mono text-[11px] md:inline">{Number(trade.shares).toFixed(1)}</span>
+                    <span className="hidden font-mono text-[11px] md:inline">{formatTradeShares(trade.shares)}</span>
                     <span className="font-mono text-[11px]">${Number(trade.collateral).toFixed(2)}</span>
                     <span className="hidden text-[10px] text-[var(--muted)] md:inline">{new Date(trade.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                   </div>
