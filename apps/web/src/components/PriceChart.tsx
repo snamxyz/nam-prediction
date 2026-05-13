@@ -14,6 +14,7 @@ interface PriceChartProps {
   trades: Trade[];
   marketCreatedAt?: string;
   outcomeLabel?: string;
+  currentYesProbabilityPct: number;
 }
 
 interface ChartPoint {
@@ -28,25 +29,71 @@ function formatChartTime(value: string) {
   });
 }
 
-export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES" }: PriceChartProps) {
+function clampProbability(value: number) {
+  return Math.min(100, Math.max(0, value));
+}
+
+function roundProbability(value: number) {
+  return +clampProbability(value).toFixed(1);
+}
+
+function getYAxisDomain(points: ChartPoint[]): [number, number] {
+  const values = points.map((point) => point.yesProbability);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const minSpan = 4;
+
+  let yMin: number;
+  let yMax: number;
+
+  if (max - min < minSpan) {
+    const midpoint = (min + max) / 2;
+    yMin = midpoint - minSpan / 2;
+    yMax = midpoint + minSpan / 2;
+  } else {
+    const padding = Math.max((max - min) * 0.1, 1);
+    yMin = min - padding;
+    yMax = max + padding;
+  }
+
+  yMin = clampProbability(yMin);
+  yMax = clampProbability(yMax);
+
+  if (yMax - yMin < minSpan) {
+    if (yMin === 0) {
+      yMax = Math.min(100, yMin + minSpan);
+    } else if (yMax === 100) {
+      yMin = Math.max(0, yMax - minSpan);
+    } else {
+      const midpoint = (yMin + yMax) / 2;
+      yMin = clampProbability(midpoint - minSpan / 2);
+      yMax = clampProbability(midpoint + minSpan / 2);
+    }
+  }
+
+  return [roundProbability(yMin), roundProbability(yMax)];
+}
+
+function getYAxisTicks([yMin, yMax]: [number, number]) {
+  return Array.from({ length: 5 }, (_, index) => roundProbability(yMin + ((yMax - yMin) * index) / 4));
+}
+
+export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", currentYesProbabilityPct }: PriceChartProps) {
+  const liveYesProbability = roundProbability(currentYesProbabilityPct);
   const tradePoints: ChartPoint[] = trades
     .slice()
     .reverse()
     .map((t) => ({
       time: formatChartTime(t.timestamp),
-      yesProbability: +((t.yesPrice ?? 0.5) * 100).toFixed(1),
+      yesProbability: roundProbability((t.yesPrice ?? 0.5) * 100),
     }));
+  // Use the first recorded trade as the opening anchor; otherwise mirror the live header value.
+  const openingProbability = tradePoints[0]?.yesProbability ?? liveYesProbability;
   const data: ChartPoint[] = marketCreatedAt
-    ? [{ time: formatChartTime(marketCreatedAt), yesProbability: 50 }, ...tradePoints]
-    : tradePoints;
-
-  if (data.length === 0) {
-    return (
-      <div className="card flex h-[200px] items-center justify-center p-5">
-        <p className="text-xs text-[var(--muted)]">No trades yet</p>
-      </div>
-    );
-  }
+    ? [{ time: formatChartTime(marketCreatedAt), yesProbability: openingProbability }, ...tradePoints, { time: "Now", yesProbability: liveYesProbability }]
+    : [...tradePoints, { time: "Now", yesProbability: liveYesProbability }];
+  const yDomain = getYAxisDomain(data);
+  const yTicks = getYAxisTicks(yDomain);
 
   return (
     <div className="card p-5">
@@ -68,9 +115,9 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES" }: Pr
             minTickGap={32}
           />
           <YAxis
-            domain={[0, 100]}
-            ticks={[0, 25, 50, 75, 100]}
-            allowDecimals={false}
+            domain={yDomain}
+            ticks={yTicks}
+            allowDecimals
             tick={{ fontSize: 10, fill: "#4c4e68" }}
             tickFormatter={(v) => `${v}%`}
             stroke="transparent"

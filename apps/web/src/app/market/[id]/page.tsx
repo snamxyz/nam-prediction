@@ -161,7 +161,7 @@ export default function MarketPage() {
                     ))}
                   </div>
                 </div>
-                {chartMode === "price" ? <NamPriceChart points={namHistory} threshold={priceToBeat} tokenIconUrl={namIconUrl} /> : <PriceChart trades={trades || []} marketCreatedAt={market.createdAt} outcomeLabel={outcomeLabels.yes} />}
+                {chartMode === "price" ? <NamPriceChart points={namHistory} threshold={priceToBeat} tokenIconUrl={namIconUrl} /> : <PriceChart trades={trades || []} marketCreatedAt={market.createdAt} outcomeLabel={outcomeLabels.yes} currentYesProbabilityPct={yesPct} />}
               </div>
             )}
 
