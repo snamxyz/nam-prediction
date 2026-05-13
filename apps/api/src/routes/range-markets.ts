@@ -10,6 +10,7 @@ import {
   formatUnits,
   decodeEventLog,
   verifyTypedData,
+  isAddress,
 } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
@@ -52,9 +53,10 @@ async function releaseRangeNonce(wallet: string, nonce: string) {
 }
 
 /**
- * Resolve the authenticated user's wallet from the Privy JWT in the
- * Authorization header. Returns the lowercased wallet address on success,
- * or null if the token is missing/invalid or the user has no linked wallet.
+ * Resolve a trade wallet from the Privy JWT in the Authorization header.
+ * If a requested wallet is supplied, it must be one of the user's linked
+ * Privy wallets. This lets users sign with the wallet the UI selected while
+ * still preventing body-only impersonation.
  *
  * All trade-execution endpoints MUST run this and use the returned address
  * as the authoritative trader — never trust `userAddress` from the request
@@ -62,15 +64,34 @@ async function releaseRangeNonce(wallet: string, nonce: string) {
  * tricked into pulling funds from any victim escrow.
  */
 async function resolveAuthenticatedWallet(
-  authHeader: string | null | undefined
+  authHeader: string | null | undefined,
+  requestedWallet?: string | null
 ): Promise<`0x${string}` | null> {
   const claims = await verifyPrivyToken(authHeader);
   if (!claims) return null;
   try {
     const user = await privyClient.getUser(claims.userId);
-    const addr = user.wallet?.address;
-    if (!addr) return null;
-    return addr.toLowerCase() as `0x${string}`;
+    const wallets = new Set<string>();
+    const addWallet = (account: unknown) => {
+      const address = (account as { address?: unknown } | null)?.address;
+      if (typeof address === "string" && isAddress(address)) {
+        wallets.add(address.toLowerCase());
+      }
+    };
+
+    addWallet(user.wallet);
+    for (const account of user.linkedAccounts ?? []) {
+      if ((account as { type?: unknown }).type === "wallet") addWallet(account);
+    }
+
+    if (wallets.size === 0) return null;
+    if (requestedWallet) {
+      if (!isAddress(requestedWallet)) return null;
+      const requested = requestedWallet.toLowerCase();
+      return wallets.has(requested) ? (requested as `0x${string}`) : null;
+    }
+
+    return [...wallets][0] as `0x${string}`;
   } catch {
     return null;
   }
@@ -133,6 +154,13 @@ function bigintToDecimalShares(raw: bigint): string {
   const intPart = raw / SHARES_UNIT;
   const fracPart = raw % SHARES_UNIT;
   return `${intPart}.${fracPart.toString().padStart(18, "0")}`;
+}
+
+function bigintToDecimalUsdc(raw: bigint): string {
+  const unit = 1_000_000n;
+  const intPart = raw / unit;
+  const fracPart = raw % unit;
+  return `${intPart}.${fracPart.toString().padStart(6, "0")}`;
 }
 
 /**
@@ -447,24 +475,75 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
     }
   })
 
+  // GET /range-markets/:id/quote-sell?rangeIndex=&shares= — quote exact USDC for a sell
+  .get("/:id/quote-sell", async ({ params, query, set }) => {
+    const id = Number(params.id);
+    const rangeIndex = Number(query.rangeIndex);
+    const shares = Number(query.shares);
+
+    if (isNaN(id) || isNaN(rangeIndex) || isNaN(shares) || shares <= 0 || rangeIndex < 0) {
+      set.status = 400;
+      return { error: "Invalid parameters", success: false };
+    }
+
+    const rows = await db.select().from(rangeMarkets).where(eq(rangeMarkets.id, id)).limit(1);
+    if (rows.length === 0) {
+      set.status = 404;
+      return { error: "Range market not found", success: false };
+    }
+    const market = rows[0];
+
+    if (!market.rangeCpmmAddress) {
+      set.status = 400;
+      return { error: "Market not yet deployed on-chain", success: false };
+    }
+
+    try {
+      const client = getPublicClient();
+      const sharesRaw = parseUnits(String(shares), 18);
+      const usdcOut = await client.readContract({
+        address: market.rangeCpmmAddress as `0x${string}`,
+        abi: RangePoolABI,
+        functionName: "quoteSell",
+        args: [BigInt(rangeIndex), sharesRaw],
+      }) as bigint;
+
+      return {
+        success: true,
+        data: {
+          rangeIndex,
+          shares,
+          usdcOut: bigintToDecimalUsdc(usdcOut),
+          usdcOutRaw: usdcOut.toString(),
+          usdcOutFloat: Number(usdcOut) / 1e6,
+        },
+      };
+    } catch (err: unknown) {
+      console.error("[RangeMarkets] Sell quote error:", err);
+      set.status = 500;
+      return { error: (err as Error).message ?? "Quote failed", success: false };
+    }
+  })
+
   // POST /range-markets/:id/buy — buy a range outcome
   .post(
     "/:id/buy",
     async ({ params, body, headers, set }) => {
       const id = Number(params.id);
-      const { rangeIndex, usdcAmount, minOutput, signature, nonce, deadline } = body as {
+      const { rangeIndex, usdcAmount, minOutput, signature, nonce, deadline, userAddress: requestedUserAddress } = body as {
         rangeIndex: number;
         usdcAmount: number;
         minOutput?: string;
         signature: string;
         nonce: string;
         deadline: string;
+        userAddress?: string;
       };
 
-      // ── Auth: derive the trader wallet from the Privy JWT, never the body ──
+      // ── Auth: the signed trader wallet must be linked to the Privy user ──
       // Without this, an unauthenticated caller could pass `userAddress: <victim>`
       // and have the operator drain that victim's vault escrow.
-      const userAddress = await resolveAuthenticatedWallet(headers.authorization);
+      const userAddress = await resolveAuthenticatedWallet(headers.authorization, requestedUserAddress);
       if (!userAddress) {
         set.status = 401;
         return { error: "Unauthorized", success: false };
@@ -543,6 +622,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         if (VAULT_ADDRESS) {
           const userEscrow = await getUserEscrow(userAddress as `0x${string}`);
           if (!userEscrow) {
+            await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
             return {
               error: "No vault escrow found. Please deposit USDC to the vault to create your escrow before trading.",
@@ -551,6 +631,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           }
           const vaultBalance = await getUserVaultBalance(userAddress as `0x${string}`);
           if (vaultBalance < usdcAmountRaw) {
+            await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
             return { error: "Insufficient vault balance", success: false };
           }
@@ -567,6 +648,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
             args: [BigInt(rangeIndex), usdcAmountRaw],
           }) as bigint;
           if (quotedShares < minOutputRaw) {
+            await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
             return { error: "Slippage: current quote below signed minimum", success: false };
           }
@@ -757,6 +839,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       body: t.Object({
         rangeIndex: t.Number(),
         usdcAmount: t.Number(),
+        userAddress: t.Optional(t.String()),
         signature: t.String(),
         minOutput: t.Optional(t.String()),
         nonce: t.String(),
@@ -770,19 +853,20 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
     "/:id/sell",
     async ({ params, body, headers, set }) => {
       const id = Number(params.id);
-      const { rangeIndex, shares, minOutput, signature, nonce, deadline } = body as {
+      const { rangeIndex, shares, minOutput, signature, nonce, deadline, userAddress: requestedUserAddress } = body as {
         rangeIndex: number;
         shares: number;
         minOutput?: string;
         signature: string;
         nonce: string;
         deadline: string;
+        userAddress?: string;
       };
 
-      // ── Auth: derive the seller wallet from the Privy JWT, never the body ──
+      // ── Auth: the signed seller wallet must be linked to the Privy user ──
       // Same exposure as buy: an unauthenticated body-only flow lets an
       // attacker burn a victim's range tokens.
-      const userAddress = await resolveAuthenticatedWallet(headers.authorization);
+      const userAddress = await resolveAuthenticatedWallet(headers.authorization, requestedUserAddress);
       if (!userAddress) {
         set.status = 401;
         return { error: "Unauthorized", success: false };
@@ -852,27 +936,49 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         let sellHash: `0x${string}`;
 
         if (VAULT_ADDRESS) {
-          // Route through user's vault escrow: tokens are in the escrow, sell from there
+          // Route proceeds through the user's vault escrow. Range tokens are
+          // minted to the user wallet, and the pool burns from that signed seller.
           const userEscrow = await getUserEscrow(userAddress);
           if (!userEscrow) {
+            await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
             return { error: "No vault escrow found for user", success: false };
           }
 
-          const escrowBalance = await getRangeTokenBalance(cpmmAddress, rangeIndex, userEscrow);
-          if (escrowBalance === BigInt(0)) {
+          const tokenBalance = await getRangeTokenBalance(cpmmAddress, rangeIndex, userAddress);
+          if (tokenBalance === BigInt(0)) {
+            await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
-            return { error: "Escrow holds no shares for this range", success: false };
+            return { error: "Wallet holds no shares for this range", success: false };
           }
 
-          safeSharesRaw = escrowBalance < requestedSharesRaw ? escrowBalance : requestedSharesRaw;
+          if (tokenBalance < requestedSharesRaw) {
+            await releaseRangeNonce(userAddress, nonce);
+            set.status = 400;
+            return { error: "Insufficient wallet shares for signed sell amount", success: false };
+          }
+          safeSharesRaw = requestedSharesRaw;
+
+          if (minOutputRaw > 0n) {
+            const quotedUsdc = await publicClient.readContract({
+              address: cpmmAddress,
+              abi: RangePoolABI,
+              functionName: "quoteSell",
+              args: [BigInt(rangeIndex), safeSharesRaw],
+            }) as bigint;
+            if (quotedUsdc < minOutputRaw) {
+              await releaseRangeNonce(userAddress, nonce);
+              set.status = 400;
+              return { error: "Slippage: current quote below signed minimum", success: false };
+            }
+          }
 
           sellHash = await nm.withNonce((n) =>
             walletClient.writeContract({
               address: VAULT_ADDRESS!,
               abi: VaultABI,
               functionName: "executeRangeSell",
-              args: [cpmmAddress, BigInt(rangeIndex), safeSharesRaw, userAddress],
+              args: [cpmmAddress, BigInt(rangeIndex), safeSharesRaw, userAddress, minOutputRaw],
               nonce: n,
             })
           );
@@ -883,18 +989,38 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           const onChainBalance = await getRangeTokenBalance(cpmmAddress, rangeIndex, serverAddress);
 
           if (onChainBalance === BigInt(0)) {
+            await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
             return { error: "Server wallet holds no shares for this range", success: false };
           }
 
-          safeSharesRaw = onChainBalance < requestedSharesRaw ? onChainBalance : requestedSharesRaw;
+          if (onChainBalance < requestedSharesRaw) {
+            await releaseRangeNonce(userAddress, nonce);
+            set.status = 400;
+            return { error: "Insufficient shares for signed sell amount", success: false };
+          }
+          safeSharesRaw = requestedSharesRaw;
+
+          if (minOutputRaw > 0n) {
+            const quotedUsdc = await publicClient.readContract({
+              address: cpmmAddress,
+              abi: RangePoolABI,
+              functionName: "quoteSell",
+              args: [BigInt(rangeIndex), safeSharesRaw],
+            }) as bigint;
+            if (quotedUsdc < minOutputRaw) {
+              await releaseRangeNonce(userAddress, nonce);
+              set.status = 400;
+              return { error: "Slippage: current quote below signed minimum", success: false };
+            }
+          }
 
           sellHash = await nm.withNonce((n) =>
             walletClient.writeContract({
               address: cpmmAddress,
               abi: RangePoolABI,
               functionName: "sell",
-              args: [BigInt(rangeIndex), safeSharesRaw],
+              args: [BigInt(rangeIndex), safeSharesRaw, minOutputRaw],
               nonce: n,
             })
           );
@@ -983,6 +1109,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       body: t.Object({
         rangeIndex: t.Number(),
         shares: t.Number(),
+        userAddress: t.Optional(t.String()),
         minOutput: t.Optional(t.String()),
         signature: t.String(),
         nonce: t.String(),

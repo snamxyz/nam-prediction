@@ -268,6 +268,49 @@ describe("RangeLMSR — full LMSR range market stack", function () {
     ).to.be.revertedWith("Slippage: insufficient shares");
   });
 
+  it("quoteSell returns the net USDC available for a range sell", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+
+    await (usdcContract as any).approve(poolAddr, 10n * USDC_UNIT);
+    await (pool as any).buy(0n, 10n * USDC_UNIT);
+
+    const tokenAddr: string = await (pool as any).rangeTokens(0n);
+    const token = await ethers.getContractAt(OUTCOME_TOKEN_ABI, tokenAddr, deployer);
+    const balance: bigint = await (token as any).balanceOf(deployer.address);
+    const sharesToSell = balance / 2n;
+
+    const quote: bigint = await (pool as any).quoteSell(0n, sharesToSell);
+    const usdcBefore: bigint = await (usdcContract as any).balanceOf(deployer.address);
+    await (pool as any)["sell(uint256,uint256,uint256)"](0n, sharesToSell, quote);
+    const usdcAfter: bigint = await (usdcContract as any).balanceOf(deployer.address);
+
+    expect(usdcAfter - usdcBefore).to.equal(quote);
+  });
+
+  it("sellFor reverts when minUsdcOut is above the LMSR quote", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+
+    await (usdcContract as any).approve(poolAddr, 10n * USDC_UNIT);
+    await (pool as any).buyFor(0n, 10n * USDC_UNIT, trader.address);
+
+    const tokenAddr: string = await (pool as any).rangeTokens(0n);
+    const token = await ethers.getContractAt(OUTCOME_TOKEN_ABI, tokenAddr, trader);
+    const balance: bigint = await (token as any).balanceOf(trader.address);
+    const sharesToSell = balance / 2n;
+    const quote: bigint = await (pool as any).quoteSell(0n, sharesToSell);
+
+    await expect(
+      (pool as any)["sellFor(uint256,uint256,address,uint256)"](
+        0n,
+        sharesToSell,
+        trader.address,
+        quote + 1n
+      )
+    ).to.be.revertedWith("Slippage: insufficient output");
+  });
+
   // ─── 8. Resolution blocks further trading ────────────────────────────────
 
   it("resolution sets winning range and blocks further trading", async function () {

@@ -16,6 +16,12 @@ interface IRangeLMSRPool {
         uint256 minSharesOut
     ) external returns (uint256 sharesOut);
     function sellFor(uint256 rangeIndex, uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+    function sellFor(
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address seller,
+        uint256 minUsdcOut
+    ) external returns (uint256 usdcOut);
 }
 
 /// @title UserEscrow — Per-user collateral escrow with strict segregation
@@ -200,6 +206,20 @@ contract UserEscrow is ReentrancyGuard {
         require(seller == owner, "Seller must be owner");
         // RangeLMSR.sellFor burns from seller and sends USDC to msg.sender (this escrow)
         usdcOut = IRangeLMSRPool(pool).sellFor(rangeIndex, sharesIn, seller);
+        emit TradeExecuted(pool, false, false, sharesIn, usdcOut);
+    }
+
+    /// @notice Sell range outcome tokens with a minimum USDC-out slippage guard.
+    function sellRangeFor(
+        address pool,
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address seller,
+        uint256 minUsdcOut
+    ) external onlyRouter nonReentrant returns (uint256 usdcOut) {
+        require(sharesIn > 0, "Zero input");
+        require(seller == owner, "Seller must be owner");
+        usdcOut = IRangeLMSRPool(pool).sellFor(rangeIndex, sharesIn, seller, minUsdcOut);
         emit TradeExecuted(pool, false, false, sharesIn, usdcOut);
     }
 

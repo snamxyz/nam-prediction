@@ -863,6 +863,19 @@ export const VaultABI = [
   },
   {
     type: "function",
+    name: "executeRangeSell",
+    inputs: [
+      { name: "pool", type: "address" },
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "user", type: "address" },
+      { name: "minUsdcOut", type: "uint256" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "whitelistPool",
     inputs: [
       { name: "pool", type: "address" },
@@ -1008,6 +1021,17 @@ export const RangeLMSRABI = [
   },
   {
     type: "function",
+    name: "sell",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "minUsdcOut", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "buyFor",
     inputs: [
       { name: "rangeIndex", type: "uint256" },
@@ -1042,6 +1066,18 @@ export const RangeLMSRABI = [
   },
   {
     type: "function",
+    name: "sellFor",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+      { name: "seller", type: "address" },
+      { name: "minUsdcOut", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "getPrices",
     inputs: [],
     outputs: [{ name: "prices", type: "uint256[]" }],
@@ -1055,6 +1091,16 @@ export const RangeLMSRABI = [
       { name: "usdcAmount", type: "uint256" },
     ],
     outputs: [{ name: "sharesOut", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "quoteSell",
+    inputs: [
+      { name: "rangeIndex", type: "uint256" },
+      { name: "sharesIn", type: "uint256" },
+    ],
+    outputs: [{ name: "usdcOut", type: "uint256" }],
     stateMutability: "view",
   },
   {

@@ -23,6 +23,12 @@ interface IRangeLMSR {
         uint256 minSharesOut
     ) external returns (uint256 sharesOut);
     function sellFor(uint256 rangeIndex, uint256 sharesIn, address seller) external returns (uint256 usdcOut);
+    function sellFor(
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address seller,
+        uint256 minUsdcOut
+    ) external returns (uint256 usdcOut);
 }
 
 /// @title Vault — Router for per-user escrows (fund segregation by design)
@@ -265,6 +271,23 @@ contract Vault is IVaultRouter, ReentrancyGuard {
         _requireWhitelistedPool(pool);
 
         uint256 usdcOut = UserEscrow(escrow).sellRangeFor(pool, rangeIndex, sharesIn, user);
+        totalVaultBalance += usdcOut;
+
+        emit BalanceUpdated(user, UserEscrow(escrow).balance());
+    }
+
+    /// @notice Sell range outcome tokens with a minimum USDC-out slippage guard.
+    function executeRangeSell(
+        address pool,
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address user,
+        uint256 minUsdcOut
+    ) external onlyOperator nonReentrant notInEmergencyRefundMode {
+        address escrow = _requireEscrow(user);
+        _requireWhitelistedPool(pool);
+
+        uint256 usdcOut = UserEscrow(escrow).sellRangeFor(pool, rangeIndex, sharesIn, user, minUsdcOut);
         totalVaultBalance += usdcOut;
 
         emit BalanceUpdated(user, UserEscrow(escrow).balance());

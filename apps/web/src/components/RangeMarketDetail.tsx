@@ -225,6 +225,8 @@ function TradePanelRange({
   const [error, setError] = useState<string | null>(null);
   const [quotedTokens, setQuotedTokens] = useState<number | null>(null);
   const [quotedSharesRaw, setQuotedSharesRaw] = useState<string | null>(null);
+  const [quotedSellUsdc, setQuotedSellUsdc] = useState<number | null>(null);
+  const [quotedSellUsdcRaw, setQuotedSellUsdcRaw] = useState<string | null>(null);
   const [quotedAmount, setQuotedAmount] = useState("");
   const [quotedRangeIndex, setQuotedRangeIndex] = useState<number | null>(null);
   const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -247,6 +249,12 @@ function TradePanelRange({
       quotedSharesRaw !== null &&
       quotedAmount === amount &&
       quotedRangeIndex === selectedRangeIndex);
+  const hasCurrentSellQuote =
+    mode !== "SELL" ||
+    (quotedSellUsdc !== null &&
+      quotedSellUsdcRaw !== null &&
+      quotedAmount === amount &&
+      quotedRangeIndex === selectedRangeIndex);
   const estimatedTokens = (hasCurrentBuyQuote && quotedTokens !== null && quotedTokens > 0) ? quotedTokens : fallbackEstimate;
   const poolLiquidity = parseFloat(market.totalLiquidity || "0") || 0;
   const priceImpactPct =
@@ -257,9 +265,11 @@ function TradePanelRange({
   const netIfWins = winPayout - num;
 
   useEffect(() => {
-    if (mode !== "BUY" || selectedRangeIndex == null || num <= 0 || !market.rangeCpmmAddress) {
+    if (selectedRangeIndex == null || num <= 0 || !market.rangeCpmmAddress) {
       setQuotedTokens(null);
       setQuotedSharesRaw(null);
+      setQuotedSellUsdc(null);
+      setQuotedSellUsdcRaw(null);
       setQuotedAmount("");
       setQuotedRangeIndex(null);
       return;
@@ -267,16 +277,30 @@ function TradePanelRange({
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     quoteTimerRef.current = setTimeout(async () => {
       try {
-        const result = await fetchApi<{ rangeIndex: number; usdcAmount: number; sharesOut: string; sharesOutFloat: number }>(
-          `/range-markets/${market.id}/quote?rangeIndex=${selectedRangeIndex}&usdcAmount=${num}`
-        );
-        setQuotedTokens(result.sharesOutFloat);
-        setQuotedSharesRaw(result.sharesOut);
+        if (mode === "BUY") {
+          const result = await fetchApi<{ rangeIndex: number; usdcAmount: number; sharesOut: string; sharesOutFloat: number }>(
+            `/range-markets/${market.id}/quote?rangeIndex=${selectedRangeIndex}&usdcAmount=${num}`
+          );
+          setQuotedTokens(result.sharesOutFloat);
+          setQuotedSharesRaw(result.sharesOut);
+          setQuotedSellUsdc(null);
+          setQuotedSellUsdcRaw(null);
+        } else {
+          const result = await fetchApi<{ rangeIndex: number; shares: number; usdcOutRaw: string; usdcOutFloat: number }>(
+            `/range-markets/${market.id}/quote-sell?rangeIndex=${selectedRangeIndex}&shares=${num}`
+          );
+          setQuotedTokens(null);
+          setQuotedSharesRaw(null);
+          setQuotedSellUsdc(result.usdcOutFloat);
+          setQuotedSellUsdcRaw(result.usdcOutRaw);
+        }
         setQuotedAmount(amount);
         setQuotedRangeIndex(selectedRangeIndex);
       } catch {
         setQuotedTokens(null);
         setQuotedSharesRaw(null);
+        setQuotedSellUsdc(null);
+        setQuotedSellUsdcRaw(null);
         setQuotedAmount("");
         setQuotedRangeIndex(null);
       }
@@ -289,6 +313,8 @@ function TradePanelRange({
   const clearQuote = () => {
     setQuotedTokens(null);
     setQuotedSharesRaw(null);
+    setQuotedSellUsdc(null);
+    setQuotedSellUsdcRaw(null);
     setQuotedAmount("");
     setQuotedRangeIndex(null);
   };
@@ -330,6 +356,8 @@ function TradePanelRange({
       const minOutputRaw =
         mode === "BUY" && quotedSharesRaw && quotedAmount === amount && quotedRangeIndex === selectedRangeIndex
           ? (parseUnits(quotedSharesRaw, 18) * (BigInt(10_000) - slippageBps)) / BigInt(10_000)
+          : mode === "SELL" && quotedSellUsdcRaw && quotedAmount === amount && quotedRangeIndex === selectedRangeIndex
+            ? (BigInt(quotedSellUsdcRaw) * (BigInt(10_000) - slippageBps)) / BigInt(10_000)
           : BigInt(0);
 
       toast.loading("Preparing trade…", { id: toastId });
@@ -502,7 +530,8 @@ function TradePanelRange({
     !isLoading &&
     !!preferredWallet &&
     selectedRangeIndex != null &&
-    hasCurrentBuyQuote;
+    hasCurrentBuyQuote &&
+    hasCurrentSellQuote;
   const selectedColorIndex =
     selectedRangeIndex != null ? selectedRangeIndex % RANGE_COLORS.length : 0;
   const selectedTextClass = RANGE_TEXT_CLASSES[selectedColorIndex];
@@ -697,9 +726,12 @@ function TradePanelRange({
             </>
           ) : (
             <div className="flex justify-between text-[11px]">
-              <span className="text-[var(--muted)]">USDC received (est.)</span>
+              <span className="text-[var(--muted)]">
+                USDC received
+                {quotedSellUsdc !== null && <span className="ml-1 text-[9px] text-[var(--muted)]">(exact)</span>}
+              </span>
               <span className={`mono ${num > 0 ? "font-semibold text-yes" : "font-normal text-[var(--muted)]"}`}>
-                {num > 0 && selectedPrice > 0 ? `$${(num * selectedPrice).toFixed(4)}` : "—"}
+                {num > 0 ? `$${(quotedSellUsdc ?? num * selectedPrice).toFixed(4)}` : "—"}
               </span>
             </div>
           )}

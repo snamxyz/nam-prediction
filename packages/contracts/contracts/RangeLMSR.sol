@@ -259,6 +259,44 @@ contract RangeLMSR {
         usdcCost = _ceilDiv(costInternal, DECIMAL_SCALE);
     }
 
+    /// @notice Compute C(q) while simulating removed shares on one range.
+    function _costFunctionWithRemovedShares(uint256 rangeIndex, uint256 sharesToRemove) internal view returns (uint256) {
+        uint256 n = numRanges;
+        int256[] memory args = new int256[](n);
+        int256 maxArg = type(int256).min;
+
+        for (uint256 i = 0; i < n; i++) {
+            uint256 qi = IERC20(rangeTokens[i]).totalSupply();
+            if (i == rangeIndex) {
+                require(qi >= sharesToRemove, "Insufficient shares");
+                qi -= sharesToRemove;
+            }
+            args[i] = int256((qi * PRECISION) / b);
+            if (args[i] > maxArg) maxArg = args[i];
+        }
+
+        int256 sumExp = 0;
+        for (uint256 i = 0; i < n; i++) {
+            sumExp += unwrap(prbExp(wrap(args[i] - maxArg)));
+        }
+
+        int256 lnSumExp = unwrap(prbLn(wrap(sumExp)));
+        int256 cost = int256(b) * (maxArg + lnSumExp) / int256(PRECISION);
+        return uint256(cost);
+    }
+
+    function _quoteSellShares(uint256 rangeIndex, uint256 sharesIn) internal view returns (uint256 usdcOut) {
+        uint256 costBefore = _costFunction();
+        uint256 costAfter = _costFunctionWithRemovedShares(rangeIndex, sharesIn);
+        uint256 grossOut = (costBefore - costAfter) / DECIMAL_SCALE;
+        if (grossOut == 0) return 0;
+
+        uint256 lpFee = (grossOut * feeBps) / BPS;
+        uint256 afterLpFee = grossOut - lpFee;
+        uint256 protocolFee = (afterLpFee * protocolFeeBps) / BPS;
+        usdcOut = afterLpFee - protocolFee;
+    }
+
     function _requireMinShares(uint256 sharesOut, uint256 minSharesOut) internal pure {
         require(sharesOut >= minSharesOut, "Slippage: insufficient shares");
     }
@@ -363,32 +401,12 @@ contract RangeLMSR {
     /// @param sharesIn   Number of range tokens to burn (18 decimals).
     /// @return usdcOut   Amount of USDC received (6 decimals).
     function sell(uint256 rangeIndex, uint256 sharesIn) external returns (uint256 usdcOut) {
-        require(rangeIndex < numRanges, "Invalid range");
-        require(sharesIn > 0, "Zero input");
-        require(!resolved, "Market resolved");
-        require(b > 0, "Not seeded");
+        return _sell(rangeIndex, sharesIn, msg.sender, msg.sender, 0);
+    }
 
-        uint256 costBefore = _costFunction();
-
-        // Burn first (decreases totalSupply used by _costFunction)
-        RangeOutcomeToken(rangeTokens[rangeIndex]).burn(msg.sender, sharesIn);
-
-        uint256 costAfter = _costFunction();
-
-        uint256 costDiff = costBefore - costAfter; // 18-dec internal units
-        uint256 grossOut = costDiff / DECIMAL_SCALE; // 6-dec USDC
-        require(grossOut > 0, "Insufficient output");
-
-        // LP fee stays in contract
-        uint256 lpFee = (grossOut * feeBps) / BPS;
-        uint256 afterLpFee = grossOut - lpFee;
-
-        usdcOut = _takeSellFee(msg.sender, afterLpFee, rangeIndex);
-        require(usdcOut > 0, "Insufficient output after fees");
-
-        IERC20(collateral).safeTransfer(msg.sender, usdcOut);
-
-        emit RangeTrade(marketId, msg.sender, rangeIndex, false, sharesIn, usdcOut);
+    /// @notice Sell outcome tokens with a minimum USDC-out slippage guard.
+    function sell(uint256 rangeIndex, uint256 sharesIn, uint256 minUsdcOut) external returns (uint256 usdcOut) {
+        return _sell(rangeIndex, sharesIn, msg.sender, msg.sender, minUsdcOut);
     }
 
     /// @notice Like `buy` but mints tokens to `recipient` instead of `msg.sender`.
@@ -412,10 +430,32 @@ contract RangeLMSR {
     ///         USDC proceeds are sent to `msg.sender` (the caller, i.e. the escrow).
     ///         Used by the Vault/UserEscrow to sell tokens held in the escrow.
     function sellFor(uint256 rangeIndex, uint256 sharesIn, address seller) external returns (uint256 usdcOut) {
+        return _sell(rangeIndex, sharesIn, seller, msg.sender, 0);
+    }
+
+    /// @notice Like `sellFor` with a minimum USDC-out slippage guard.
+    function sellFor(
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address seller,
+        uint256 minUsdcOut
+    ) external returns (uint256 usdcOut) {
+        return _sell(rangeIndex, sharesIn, seller, msg.sender, minUsdcOut);
+    }
+
+    function _sell(
+        uint256 rangeIndex,
+        uint256 sharesIn,
+        address seller,
+        address recipient,
+        uint256 minUsdcOut
+    ) internal returns (uint256 usdcOut) {
         require(rangeIndex < numRanges, "Invalid range");
         require(sharesIn > 0, "Zero input");
         require(!resolved, "Market resolved");
         require(b > 0, "Not seeded");
+        require(seller != address(0), "Zero seller");
+        require(recipient != address(0), "Zero recipient");
 
         uint256 costBefore = _costFunction();
         RangeOutcomeToken(rangeTokens[rangeIndex]).burn(seller, sharesIn);
@@ -430,8 +470,9 @@ contract RangeLMSR {
 
         usdcOut = _takeSellFee(seller, afterLpFee, rangeIndex);
         require(usdcOut > 0, "Insufficient output after fees");
+        require(usdcOut >= minUsdcOut, "Slippage: insufficient output");
 
-        IERC20(collateral).safeTransfer(msg.sender, usdcOut);
+        IERC20(collateral).safeTransfer(recipient, usdcOut);
 
         emit RangeTrade(marketId, seller, rangeIndex, false, sharesIn, usdcOut);
     }
@@ -600,5 +641,16 @@ contract RangeLMSR {
         uint256 costAfter = _costFunctionWithAddedShares(rangeIndex, sharesWanted);
 
         usdcCost = (costAfter - costBefore) / DECIMAL_SCALE;
+    }
+
+    /// @notice Preview net USDC received for selling `sharesIn` of outcome `rangeIndex`.
+    /// @param rangeIndex The outcome index.
+    /// @param sharesIn Shares sold (18-decimal).
+    /// @return usdcOut Net USDC received after LP and protocol fees (6-decimal).
+    function quoteSell(uint256 rangeIndex, uint256 sharesIn) external view returns (uint256 usdcOut) {
+        require(rangeIndex < numRanges, "Invalid range");
+        require(sharesIn > 0, "Zero input");
+        require(b > 0, "Not seeded");
+        usdcOut = _quoteSellShares(rangeIndex, sharesIn);
     }
 }
