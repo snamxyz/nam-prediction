@@ -5,7 +5,8 @@ export async function fetchApi<T>(path: string): Promise<T> {
     next: { revalidate: 10 },
   });
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `API error: ${res.status} ${res.statusText}`);
   }
   const json = await res.json();
   return json.data as T;

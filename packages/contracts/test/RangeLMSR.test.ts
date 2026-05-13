@@ -288,6 +288,22 @@ describe("RangeLMSR — full LMSR range market stack", function () {
     expect(usdcAfter - usdcBefore).to.equal(quote);
   });
 
+  it("quoteSell works for tiny positions in a low-liquidity market", async function () {
+    const { pool } = await deployRangeStack(deployer, usdcAddr, 4, 1n * USDC_UNIT);
+    const poolAddr = await (pool as any).getAddress();
+    const buyAmount = USDC_UNIT / 100n; // $0.01
+
+    await (usdcContract as any).approve(poolAddr, buyAmount);
+    await (pool as any).buy(1n, buyAmount);
+
+    const tokenAddr: string = await (pool as any).rangeTokens(1n);
+    const token = await ethers.getContractAt(OUTCOME_TOKEN_ABI, tokenAddr, deployer);
+    const balance: bigint = await (token as any).balanceOf(deployer.address);
+
+    const quote: bigint = await (pool as any).quoteSell(1n, balance);
+    expect(quote).to.be.gt(0n);
+  });
+
   it("sellFor reverts when minUsdcOut is above the LMSR quote", async function () {
     const { pool } = await deployRangeStack(deployer, usdcAddr);
     const poolAddr = await (pool as any).getAddress();

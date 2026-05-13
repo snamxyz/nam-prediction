@@ -287,7 +287,7 @@ function TradePanelRange({
           setQuotedSellUsdcRaw(null);
         } else {
           const result = await fetchApi<{ rangeIndex: number; shares: number; usdcOutRaw: string; usdcOutFloat: number }>(
-            `/range-markets/${market.id}/quote-sell?rangeIndex=${selectedRangeIndex}&shares=${num}`
+            `/range-markets/${market.id}/quote-sell?rangeIndex=${selectedRangeIndex}&shares=${encodeURIComponent(amount)}`
           );
           setQuotedTokens(null);
           setQuotedSharesRaw(null);
@@ -296,13 +296,16 @@ function TradePanelRange({
         }
         setQuotedAmount(amount);
         setQuotedRangeIndex(selectedRangeIndex);
-      } catch {
+      } catch (err: unknown) {
         setQuotedTokens(null);
         setQuotedSharesRaw(null);
         setQuotedSellUsdc(null);
         setQuotedSellUsdcRaw(null);
         setQuotedAmount("");
         setQuotedRangeIndex(null);
+        if (mode === "SELL") {
+          setError((err as Error).message || "Sell quote unavailable");
+        }
       }
     }, 400);
     return () => {
@@ -397,7 +400,7 @@ function TradePanelRange({
           rangeIndex: selectedRangeIndex,
           ...(mode === "BUY"
             ? { usdcAmount: parseFloat(amount) }
-            : { shares: parseFloat(amount) }),
+            : { shares: amount }),
           userAddress: signerAddress,
           minOutput: minOutputRaw.toString(),
           signature,
@@ -531,7 +534,8 @@ function TradePanelRange({
     !!preferredWallet &&
     selectedRangeIndex != null &&
     hasCurrentBuyQuote &&
-    hasCurrentSellQuote;
+    hasCurrentSellQuote &&
+    (mode !== "SELL" || (ownedBalance > 0 && num <= ownedBalance));
   const selectedColorIndex =
     selectedRangeIndex != null ? selectedRangeIndex % RANGE_COLORS.length : 0;
   const selectedTextClass = RANGE_TEXT_CLASSES[selectedColorIndex];

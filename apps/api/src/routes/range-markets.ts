@@ -143,6 +143,25 @@ async function fetchOnChainPrices(cpmmAddress: string): Promise<number[]> {
 
 const SHARES_DECIMALS = 18n;
 const SHARES_UNIT = 10n ** SHARES_DECIMALS;
+const DECIMAL_INPUT_RE = /^\d+(?:\.\d+)?$/;
+
+function parseDecimalUnits(value: string, decimals: number): bigint | null {
+  const trimmed = value.trim();
+  if (!DECIMAL_INPUT_RE.test(trimmed)) return null;
+  try {
+    return parseUnits(trimmed, decimals);
+  } catch {
+    return null;
+  }
+}
+
+function getErrorMessage(err: unknown): string {
+  return (
+    (err as { shortMessage?: string; message?: string }).shortMessage ||
+    (err as { message?: string }).message ||
+    "Unknown error"
+  );
+}
 
 /**
  * Convert a raw shares bigint (18 decimals) to a NUMERIC-safe decimal string.
@@ -326,6 +345,19 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
     }
 
     const rows = await q;
+    for (const market of rows) {
+      if (!market.rangeCpmmAddress || market.resolved || market.status !== "active") continue;
+      const prices = await fetchOnChainPrices(market.rangeCpmmAddress);
+      const ranges = market.ranges as unknown[];
+      if (prices.length !== ranges.length) continue;
+
+      market.rangePrices = prices as unknown as typeof market.rangePrices;
+      await db
+        .update(rangeMarkets)
+        .set({ rangePrices: prices })
+        .where(eq(rangeMarkets.id, market.id));
+    }
+
     return { data: rows, success: true };
   })
 
@@ -479,9 +511,10 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
   .get("/:id/quote-sell", async ({ params, query, set }) => {
     const id = Number(params.id);
     const rangeIndex = Number(query.rangeIndex);
-    const shares = Number(query.shares);
+    const sharesParam = typeof query.shares === "string" ? query.shares : String(query.shares ?? "");
+    const sharesRaw = parseDecimalUnits(sharesParam, 18);
 
-    if (isNaN(id) || isNaN(rangeIndex) || isNaN(shares) || shares <= 0 || rangeIndex < 0) {
+    if (isNaN(id) || isNaN(rangeIndex) || sharesRaw == null || sharesRaw <= 0n || rangeIndex < 0) {
       set.status = 400;
       return { error: "Invalid parameters", success: false };
     }
@@ -500,7 +533,6 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
 
     try {
       const client = getPublicClient();
-      const sharesRaw = parseUnits(String(shares), 18);
       const usdcOut = await client.readContract({
         address: market.rangeCpmmAddress as `0x${string}`,
         abi: RangePoolABI,
@@ -512,7 +544,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         success: true,
         data: {
           rangeIndex,
-          shares,
+          shares: Number(sharesRaw) / 1e18,
           usdcOut: bigintToDecimalUsdc(usdcOut),
           usdcOutRaw: usdcOut.toString(),
           usdcOutFloat: Number(usdcOut) / 1e6,
@@ -520,8 +552,11 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       };
     } catch (err: unknown) {
       console.error("[RangeMarkets] Sell quote error:", err);
-      set.status = 500;
-      return { error: (err as Error).message ?? "Quote failed", success: false };
+      set.status = 400;
+      return {
+        error: `Sell quote unavailable for this deployed range market: ${getErrorMessage(err)}`,
+        success: false,
+      };
     }
   })
 
@@ -855,7 +890,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       const id = Number(params.id);
       const { rangeIndex, shares, minOutput, signature, nonce, deadline, userAddress: requestedUserAddress } = body as {
         rangeIndex: number;
-        shares: number;
+        shares: number | string;
         minOutput?: string;
         signature: string;
         nonce: string;
@@ -872,7 +907,10 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         return { error: "Unauthorized", success: false };
       }
 
-      if (isNaN(id) || rangeIndex < 0 || shares <= 0) {
+      const sharesParam = typeof shares === "string" ? shares : String(shares);
+      const requestedSharesRaw = parseDecimalUnits(sharesParam, 18);
+
+      if (isNaN(id) || rangeIndex < 0 || requestedSharesRaw == null || requestedSharesRaw <= 0n) {
         set.status = 400;
         return { error: "Invalid parameters", success: false };
       }
@@ -899,8 +937,6 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       }
 
       const cpmmAddress = market.rangeCpmmAddress as `0x${string}`;
-      // parseUnits from user input (float string) — may be slightly over actual balance
-      const requestedSharesRaw = parseUnits(String(shares), 18);
       const minOutputRaw = minOutput ? BigInt(minOutput) : BigInt(0);
 
       try {
@@ -959,18 +995,26 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           }
           safeSharesRaw = requestedSharesRaw;
 
-          if (minOutputRaw > 0n) {
-            const quotedUsdc = await publicClient.readContract({
+          let quotedUsdc: bigint;
+          try {
+            quotedUsdc = await publicClient.readContract({
               address: cpmmAddress,
               abi: RangePoolABI,
               functionName: "quoteSell",
               args: [BigInt(rangeIndex), safeSharesRaw],
             }) as bigint;
-            if (quotedUsdc < minOutputRaw) {
-              await releaseRangeNonce(userAddress, nonce);
-              set.status = 400;
-              return { error: "Slippage: current quote below signed minimum", success: false };
-            }
+          } catch (err) {
+            await releaseRangeNonce(userAddress, nonce);
+            set.status = 400;
+            return {
+              error: `Sell quote unavailable for this deployed range market: ${getErrorMessage(err)}`,
+              success: false,
+            };
+          }
+          if (minOutputRaw > 0n && quotedUsdc < minOutputRaw) {
+            await releaseRangeNonce(userAddress, nonce);
+            set.status = 400;
+            return { error: "Slippage: current quote below signed minimum", success: false };
           }
 
           sellHash = await nm.withNonce((n) =>
@@ -1001,18 +1045,26 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           }
           safeSharesRaw = requestedSharesRaw;
 
-          if (minOutputRaw > 0n) {
-            const quotedUsdc = await publicClient.readContract({
+          let quotedUsdc: bigint;
+          try {
+            quotedUsdc = await publicClient.readContract({
               address: cpmmAddress,
               abi: RangePoolABI,
               functionName: "quoteSell",
               args: [BigInt(rangeIndex), safeSharesRaw],
             }) as bigint;
-            if (quotedUsdc < minOutputRaw) {
-              await releaseRangeNonce(userAddress, nonce);
-              set.status = 400;
-              return { error: "Slippage: current quote below signed minimum", success: false };
-            }
+          } catch (err) {
+            await releaseRangeNonce(userAddress, nonce);
+            set.status = 400;
+            return {
+              error: `Sell quote unavailable for this deployed range market: ${getErrorMessage(err)}`,
+              success: false,
+            };
+          }
+          if (minOutputRaw > 0n && quotedUsdc < minOutputRaw) {
+            await releaseRangeNonce(userAddress, nonce);
+            set.status = 400;
+            return { error: "Slippage: current quote below signed minimum", success: false };
           }
 
           sellHash = await nm.withNonce((n) =>
@@ -1108,7 +1160,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
     {
       body: t.Object({
         rangeIndex: t.Number(),
-        shares: t.Number(),
+        shares: t.Union([t.Number(), t.String()]),
         userAddress: t.Optional(t.String()),
         minOutput: t.Optional(t.String()),
         signature: t.String(),
