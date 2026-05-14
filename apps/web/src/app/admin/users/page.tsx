@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useAdminUsers } from "@/hooks/useAdmin";
 import { useVaultUserBalances } from "@/hooks/useVaultUserBalances";
@@ -90,7 +91,7 @@ export default function AdminUsersPage() {
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                {["User", "Wallet", "Vault Holdings", "Trades", "Volume", "Joined"].map((h) => (
+                {["User", "Wallet", "Vault Holdings", "Trades", "Volume", "Joined", "Profile"].map((h) => (
                   <th key={h} className="whitespace-nowrap px-5 py-3 text-left text-xs font-medium" style={{ color: "var(--muted)" }}>{h}</th>
                 ))}
               </tr>
@@ -98,7 +99,7 @@ export default function AdminUsersPage() {
             <tbody>
               {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-xs" style={{ color: "var(--muted)" }}>
+                  <td colSpan={7} className="px-5 py-8 text-center text-xs" style={{ color: "var(--muted)" }}>
                     {search ? "No users match your search" : "No users found"}
                   </td>
                 </tr>
@@ -148,6 +149,15 @@ export default function AdminUsersPage() {
                     <td className="whitespace-nowrap px-5 py-3 text-xs" style={{ color: "var(--foreground)" }}>{u.tradeCount}</td>
                     <td className="whitespace-nowrap px-5 py-3 text-xs" style={{ color: "var(--yes)" }}>{fmt(u.totalVolume)}</td>
                     <td className="whitespace-nowrap px-5 py-3 text-xs" style={{ color: "var(--muted)" }}>{timeAgo(u.createdAt)}</td>
+                    <td className="whitespace-nowrap px-5 py-3">
+                      <Link
+                        href={`/admin/users/${u.id}`}
+                        className="rounded-full px-3 py-1 text-xs font-semibold transition-all"
+                        style={{ background: "rgba(1,210,67,0.12)", color: "var(--yes)" }}
+                      >
+                        View
+                      </Link>
+                    </td>
                   </tr>
                 );
               })}

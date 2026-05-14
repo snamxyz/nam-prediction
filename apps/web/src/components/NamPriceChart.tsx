@@ -291,7 +291,8 @@ function NamPriceLightweightChart({
         },
         rightPriceScale: {
           borderColor: theme.borderSubtle,
-          scaleMargins: { top: 0.16, bottom: 0.18 },
+          minimumWidth: compact ? 62 : 76,
+          scaleMargins: { top: 0.18, bottom: 0.2 },
         },
         timeScale: {
           borderColor: theme.borderSubtle,

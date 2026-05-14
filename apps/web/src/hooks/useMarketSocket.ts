@@ -13,6 +13,7 @@ interface MarketPriceUpdate {
   lastTradeSide?: "YES" | "NO";
   lastTradeIsBuy?: boolean;
   volume?: number;
+  liquidity?: number;
 }
 
 interface TradeUpdate {
@@ -39,6 +40,7 @@ export interface LiveMarketStats {
   lastTradeSide?: "YES" | "NO";
   lastTradeIsBuy?: boolean;
   volume?: number;
+  liquidity?: number;
 }
 
 export function useMarketSocket(marketId: number | undefined) {
@@ -53,7 +55,7 @@ export function useMarketSocket(marketId: number | undefined) {
 
     socket.emit("join:market", marketId);
 
-    const handlePrice = (data: MarketPriceUpdate) => {
+    const handleMarketStats = (data: MarketPriceUpdate) => {
       if (data.marketId !== marketId) return;
       setStats({
         yesPrice: data.yesPrice,
@@ -64,6 +66,7 @@ export function useMarketSocket(marketId: number | undefined) {
         lastTradeSide: data.lastTradeSide,
         lastTradeIsBuy: data.lastTradeIsBuy,
         volume: data.volume,
+        liquidity: data.liquidity,
       });
     };
 
@@ -85,14 +88,16 @@ export function useMarketSocket(marketId: number | undefined) {
       }
     };
 
-    socket.on("market:price", handlePrice);
+    socket.on("market:price", handleMarketStats);
+    socket.on("market:update", handleMarketStats);
     socket.on("trade:new", handleTrade);
     socket.on("market:resolved", handleResolved);
     socket.on("market:locked", handleLocked);
 
     return () => {
       socket.emit("leave:market", marketId);
-      socket.off("market:price", handlePrice);
+      socket.off("market:price", handleMarketStats);
+      socket.off("market:update", handleMarketStats);
       socket.off("trade:new", handleTrade);
       socket.off("market:resolved", handleResolved);
       socket.off("market:locked", handleLocked);

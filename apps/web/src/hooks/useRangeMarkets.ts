@@ -58,6 +58,28 @@ export function useRangeTrades(marketId: number | undefined) {
   });
 }
 
+export interface RangeActivityPoint {
+  timestamp: string;
+  value: number;
+}
+
+export interface RangeActivity {
+  configured: boolean;
+  target: number | null;
+  points: RangeActivityPoint[];
+  source?: string;
+}
+
+export function useRangeActivity(marketId: number | undefined) {
+  return useQuery<RangeActivity>({
+    queryKey: ["range-activity", marketId],
+    queryFn: () => fetchApi<RangeActivity>(`/range-markets/${marketId}/activity`),
+    enabled: marketId != null,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+}
+
 // ─── Live socket hook ───
 
 interface RangePriceUpdate {

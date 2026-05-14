@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { db } from "../db/client";
 import { userPositions, markets, trades, rangePositions, rangeMarkets, rangeTrades } from "../db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { formatMarketQuestion } from "../lib/market-display";
 
 const DUST = 1e-9; // shares below this are ignored
 
@@ -346,7 +347,7 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
             id: pos.id,
             marketId: pos.marketId,
             onChainId: m.onChainId,
-            question: m.question,
+            question: formatMarketQuestion(m),
             resolved: m.resolved,
             result: m.result,
             // market prices

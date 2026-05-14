@@ -31,6 +31,7 @@ const RangePoolABI = RangeLMSRABI;
 import { publishEvent, getCache, setCache, cacheKeys, redis } from "../lib/redis";
 import { getNonceManager } from "../lib/nonce-manager.instance";
 import { verifyPrivyToken, privyClient } from "../middleware/auth";
+import { fetchRangeActivity } from "../services/range-activity";
 
 // ─── Replay protection ───
 //
@@ -402,6 +403,44 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
     }
 
     return { data: rows, success: true };
+  })
+
+  // GET /range-markets/:id/activity — cumulative actual activity toward target
+  .get("/:id/activity", async ({ params, set }) => {
+    const id = Number(params.id);
+    if (isNaN(id)) {
+      set.status = 400;
+      return { error: "Invalid id", success: false };
+    }
+
+    const rows = await db.select().from(rangeMarkets).where(eq(rangeMarkets.id, id)).limit(1);
+    if (rows.length === 0) {
+      set.status = 404;
+      return { error: "Range market not found", success: false };
+    }
+
+    const market = rows[0];
+    if (market.marketType !== "receipts" && market.marketType !== "participants") {
+      set.status = 400;
+      return { error: "Activity is only available for range markets", success: false };
+    }
+
+    try {
+      const activity = await fetchRangeActivity({
+        kind: market.marketType,
+        marketId: market.id,
+        date: market.date,
+        startTime: market.createdAt,
+        endTime: market.endTime,
+      });
+      return { data: activity, success: true };
+    } catch (err) {
+      set.status = 502;
+      return {
+        error: err instanceof Error ? err.message : "Activity source unavailable",
+        success: false,
+      };
+    }
   })
 
   // GET /range-markets/:id — single market with latest prices

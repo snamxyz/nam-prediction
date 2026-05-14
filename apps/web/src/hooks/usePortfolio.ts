@@ -80,17 +80,32 @@ export interface PortfolioSummary {
 
 const RECONCILE_INTERVAL_MS = 15_000;
 
+export function usePortfolioForAddress(targetAddress: string | undefined, options?: { refetchInterval?: number | false }) {
+  return useQuery<PositionWithMarket[]>({
+    queryKey: ["portfolio", targetAddress],
+    queryFn: () => fetchApi<PositionWithMarket[]>(`/portfolio/${targetAddress}`),
+    enabled: !!targetAddress,
+    refetchInterval: options?.refetchInterval ?? false,
+    select: (data) => data ?? [],
+  });
+}
+
+export function usePortfolioSummaryForAddress(targetAddress: string | undefined, options?: { refetchInterval?: number | false }) {
+  return useQuery<PortfolioSummary>({
+    queryKey: ["portfolio-summary", targetAddress],
+    queryFn: () => fetchApi<PortfolioSummary>(`/portfolio/${targetAddress}/summary`),
+    enabled: !!targetAddress,
+    refetchInterval: options?.refetchInterval ?? false,
+  });
+}
+
 export function usePortfolio() {
   const { address } = useAccount();
   const { getAccessToken } = usePrivy();
   const lastReconcileRef = useRef<number>(0);
 
-  const query = useQuery<PositionWithMarket[]>({
-    queryKey: ["portfolio", address],
-    queryFn: () => fetchApi<PositionWithMarket[]>(`/portfolio/${address}`),
-    enabled: !!address,
+  const query = usePortfolioForAddress(address, {
     refetchInterval: RECONCILE_INTERVAL_MS,
-    select: (data) => data ?? [],
   });
 
   // On-demand reconcile: calls the backend to re-read on-chain OutcomeToken
@@ -126,10 +141,7 @@ export function usePortfolio() {
 export function usePortfolioSummary() {
   const { address } = useAccount();
 
-  return useQuery<PortfolioSummary>({
-    queryKey: ["portfolio-summary", address],
-    queryFn: () => fetchApi<PortfolioSummary>(`/portfolio/${address}/summary`),
-    enabled: !!address,
+  return usePortfolioSummaryForAddress(address, {
     refetchInterval: RECONCILE_INTERVAL_MS,
   });
 }

@@ -293,12 +293,15 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
   // Always bump volume — we know `collateral` from the event itself, no RPC needed.
   // Only touch the price columns if we actually fetched on-chain prices.
   const newVolume = Number(dbMarket.volume) + Number(collateral) / 1e6;
+  const liveLiquidity = pricesFetched
+    ? Number(formatUnits((yesReserve + noReserve) / 2n, 18)).toFixed(6)
+    : null;
   try {
     await db
       .update(markets)
       .set(
         pricesFetched
-          ? { yesPrice: yesPriceNum, noPrice: noPriceNum, volume: newVolume.toString() }
+          ? { yesPrice: yesPriceNum, noPrice: noPriceNum, volume: newVolume.toString(), liquidity: liveLiquidity! }
           : { volume: newVolume.toString() }
       )
       .where(eq(markets.id, dbMarket.id));
@@ -320,7 +323,7 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
     const collateralNum = Number(collateral) / 1e6;
     const lastTradePrice = sharesNum > 0 ? collateralNum / sharesNum : 0;
 
-    await publishEvent("market:price", {
+    const marketStatsPayload = {
       marketId: dbMarket.id,
       yesPrice: yesPriceNum,
       noPrice: noPriceNum,
@@ -330,8 +333,12 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
       lastTradeSide: isYes ? "YES" : "NO",
       lastTradeIsBuy: isBuy,
       volume: newVolume,
+      liquidity: liveLiquidity ? Number(liveLiquidity) : undefined,
       pricesStale: !pricesFetched,
-    });
+    };
+
+    await publishEvent("market:price", marketStatsPayload);
+    await publishEvent("market:update", marketStatsPayload);
   } catch (err) {
     console.error("[Indexer] Failed to publish market:price event:", err);
   }

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, AlertTriangle, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRangeMarketSocket, useRangePositions, useRangeMarkets, useRangeTrades } from "@/hooks/useRangeMarkets";
+import { useRangeActivity, useRangeMarketSocket, useRangePositions, useRangeMarkets, useRangeTrades } from "@/hooks/useRangeMarkets";
 import type { RangeMarket, RangeOutcome, RangePosition } from "@nam-prediction/shared";
 import {
   TRADING_DOMAIN,
@@ -14,6 +14,7 @@ import {
 } from "@nam-prediction/shared";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { RangeProbabilityChart } from "@/components/RangeProbabilityChart";
+import { RangeActivityChart } from "@/components/RangeActivityChart";
 import {
   Drawer,
   DrawerClose,
@@ -72,6 +73,14 @@ const RANGE_BORDER_CLASSES = [
 function getRangeClassIndex(color: string) {
   const index = RANGE_COLORS.indexOf(color);
   return index >= 0 ? index : 0;
+}
+
+function getMarketDayTime(market: Pick<RangeMarket, "date" | "endTime" | "createdAt">) {
+  const dateTime = Date.parse(`${market.date}T00:00:00Z`);
+  if (Number.isFinite(dateTime)) return dateTime;
+  const endTime = Date.parse(market.endTime);
+  if (Number.isFinite(endTime)) return endTime;
+  return Date.parse(market.createdAt);
 }
 
 function useCountdown(iso?: string) {
@@ -819,6 +828,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   const userAddress = user?.wallet?.address?.toLowerCase() ?? null;
   const { data: positions = [], refetch: refetchPositions } = useRangePositions(market?.id, userAddress ?? undefined);
   const { data: trades = [] } = useRangeTrades(market?.id);
+  const { data: activity, isLoading: isActivityLoading } = useRangeActivity(market?.id);
   const [selectedRange, setSelectedRange] = useState<number | null>(null);
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false);
   const [tab, setTab] = useState<"activity" | "rules">("activity");
@@ -866,6 +876,9 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
 
   const marketTypeClass = getRangeMarketAccent(marketType).pill;
   const marketTypeLabel = getRangeMarketLabel(marketType);
+  const chronologicalMarkets = [...(allMarkets ?? [])].sort(
+    (a, b) => getMarketDayTime(a) - getMarketDayTime(b)
+  );
   const totalVolume = trades.reduce((sum, trade) => sum + (parseFloat(trade.collateral) || 0), 0);
   const activePositions = positions.filter((position) => parseFloat(position.balance) > 0);
   const selectedRangeData = selectedRange != null ? ranges[selectedRange] : null;
@@ -943,6 +956,14 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
         </div>
 
         <div className="mt-[18px] border-t border-[var(--border-subtle)] pt-[18px]">
+          <RangeActivityChart
+            activity={activity}
+            isLoading={isActivityLoading}
+            label={marketType === "receipts" ? "Receipts Uploaded" : "Miners"}
+          />
+        </div>
+
+        <div className="mt-[18px] border-t border-[var(--border-subtle)] pt-[18px]">
           <RangeProbabilityChart
             ranges={ranges}
             trades={trades}
@@ -953,13 +974,13 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
         </div>
       </div>
 
-      {allMarkets && allMarkets.length > 1 && (
+      {chronologicalMarkets.length > 1 && (
         <div className="card mb-4 p-3">
           <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
             Previous Days
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {allMarkets.map((item) => {
+            {chronologicalMarkets.map((item) => {
               const isCurrent = item.id === market.id;
               const displayDate = formatEasternShortDate(item.endTime) ?? item.date;
               return (

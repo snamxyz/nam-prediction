@@ -41,7 +41,7 @@ function getYAxisDomain(points: ChartPoint[]): [number, number] {
   const values = points.map((point) => point.yesProbability);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const minSpan = 4;
+  const minSpan = 10;
 
   let yMin: number;
   let yMax: number;
@@ -56,8 +56,8 @@ function getYAxisDomain(points: ChartPoint[]): [number, number] {
     yMax = max + padding;
   }
 
-  yMin = clampProbability(yMin);
-  yMax = clampProbability(yMax);
+  yMin = Math.floor(clampProbability(yMin) / 5) * 5;
+  yMax = Math.ceil(clampProbability(yMax) / 5) * 5;
 
   if (yMax - yMin < minSpan) {
     if (yMin === 0) {
@@ -71,11 +71,17 @@ function getYAxisDomain(points: ChartPoint[]): [number, number] {
     }
   }
 
-  return [roundProbability(yMin), roundProbability(yMax)];
+  return [clampProbability(yMin), clampProbability(yMax)];
 }
 
 function getYAxisTicks([yMin, yMax]: [number, number]) {
-  return Array.from({ length: 5 }, (_, index) => roundProbability(yMin + ((yMax - yMin) * index) / 4));
+  const step = Math.max(5, Math.ceil((yMax - yMin) / 4 / 5) * 5);
+  const ticks = [];
+  for (let value = yMin; value <= yMax; value += step) {
+    ticks.push(roundProbability(value));
+  }
+  if (ticks[ticks.length - 1] !== yMax) ticks.push(roundProbability(yMax));
+  return ticks;
 }
 
 export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", currentYesProbabilityPct }: PriceChartProps) {
@@ -101,7 +107,7 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", curr
         Probabilities
       </h3>
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={data} margin={{ top: 5, right: 8, bottom: 5, left: 0 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 14, bottom: 5, left: 4 }}>
           <defs>
             <linearGradient id="yesFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#01d243" stopOpacity={0.18} />
@@ -121,7 +127,7 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", curr
             tick={{ fontSize: 10, fill: "#4c4e68" }}
             tickFormatter={(v) => `${v}%`}
             stroke="transparent"
-            width={34}
+            width={44}
           />
           <Tooltip
             content={({ active, payload }) => {

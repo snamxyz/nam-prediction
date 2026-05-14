@@ -33,7 +33,7 @@ export function Navbar() {
   const truncatedAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
     : "";
-  const isAdmin = walletAddress
+  const isAdmin = isAuthenticated && walletAddress
     ? ADMIN_WALLETS.has(walletAddress.toLowerCase())
     : false;
 

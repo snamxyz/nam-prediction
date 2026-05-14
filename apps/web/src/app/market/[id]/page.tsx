@@ -79,18 +79,22 @@ export default function MarketPage() {
   const isResolved = liveResolved ? true : market.resolved;
   const isLocked = liveLocked || market.status === "locked";
   const liveVolume = liveStats?.volume ?? Number(market.volume);
+  const liveLiquidity = liveStats?.liquidity ?? Number(market.liquidity);
   const resolutionConfig = market.resolutionConfig && typeof market.resolutionConfig === "object" ? (market.resolutionConfig as { threshold?: number }) : null;
   const threshold = typeof resolutionConfig?.threshold === "number" ? resolutionConfig.threshold : null;
   const priceToBeat = threshold ?? null;
   const priceDelta = namPrice == null || priceToBeat == null ? null : namPrice - priceToBeat;
   const outcomeLabels = getOutcomeLabels(market);
   const marketQuestion = formatMarketQuestion(market);
-  const priorHourlyMarkets = hourlyHistory.filter((m) => m.id !== market.id);
+  const chronologicalHourlyHistory = [...hourlyHistory].sort(
+    (a, b) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime()
+  );
+  const priorHourlyMarkets = chronologicalHourlyHistory.filter((m) => m.id !== market.id);
   const marketInfoRows = [
     [`${outcomeLabels.yes} price`, `${(currentYesPrice * 100).toFixed(1)}¢`, "text-yes"],
     [`${outcomeLabels.no} price`, `${(currentNoPrice * 100).toFixed(1)}¢`, "text-no"],
     ["Volume", `$${liveVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "text-[var(--foreground)]"],
-    ["Liquidity", `$${Number(market.liquidity).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "text-[var(--foreground)]"],
+    ["Liquidity", `$${liveLiquidity.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, "text-[var(--foreground)]"],
     ["Created", new Date(market.createdAt).toLocaleString(), "text-[var(--muted)]"],
   ];
   const formatTradeShares = (value: string) => {
@@ -191,7 +195,7 @@ export default function MarketPage() {
                 <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0"><div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">{outcomeLabels.yes} %</div><div className="font-mono text-sm text-yes">{yesPct.toFixed(1)}%</div></div>
                 <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0"><div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">{outcomeLabels.no} %</div><div className="font-mono text-sm text-no">{noPct.toFixed(1)}%</div></div>
                 <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0"><div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">Volume</div><div className="font-mono text-sm">${liveVolume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div></div>
-                <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0"><div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">Liquidity</div><div className="font-mono text-sm">${Number(market.liquidity).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div></div>
+                <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0"><div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">Liquidity</div><div className="font-mono text-sm">${liveLiquidity.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div></div>
               </div>
             </div>
             <div className="mt-4">
@@ -205,7 +209,7 @@ export default function MarketPage() {
                 Previous Days
               </div>
               <div className="flex gap-2 overflow-x-auto pb-0.5">
-                {hourlyHistory.map((item) => {
+                {chronologicalHourlyHistory.map((item) => {
                   const isCurrent = item.id === market.id;
                   const displayDate = formatEasternShortDate(item.endTime) ?? `#${item.id}`;
                   return (

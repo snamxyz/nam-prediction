@@ -31,6 +31,7 @@ import {
   publicClient,
 } from "../services/indexer";
 import { reconcilePositionsForWallet } from "../services/position-reconciler";
+import { formatMarketQuestion } from "../lib/market-display";
 
 // Writes can optionally be broadcast through a separate endpoint (e.g. the
 // free public RPC, since writes are cheap and infrequent) while reads go
@@ -44,6 +45,146 @@ const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}`;
 const BINARY_CPMM_ADAPTER_ADDRESS = process.env.BINARY_CPMM_ADAPTER_ADDRESS as `0x${string}`;
 const DECIMAL_SCALE = 10n ** 12n;
 const BPS_DENOM = 10000n;
+const REDEMPTION_MATCH_EPSILON = 0.01;
+
+function matchAmount(a: string | number, b: string | number) {
+  return Math.abs(Number(a) - Number(b)) <= REDEMPTION_MATCH_EPSILON;
+}
+
+function getBinaryOutcomeLabel(isYes: boolean, resolutionSource: string) {
+  if (resolutionSource === "dexscreener") return isYes ? "UP" : "DOWN";
+  return isYes ? "YES" : "NO";
+}
+
+function buildBinaryRedemptionContexts<
+  T extends {
+    marketId: number;
+    question: string;
+    endTime: Date;
+    resolutionSource: string;
+    resolved: boolean;
+    result: number;
+    isYes: boolean;
+    isBuy: boolean;
+    shares: string;
+    timestamp: Date;
+  }
+>(rows: T[]) {
+  const byMarket = new Map<
+    number,
+    {
+      question: string;
+      endTime: Date;
+      resolutionSource: string;
+      result: number;
+      yes: number;
+      no: number;
+      timestamp: Date;
+    }
+  >();
+
+  for (const row of rows) {
+    if (!row.resolved || (row.result !== 1 && row.result !== 2)) continue;
+    const current =
+      byMarket.get(row.marketId) ??
+      {
+        question: row.question,
+        endTime: row.endTime,
+        resolutionSource: row.resolutionSource,
+        result: row.result,
+        yes: 0,
+        no: 0,
+        timestamp: row.timestamp,
+      };
+    const shares = Number(row.shares || "0");
+    if (row.isYes) current.yes += row.isBuy ? shares : -shares;
+    else current.no += row.isBuy ? shares : -shares;
+    if (row.timestamp > current.timestamp) current.timestamp = row.timestamp;
+    byMarket.set(row.marketId, current);
+  }
+
+  return [...byMarket.entries()]
+    .map(([marketId, context]) => {
+      const isYesWinner = context.result === 1;
+      const amount = Math.max(0, isYesWinner ? context.yes : context.no);
+      if (amount <= 0) return null;
+      return {
+        marketId,
+        amount,
+        question: formatMarketQuestion(context),
+        side: getBinaryOutcomeLabel(isYesWinner, context.resolutionSource),
+        timestamp: context.timestamp,
+        source: "binary" as const,
+      };
+    })
+    .filter((context) => context !== null);
+}
+
+function buildRangeRedemptionContexts<
+  T extends {
+    marketId: number;
+    question: string;
+    rangeIndex: number;
+    isBuy: boolean;
+    shares: string;
+    ranges: unknown;
+    resolved: boolean;
+    winningRangeIndex: number | null;
+    timestamp: Date;
+  }
+>(rows: T[]) {
+  const byPosition = new Map<
+    string,
+    {
+      marketId: number;
+      question: string;
+      rangeIndex: number;
+      ranges: unknown;
+      winningRangeIndex: number | null;
+      shares: number;
+      timestamp: Date;
+    }
+  >();
+
+  for (const row of rows) {
+    if (!row.resolved || row.winningRangeIndex == null || row.rangeIndex !== row.winningRangeIndex) continue;
+    const key = `${row.marketId}:${row.rangeIndex}`;
+    const current =
+      byPosition.get(key) ??
+      {
+        marketId: row.marketId,
+        question: row.question,
+        rangeIndex: row.rangeIndex,
+        ranges: row.ranges,
+        winningRangeIndex: row.winningRangeIndex,
+        shares: 0,
+        timestamp: row.timestamp,
+      };
+    current.shares += row.isBuy ? Number(row.shares || "0") : -Number(row.shares || "0");
+    if (row.timestamp > current.timestamp) current.timestamp = row.timestamp;
+    byPosition.set(key, current);
+  }
+
+  return [...byPosition.values()]
+    .map((context) => {
+      const ranges = Array.isArray(context.ranges)
+        ? (context.ranges as { index: number; label: string }[])
+        : [];
+      const rangeLabel =
+        ranges.find((range) => range.index === context.rangeIndex)?.label ?? `Range ${context.rangeIndex}`;
+      const amount = Math.max(0, context.shares);
+      if (amount <= 0) return null;
+      return {
+        marketId: context.marketId,
+        amount,
+        question: context.question,
+        side: rangeLabel,
+        timestamp: context.timestamp,
+        source: "range" as const,
+      };
+    })
+    .filter((context) => context !== null);
+}
 
 function encodeBinaryTrade(action: number, amount: bigint, minOutput: bigint): Hex {
   return encodeAbiParameters(
@@ -960,6 +1101,10 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           id: trades.id,
           marketId: trades.marketId,
           question: markets.question,
+          endTime: markets.endTime,
+          resolutionSource: markets.resolutionSource,
+          resolved: markets.resolved,
+          result: markets.result,
           isYes: trades.isYes,
           isBuy: trades.isBuy,
           amount: trades.collateral,
@@ -978,6 +1123,9 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           id: rangeTrades.id,
           marketId: rangeTrades.rangeMarketId,
           question: rangeMarkets.question,
+          ranges: rangeMarkets.ranges,
+          resolved: rangeMarkets.resolved,
+          winningRangeIndex: rangeMarkets.winningRangeIndex,
           rangeIndex: rangeTrades.rangeIndex,
           isBuy: rangeTrades.isBuy,
           amount: rangeTrades.collateral,
@@ -991,17 +1139,42 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         .orderBy(desc(rangeTrades.timestamp))
         .limit(200);
 
+      const redemptionContexts = [
+        ...buildBinaryRedemptionContexts(binaryRows),
+        ...buildRangeRedemptionContexts(rangeRows),
+      ].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      const usedRedemptionContexts = new Set<number>();
+      const getRedemptionContext = (amount: string) => {
+        const index = redemptionContexts.findIndex(
+          (context, i) => !usedRedemptionContexts.has(i) && matchAmount(amount, context.amount)
+        );
+        if (index === -1) return null;
+        usedRedemptionContexts.add(index);
+        return redemptionContexts[index];
+      };
+
       const ledger = [
-        ...vaultRows.map((row) => ({
-          id: `vault-${row.id}`,
-          userAddress: row.userAddress,
-          type: row.type,
-          amount: row.amount,
-          txHash: row.txHash,
-          blockNumber: row.blockNumber,
-          timestamp: row.timestamp,
-          source: "vault" as const,
-        })),
+        ...vaultRows.map((row) => {
+          const redemptionContext =
+            row.type === "redemption" ? getRedemptionContext(row.amount) : null;
+          return {
+            id: `vault-${row.id}`,
+            userAddress: row.userAddress,
+            type: row.type,
+            amount: row.amount,
+            txHash: row.txHash,
+            blockNumber: row.blockNumber,
+            timestamp: row.timestamp,
+            source: redemptionContext?.source ?? ("vault" as const),
+            ...(redemptionContext
+              ? {
+                  marketId: redemptionContext.marketId,
+                  question: redemptionContext.question,
+                  side: redemptionContext.side,
+                }
+              : {}),
+          };
+        }),
         ...binaryRows.map((row) => ({
           id: `binary-${row.id}`,
           userAddress: wallet,
@@ -1013,7 +1186,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           timestamp: row.timestamp,
           source: "binary" as const,
           marketId: row.marketId,
-          question: row.question,
+          question: formatMarketQuestion(row),
           side: row.isYes ? "YES" : "NO",
         })),
         ...rangeRows.map((row) => ({

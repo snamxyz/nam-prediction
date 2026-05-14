@@ -30,6 +30,16 @@ export interface AdminUser {
   createdAt: string;
 }
 
+export interface AdminUserDetail {
+  user: Omit<AdminUser, "tradeCount" | "totalVolume"> & {
+    tradeCount?: number;
+    totalVolume?: string;
+  };
+  recentTrades: unknown[];
+  positions: unknown[];
+  vaultTxs: unknown[];
+}
+
 export interface AdminMarket {
   id: number;
   onChainId: number;
@@ -110,6 +120,20 @@ export function useAdminUsers(page = 0, limit = 25) {
       return authedGetApi<{ users: AdminUser[]; nextCursor: number | null }>(path, token);
     },
     staleTime: 60_000,
+  });
+}
+
+export function useAdminUser(id: string | number | undefined) {
+  const getAccessToken = useToken();
+  return useQuery({
+    queryKey: ["admin-user", id],
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Not authenticated");
+      return authedGetApi<AdminUserDetail>(`/admin/users/${id}`, token);
+    },
+    enabled: !!id,
+    staleTime: 30_000,
   });
 }
 
