@@ -6,6 +6,7 @@ import {
   parseUnits,
   recoverTypedDataAddress,
   decodeEventLog,
+  encodeAbiParameters,
   type Hex,
 } from "viem";
 import { base } from "viem/chains";
@@ -40,8 +41,25 @@ const WRITE_RPC_URL =
   process.env.RPC_URL ||
   "https://mainnet.base.org";
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}`;
+const BINARY_CPMM_ADAPTER_ADDRESS = process.env.BINARY_CPMM_ADAPTER_ADDRESS as `0x${string}`;
 const DECIMAL_SCALE = 10n ** 12n;
 const BPS_DENOM = 10000n;
+
+function encodeBinaryTrade(action: number, amount: bigint, minOutput: bigint): Hex {
+  return encodeAbiParameters(
+    [
+      {
+        type: "tuple",
+        components: [
+          { name: "action", type: "uint8" },
+          { name: "amount", type: "uint256" },
+          { name: "minOutput", type: "uint256" },
+        ],
+      },
+    ],
+    [{ action, amount, minOutput }]
+  );
+}
 
 // Read both pool reserves in a single multicall to stay under RPC rate limits.
 async function readReserves(ammAddress: `0x${string}`): Promise<[bigint, bigint]> {
@@ -647,14 +665,15 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         // added after startup and no factory event ever fired.
         watchTradesForPool(ammAddress);
 
+        if (!BINARY_CPMM_ADAPTER_ADDRESS) throw new Error("BINARY_CPMM_ADAPTER_ADDRESS not configured");
         const walletClient = getWalletClient();
-        const fnName = isYes ? "executeBuyYes" : "executeBuyNo";
+        const tradeData = encodeBinaryTrade(isYes ? 0 : 1, usdcParsed, minOutputParsed);
         const txHash = await getNonceManager().withNonce((nonce) =>
           walletClient.writeContract({
             address: VAULT_ADDRESS,
             abi: VaultABI,
-            functionName: fnName,
-            args: [ammAddress, usdcParsed, minOutputParsed, walletAddress],
+            functionName: "executeTrade",
+            args: [BINARY_CPMM_ADAPTER_ADDRESS, ammAddress, walletAddress, tradeData],
             nonce,
           })
         );
@@ -828,14 +847,15 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
 
         watchTradesForPool(ammAddress);
 
+        if (!BINARY_CPMM_ADAPTER_ADDRESS) throw new Error("BINARY_CPMM_ADAPTER_ADDRESS not configured");
         const walletClient = getWalletClient();
-        const fnName = isYes ? "executeSellYes" : "executeSellNo";
+        const tradeData = encodeBinaryTrade(isYes ? 2 : 3, sharesParsed, minOutputParsed);
         const txHash = await getNonceManager().withNonce((nonce) =>
           walletClient.writeContract({
             address: VAULT_ADDRESS,
             abi: VaultABI,
-            functionName: fnName,
-            args: [ammAddress, sharesParsed, minOutputParsed, walletAddress],
+            functionName: "executeTrade",
+            args: [BINARY_CPMM_ADAPTER_ADDRESS, ammAddress, walletAddress, tradeData],
             nonce,
           })
         );

@@ -20,6 +20,53 @@ describe("Prediction Market — Full Lifecycle", function () {
   const SOURCE_UMA = 3;
   const EMPTY_BYTES = "0x";
 
+  function encodeBinaryTrade(action: number, amount: bigint, minOutput = 0n) {
+    return ethers.AbiCoder.defaultAbiCoder().encode(
+      ["tuple(uint8 action,uint256 amount,uint256 minOutput)"],
+      [[action, amount, minOutput]]
+    );
+  }
+
+  async function deployVaultStack() {
+    const PoolRegistryFactory = await ethers.getContractFactory("PoolRegistry");
+    const poolRegistry = await PoolRegistryFactory.deploy();
+    await poolRegistry.setFactory(await factory.getAddress(), true);
+
+    const BinaryCPMMAdapterFactory = await ethers.getContractFactory("BinaryCPMMAdapter");
+    const binaryAdapter = await BinaryCPMMAdapterFactory.deploy();
+
+    const UserEscrowFactory = await ethers.getContractFactory("UserEscrow");
+    const escrowImpl = await UserEscrowFactory.deploy();
+
+    const VaultFactory = await ethers.getContractFactory("Vault");
+    const vault = await VaultFactory.deploy(
+      await usdc.getAddress(),
+      admin.address,
+      await escrowImpl.getAddress(),
+      await poolRegistry.getAddress()
+    );
+
+    await vault.setAdapter(await binaryAdapter.getAddress(), true);
+    await factory.setVault(await vault.getAddress());
+
+    return { vault, escrowImpl, poolRegistry, binaryAdapter };
+  }
+
+  async function executeBinaryTrade(
+    vault: any,
+    binaryAdapter: any,
+    poolAddress: string,
+    user: string,
+    action: number,
+    amount: bigint,
+    minOutput = 0n,
+    signer = admin
+  ) {
+    return vault
+      .connect(signer)
+      .executeTrade(await binaryAdapter.getAddress(), poolAddress, user, encodeBinaryTrade(action, amount, minOutput));
+  }
+
   beforeEach(async function () {
     [admin, alice, bob] = await ethers.getSigners();
 
@@ -418,26 +465,15 @@ describe("Prediction Market — Full Lifecycle", function () {
   describe("Vault — Deposit, Trade, Withdraw", function () {
     let vault: Vault;
     let escrowImpl: UserEscrow;
+    let poolRegistry: any;
+    let binaryAdapter: any;
     let pool: CPMM;
     let yesToken: OutcomeToken;
     let noToken: OutcomeToken;
 
     beforeEach(async function () {
       // Deploy UserEscrow implementation (cloned per user by Vault)
-      const UserEscrowFactory = await ethers.getContractFactory("UserEscrow");
-      escrowImpl = await UserEscrowFactory.deploy();
-
-      // Deploy Vault (router) with admin as operator
-      const VaultFactory = await ethers.getContractFactory("Vault");
-      vault = await VaultFactory.deploy(
-        await usdc.getAddress(),
-        admin.address,
-        await escrowImpl.getAddress()
-      );
-
-      // Wire Vault <-> MarketFactory (pool whitelist + vault registered on future pools)
-      await vault.setMarketFactory(await factory.getAddress());
-      await factory.setVault(await vault.getAddress());
+      ({ vault, escrowImpl, poolRegistry, binaryAdapter } = await deployVaultStack());
 
       // Create market (vault will be set on pool via factory)
       await createAdminMarket();
@@ -516,7 +552,7 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Operator (admin) executes buy on behalf of alice
       const buyAmount = 100n * ONE_USDC;
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, 0n, alice.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, buyAmount);
 
       // Alice should have YES tokens in her wallet
       const yesBalance = await yesToken.balanceOf(alice.address);
@@ -536,10 +572,10 @@ describe("Prediction Market — Full Lifecycle", function () {
       const quotedShares = await pool.quoteBuy(true, buyAmount);
 
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, quotedShares + 1n, alice.address)
+        executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, buyAmount, quotedShares + 1n)
       ).to.be.revertedWith("Slippage: insufficient shares");
 
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), buyAmount, quotedShares, alice.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, buyAmount, quotedShares);
       expect(await yesToken.balanceOf(alice.address)).to.equal(quotedShares);
     });
 
@@ -549,7 +585,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(bob).deposit(depositAmount);
 
       const buyAmount = 100n * ONE_USDC;
-      await vault.connect(admin).executeBuyNo(await pool.getAddress(), buyAmount, 0n, bob.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), bob.address, 1, buyAmount);
 
       const noBalance = await noToken.balanceOf(bob.address);
       expect(noBalance).to.be.gt(0n);
@@ -562,14 +598,14 @@ describe("Prediction Market — Full Lifecycle", function () {
       const depositAmount = 500n * ONE_USDC;
       await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
       await vault.connect(alice).deposit(depositAmount);
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, 0n, alice.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 100n * ONE_USDC);
 
       const yesBalance = await yesToken.balanceOf(alice.address);
       const vaultBalanceBefore = await vault.balances(alice.address);
 
       // Sell half the YES tokens
       const sellAmount = yesBalance / 2n;
-      await vault.connect(admin).executeSellYes(await pool.getAddress(), sellAmount, 0n, alice.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 2, sellAmount);
 
       // Vault balance should increase (USDC credited)
       expect(await vault.balances(alice.address)).to.be.gt(vaultBalanceBefore);
@@ -582,13 +618,13 @@ describe("Prediction Market — Full Lifecycle", function () {
       const depositAmount = 500n * ONE_USDC;
       await usdc.connect(bob).approve(await vault.getAddress(), depositAmount);
       await vault.connect(bob).deposit(depositAmount);
-      await vault.connect(admin).executeBuyNo(await pool.getAddress(), 100n * ONE_USDC, 0n, bob.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), bob.address, 1, 100n * ONE_USDC);
 
       const noBalance = await noToken.balanceOf(bob.address);
       const vaultBalanceBefore = await vault.balances(bob.address);
 
       const sellAmount = noBalance / 2n;
-      await vault.connect(admin).executeSellNo(await pool.getAddress(), sellAmount, 0n, bob.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), bob.address, 3, sellAmount);
 
       expect(await vault.balances(bob.address)).to.be.gt(vaultBalanceBefore);
       expect(await vault.totalVaultBalance()).to.equal(await vault.balances(bob.address));
@@ -601,8 +637,20 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(alice).deposit(depositAmount);
 
       await expect(
-        vault.connect(alice).executeBuyYes(await pool.getAddress(), 50n * ONE_USDC, 0n, alice.address)
+        executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 50n * ONE_USDC, 0n, alice)
       ).to.be.revertedWith("Only operator");
+    });
+
+    it("should reject trades through an unauthorized adapter", async function () {
+      const depositAmount = 100n * ONE_USDC;
+      await usdc.connect(alice).approve(await vault.getAddress(), depositAmount);
+      await vault.connect(alice).deposit(depositAmount);
+
+      await vault.connect(admin).setAdapter(await binaryAdapter.getAddress(), false);
+
+      await expect(
+        executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 50n * ONE_USDC)
+      ).to.be.revertedWith("Adapter not authorized");
     });
 
     it("should reject buy exceeding deposited balance", async function () {
@@ -612,7 +660,7 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Escrow only holds 50 USDC; CPMM safeTransferFrom will revert when it tries to pull 100.
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), 100n * ONE_USDC, 0n, alice.address)
+        executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 100n * ONE_USDC)
       ).to.be.reverted;
     });
 
@@ -645,12 +693,12 @@ describe("Prediction Market — Full Lifecycle", function () {
       await vault.connect(alice).deposit(depositAmount);
 
       // Buy YES
-      await vault.connect(admin).executeBuyYes(await pool.getAddress(), 200n * ONE_USDC, 0n, alice.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 200n * ONE_USDC);
       const yesBalance = await yesToken.balanceOf(alice.address);
       expect(yesBalance).to.be.gt(0n);
 
       // Sell YES
-      await vault.connect(admin).executeSellYes(await pool.getAddress(), yesBalance, 0n, alice.address);
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 2, yesBalance);
       expect(await yesToken.balanceOf(alice.address)).to.equal(0n);
 
       // Withdraw everything
@@ -695,7 +743,7 @@ describe("Prediction Market — Full Lifecycle", function () {
         vault.connect(alice).deposit(1n * ONE_USDC)
       ).to.be.revertedWith("Emergency refund active");
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), 1n * ONE_USDC, 0n, alice.address)
+        executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 1n * ONE_USDC)
       ).to.be.revertedWith("Emergency refund active");
 
       await expect(vault.connect(admin).emergencyRefund(0, 1))
@@ -722,22 +770,13 @@ describe("Prediction Market — Full Lifecycle", function () {
   describe("Per-User Escrow Segregation", function () {
     let vault: Vault;
     let escrowImpl: UserEscrow;
+    let poolRegistry: any;
+    let binaryAdapter: any;
     let pool: CPMM;
     let yesToken: OutcomeToken;
 
     beforeEach(async function () {
-      const UserEscrowFactory = await ethers.getContractFactory("UserEscrow");
-      escrowImpl = await UserEscrowFactory.deploy();
-
-      const VaultFactory = await ethers.getContractFactory("Vault");
-      vault = await VaultFactory.deploy(
-        await usdc.getAddress(),
-        admin.address,
-        await escrowImpl.getAddress()
-      );
-
-      await vault.setMarketFactory(await factory.getAddress());
-      await factory.setVault(await vault.getAddress());
+      ({ vault, escrowImpl, poolRegistry, binaryAdapter } = await deployVaultStack());
       await createAdminMarket();
 
       const market = await factory.getMarket(0);
@@ -800,12 +839,7 @@ describe("Prediction Market — Full Lifecycle", function () {
       const bobEscrowBefore = await usdc.balanceOf(await vault.escrowOf(bob.address));
 
       // Operator trades 300 for alice. Alice's escrow has 500, so this only pulls from alice.
-      await vault.connect(admin).executeBuyYes(
-        await pool.getAddress(),
-        300n * ONE_USDC,
-        0n,
-        alice.address
-      );
+      await executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), alice.address, 0, 300n * ONE_USDC);
 
       const aliceEscrowAfter = await usdc.balanceOf(await vault.escrowOf(alice.address));
       const bobEscrowAfter = await usdc.balanceOf(await vault.escrowOf(bob.address));
@@ -825,10 +859,10 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // Admin (who is also the vault operator) is NOT the router, so it must revert.
       await expect(
-        escrow.connect(admin).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, 0n, alice.address)
+        escrow.connect(admin).executeCall(await pool.getAddress(), await pool.getAddress(), 10n * ONE_USDC, "0x")
       ).to.be.revertedWith("Only router");
       await expect(
-        escrow.connect(alice).buyYesFor(await pool.getAddress(), 10n * ONE_USDC, 0n, alice.address)
+        escrow.connect(alice).executeCall(await pool.getAddress(), await pool.getAddress(), 10n * ONE_USDC, "0x")
       ).to.be.revertedWith("Only router");
     });
 
@@ -863,13 +897,13 @@ describe("Prediction Market — Full Lifecycle", function () {
 
       // bob.address is clearly not a pool created by the factory.
       await expect(
-        vault.connect(admin).executeBuyYes(bob.address, 10n * ONE_USDC, 0n, alice.address)
-      ).to.be.revertedWith("Pool not whitelisted");
+        executeBinaryTrade(vault, binaryAdapter, bob.address, alice.address, 0, 10n * ONE_USDC)
+      ).to.be.revertedWith("Pool not registered");
     });
 
     it("rejects operator trades for a user who never deposited (no escrow)", async function () {
       await expect(
-        vault.connect(admin).executeBuyYes(await pool.getAddress(), 10n * ONE_USDC, 0n, bob.address)
+        executeBinaryTrade(vault, binaryAdapter, await pool.getAddress(), bob.address, 0, 10n * ONE_USDC)
       ).to.be.revertedWith("No escrow");
     });
 

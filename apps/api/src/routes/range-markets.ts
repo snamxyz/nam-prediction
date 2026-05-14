@@ -9,6 +9,7 @@ import {
   parseUnits,
   formatUnits,
   decodeEventLog,
+  encodeAbiParameters,
   verifyTypedData,
   isAddress,
 } from "viem";
@@ -101,6 +102,7 @@ const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = (process.env.RANGE_FACTORY_ADDRESS || process.env.MARKET_FACTORY_ADDRESS) as `0x${string}`;
 const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
+const RANGE_LMSR_ADAPTER_ADDRESS = process.env.RANGE_LMSR_ADAPTER_ADDRESS as `0x${string}` | undefined;
 const RANGE_REDEEMED_EVENT_ABI = [
   {
     type: "event",
@@ -113,6 +115,23 @@ const RANGE_REDEEMED_EVENT_ABI = [
     ],
   },
 ] as const;
+
+function encodeRangeTrade(isBuy: boolean, rangeIndex: bigint, amount: bigint, minOutput: bigint): `0x${string}` {
+  return encodeAbiParameters(
+    [
+      {
+        type: "tuple",
+        components: [
+          { name: "isBuy", type: "bool" },
+          { name: "rangeIndex", type: "uint256" },
+          { name: "amount", type: "uint256" },
+          { name: "minOutput", type: "uint256" },
+        ],
+      },
+    ],
+    [{ isBuy, rangeIndex, amount, minOutput }]
+  );
+}
 
 function getWalletClient() {
   const privateKey = process.env.PRIVATE_KEY;
@@ -690,21 +709,14 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         }
 
         if (VAULT_ADDRESS) {
-          // Route through user's vault escrow: Vault.executeRangeBuy deducts from user's escrow.
-          // Use the 5-arg overload so the user's signed `minSharesOut` is enforced ON-CHAIN —
-          // the off-chain quote check above can be stale by the time the tx lands.
+          if (!RANGE_LMSR_ADAPTER_ADDRESS) throw new Error("RANGE_LMSR_ADAPTER_ADDRESS not configured");
+          const tradeData = encodeRangeTrade(true, BigInt(rangeIndex), usdcAmountRaw, minOutputRaw);
           buyHash = await nm.withNonce((n) =>
             walletClient.writeContract({
               address: VAULT_ADDRESS!,
               abi: VaultABI,
-              functionName: "executeRangeBuy",
-              args: [
-                cpmmAddress,
-                BigInt(rangeIndex),
-                usdcAmountRaw,
-                userAddress,
-                minOutputRaw,
-              ],
+              functionName: "executeTrade",
+              args: [RANGE_LMSR_ADAPTER_ADDRESS, cpmmAddress, userAddress, tradeData],
               nonce: n,
             })
           );
@@ -1017,12 +1029,14 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
             return { error: "Slippage: current quote below signed minimum", success: false };
           }
 
+          if (!RANGE_LMSR_ADAPTER_ADDRESS) throw new Error("RANGE_LMSR_ADAPTER_ADDRESS not configured");
+          const tradeData = encodeRangeTrade(false, BigInt(rangeIndex), safeSharesRaw, minOutputRaw);
           sellHash = await nm.withNonce((n) =>
             walletClient.writeContract({
               address: VAULT_ADDRESS!,
               abi: VaultABI,
-              functionName: "executeRangeSell",
-              args: [cpmmAddress, BigInt(rangeIndex), safeSharesRaw, userAddress, minOutputRaw],
+              functionName: "executeTrade",
+              args: [RANGE_LMSR_ADAPTER_ADDRESS, cpmmAddress, userAddress, tradeData],
               nonce: n,
             })
           );

@@ -9,7 +9,9 @@
     "deploy": "hardhat run scripts/deploy.ts",
     "deploy:base": "hardhat run scripts/deploy.ts --network base",
     "deploy:range": "hardhat run scripts/deploy-range.ts",
-    "deploy:range:base": "hardhat run scripts/deploy-range.ts --network base"
+    "deploy:range:base": "hardhat run scripts/deploy-range.ts --network base",
+    "whitelist:range-pools": "hardhat run scripts/whitelist-range-pools.ts --network base",
+    "verify:range-sell": "hardhat run scripts/verify-range-sell-deployment.ts --network base"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.0.8",

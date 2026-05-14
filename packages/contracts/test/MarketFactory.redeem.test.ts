@@ -17,6 +17,7 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
   let pool: CPMM;
   let yesToken: OutcomeToken;
   let noToken: OutcomeToken;
+  let binaryAdapter: any;
 
   let admin: any;
   let alice: any;
@@ -53,14 +54,22 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
     const UserEscrowFactory = await ethers.getContractFactory("UserEscrow");
     const escrowImpl = await UserEscrowFactory.deploy();
 
+    const PoolRegistryFactory = await ethers.getContractFactory("PoolRegistry");
+    const poolRegistry = await PoolRegistryFactory.deploy();
+    await poolRegistry.setFactory(await factory.getAddress(), true);
+
+    const BinaryCPMMAdapterFactory = await ethers.getContractFactory("BinaryCPMMAdapter");
+    binaryAdapter = await BinaryCPMMAdapterFactory.deploy();
+
     const VaultFactory = await ethers.getContractFactory("Vault");
     vault = await VaultFactory.deploy(
       await usdc.getAddress(),
       admin.address, // operator
-      await escrowImpl.getAddress()
+      await escrowImpl.getAddress(),
+      await poolRegistry.getAddress()
     );
 
-    await vault.setMarketFactory(await factory.getAddress());
+    await vault.setAdapter(await binaryAdapter.getAddress(), true);
     await factory.setVault(await vault.getAddress());
 
     // Mint USDC to everyone we'll use
@@ -88,12 +97,24 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
   });
 
   /// Alice deposits & buys YES via the vault so she holds YES in her EOA and has an escrow.
+  function encodeBinaryTrade(action: number, amount: bigint, minOutput = 0n) {
+    return ethers.AbiCoder.defaultAbiCoder().encode(
+      ["tuple(uint8 action,uint256 amount,uint256 minOutput)"],
+      [[action, amount, minOutput]]
+    );
+  }
+
   async function aliceBuysYes(usdcAmount: bigint) {
     await usdc.connect(alice).approve(await vault.getAddress(), usdcAmount);
     await vault.connect(alice).deposit(usdcAmount);
     await vault
       .connect(admin)
-      .executeBuyYes(await pool.getAddress(), usdcAmount, 0n, alice.address);
+      .executeTrade(
+        await binaryAdapter.getAddress(),
+        await pool.getAddress(),
+        alice.address,
+        encodeBinaryTrade(0, usdcAmount)
+      );
   }
 
   /// Bob deposits & buys NO via the vault.
@@ -102,7 +123,12 @@ describe("MarketFactory.redeem — delegated payout via CPMM", function () {
     await vault.connect(bob).deposit(usdcAmount);
     await vault
       .connect(admin)
-      .executeBuyNo(await pool.getAddress(), usdcAmount, 0n, bob.address);
+      .executeTrade(
+        await binaryAdapter.getAddress(),
+        await pool.getAddress(),
+        bob.address,
+        encodeBinaryTrade(1, usdcAmount)
+      );
   }
 
   it("pays YES winner's redemption into their vault escrow", async function () {

@@ -11,6 +11,7 @@ async function main() {
   const TREASURY = process.env.TREASURY || deployer.address;
   const PROTOCOL_FEE_BPS = Number(process.env.PROTOCOL_FEE_BPS) || 0;
   const CLAIMS_BUFFER_BPS = Number(process.env.CLAIMS_BUFFER_BPS) || 100;
+  const POOL_REGISTRY_ADDRESS = process.env.POOL_REGISTRY_ADDRESS;
 
   // 1. Deploy RangeOutcomeToken implementation
   const RangeOutcomeToken = await ethers.getContractFactory("RangeOutcomeToken");
@@ -39,17 +40,23 @@ async function main() {
   const factoryAddress = await factory.getAddress();
   console.log("[DeployRange] RangeMarketFactory:", factoryAddress);
 
-  // 4. If Vault is set, update environment with range factory address
-  if (VAULT_ADDRESS) {
+  // 4. Register the range factory once so all new range pools are accepted by Vault.
+  if (POOL_REGISTRY_ADDRESS) {
+    const registry = await ethers.getContractAt("PoolRegistry", POOL_REGISTRY_ADDRESS);
+    const tx = await registry.setFactory(factoryAddress, true);
+    await tx.wait();
+    console.log("[DeployRange] Registered range factory in PoolRegistry:", POOL_REGISTRY_ADDRESS);
+  } else if (VAULT_ADDRESS) {
     console.log("[DeployRange] Vault configured at:", VAULT_ADDRESS);
     console.log("[DeployRange] Set RANGE_FACTORY_ADDRESS=" + factoryAddress + " in your .env");
-    console.log("[DeployRange] New range pools must be whitelisted via Vault.whitelistPool() before trading.");
+    console.log("[DeployRange] Register this factory in PoolRegistry before trading.");
   }
 
   console.log("\n[DeployRange] Summary:");
   console.log("  RANGE_FACTORY_ADDRESS=" + factoryAddress);
   console.log("  RANGE_TOKEN_IMPL=" + (await rangeTokenImpl.getAddress()));
   console.log("  RANGE_LMSR_IMPL=" + (await rangeLmsrImpl.getAddress()));
+  if (POOL_REGISTRY_ADDRESS) console.log("  POOL_REGISTRY_ADDRESS=" + POOL_REGISTRY_ADDRESS);
 }
 
 main().catch((err) => {

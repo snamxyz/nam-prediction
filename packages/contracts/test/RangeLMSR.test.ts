@@ -36,6 +36,13 @@ function futureEndTime(offsetSeconds = 86400 * 365): bigint {
   return BigInt(Math.floor(Date.now() / 1000) + offsetSeconds);
 }
 
+function encodeRangeTrade(isBuy: boolean, rangeIndex: bigint, amount: bigint, minOutput = 0n) {
+  return ethers.AbiCoder.defaultAbiCoder().encode(
+    ["tuple(bool isBuy,uint256 rangeIndex,uint256 amount,uint256 minOutput)"],
+    [[isBuy, rangeIndex, amount, minOutput]]
+  );
+}
+
 async function deployRangeStack(
   deployer: SignerWithAddress,
   usdcAddr: string,
@@ -105,6 +112,56 @@ async function deployRangeStack(
   const marketId = (await (factory as any).rangeMarketCount()) - 1n;
 
   return { factory, pool, tokens, poolAddress, rangeTokenAddresses, usdcContract, marketId };
+}
+
+async function deployVault(
+  deployer: SignerWithAddress,
+  usdcAddr: string,
+  rangeFactoryAddress: string
+) {
+  const PoolRegistryFactory = await ethers.getContractFactory("PoolRegistry", deployer);
+  const poolRegistry = await PoolRegistryFactory.deploy();
+  await poolRegistry.waitForDeployment();
+  await (poolRegistry as any).setFactory(rangeFactoryAddress, true);
+
+  const RangeAdapterFactory = await ethers.getContractFactory("RangeLMSRAdapter", deployer);
+  const rangeAdapter = await RangeAdapterFactory.deploy();
+  await rangeAdapter.waitForDeployment();
+
+  const UserEscrowFactory = await ethers.getContractFactory("UserEscrow", deployer);
+  const escrowImpl = await UserEscrowFactory.deploy();
+  await escrowImpl.waitForDeployment();
+
+  const VaultFactory = await ethers.getContractFactory("Vault", deployer);
+  const vault = await VaultFactory.deploy(
+    usdcAddr,
+    deployer.address,
+    await escrowImpl.getAddress(),
+    await poolRegistry.getAddress()
+  );
+  await vault.waitForDeployment();
+
+  await (vault as any).setAdapter(await rangeAdapter.getAddress(), true);
+
+  return { vault, escrowImpl, poolRegistry, rangeAdapter };
+}
+
+async function executeRangeTrade(
+  vault: any,
+  rangeAdapter: any,
+  poolAddress: string,
+  user: string,
+  isBuy: boolean,
+  rangeIndex: bigint,
+  amount: bigint,
+  minOutput = 0n
+) {
+  return (vault as any).executeTrade(
+    await rangeAdapter.getAddress(),
+    poolAddress,
+    user,
+    encodeRangeTrade(isBuy, rangeIndex, amount, minOutput)
+  );
 }
 
 // ─── Test suite ──────────────────────────────────────────────────────────────
@@ -324,6 +381,53 @@ describe("RangeLMSR — full LMSR range market stack", function () {
         trader.address,
         quote + 1n
       )
+    ).to.be.revertedWith("Slippage: insufficient output");
+  });
+
+  it("routes a range sell through Vault using the range adapter", async function () {
+    const { pool, factory, tokens } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+    const { vault, rangeAdapter } = await deployVault(deployer, usdcAddr, await (factory as any).getAddress());
+    const vaultAddr = await (vault as any).getAddress();
+
+    const depositAmount = 100n * USDC_UNIT;
+    const buyAmount = 10n * USDC_UNIT;
+    await (usdcContract as any).connect(trader).approve(vaultAddr, depositAmount);
+    await (vault as any).connect(trader).deposit(depositAmount);
+
+    await executeRangeTrade(vault, rangeAdapter, poolAddr, trader.address, true, 2n, buyAmount);
+
+    const token = tokens[2] as any;
+    const tokenBalanceBefore: bigint = await token.balanceOf(trader.address);
+    const sharesToSell = tokenBalanceBefore / 2n;
+    const quote: bigint = await (pool as any).quoteSell(2n, sharesToSell);
+    const escrowBalanceBefore: bigint = await (vault as any).balanceOf(trader.address);
+
+    await executeRangeTrade(vault, rangeAdapter, poolAddr, trader.address, false, 2n, sharesToSell, quote);
+
+    expect(await token.balanceOf(trader.address)).to.equal(tokenBalanceBefore - sharesToSell);
+    expect(await (vault as any).balanceOf(trader.address)).to.equal(escrowBalanceBefore + quote);
+  });
+
+  it("routes range sell slippage reverts through Vault with the pool revert reason", async function () {
+    const { pool, factory, tokens } = await deployRangeStack(deployer, usdcAddr);
+    const poolAddr = await (pool as any).getAddress();
+    const { vault, rangeAdapter } = await deployVault(deployer, usdcAddr, await (factory as any).getAddress());
+    const vaultAddr = await (vault as any).getAddress();
+
+    const depositAmount = 100n * USDC_UNIT;
+    const buyAmount = 10n * USDC_UNIT;
+    await (usdcContract as any).connect(trader).approve(vaultAddr, depositAmount);
+    await (vault as any).connect(trader).deposit(depositAmount);
+
+    await executeRangeTrade(vault, rangeAdapter, poolAddr, trader.address, true, 1n, buyAmount);
+
+    const token = tokens[1] as any;
+    const sharesToSell: bigint = (await token.balanceOf(trader.address)) / 2n;
+    const quote: bigint = await (pool as any).quoteSell(1n, sharesToSell);
+
+    await expect(
+      executeRangeTrade(vault, rangeAdapter, poolAddr, trader.address, false, 1n, sharesToSell, quote + 1n)
     ).to.be.revertedWith("Slippage: insufficient output");
   });
 

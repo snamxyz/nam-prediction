@@ -18,7 +18,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createRedisConnection, publishEvent } from "../../lib/redis";
 import { db } from "../../db/client";
 import { rangeMarkets } from "../../db/schema";
-import { RangeMarketFactoryABI, VaultABI, ERC20ABI } from "@nam-prediction/shared";
+import { RangeMarketFactoryABI, VaultABI, PoolRegistryABI, ERC20ABI } from "@nam-prediction/shared";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
 
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
@@ -299,22 +299,26 @@ async function createRangeMarketOnChain(
       })
       .where(eq(rangeMarkets.id, dbId));
 
-    // Whitelist the new CPMM pool in the Vault so executeRangeBuy/Sell work.
+    // Verify the new pool is covered by the Vault's PoolRegistry. The registry
+    // should authorize the range factory once, so per-pool whitelisting is no longer needed.
     if (VAULT_ADDRESS && cpmmPool) {
       try {
-        const whitelistHash = await nm.withNonce((nonce) =>
-          walletClient.writeContract({
-            address: VAULT_ADDRESS!,
-            abi: VaultABI,
-            functionName: "whitelistPool",
-            args: [cpmmPool as `0x${string}`, true],
-            nonce,
-          })
-        );
-        await publicClient.waitForTransactionReceipt({ hash: whitelistHash });
-        console.log(`[RangeMarketQueue] Pool ${cpmmPool} whitelisted in Vault.`);
-      } catch (wlErr) {
-        console.warn(`[RangeMarketQueue] Failed to whitelist pool ${cpmmPool} in Vault:`, wlErr);
+        const registry = await publicClient.readContract({
+          address: VAULT_ADDRESS!,
+          abi: VaultABI,
+          functionName: "poolRegistry",
+        }) as `0x${string}`;
+        const registered = await publicClient.readContract({
+          address: registry,
+          abi: PoolRegistryABI,
+          functionName: "isPool",
+          args: [cpmmPool as `0x${string}`],
+        }) as boolean;
+        if (!registered) {
+          console.warn(`[RangeMarketQueue] Pool ${cpmmPool} is not registered. Register RANGE_FACTORY_ADDRESS in PoolRegistry.`);
+        }
+      } catch (registryErr) {
+        console.warn(`[RangeMarketQueue] Could not verify pool registry for ${cpmmPool}:`, registryErr);
       }
     }
 
@@ -453,18 +457,20 @@ export async function processRangeMarketTick(): Promise<void> {
   await ensureTodayMarketsExist();
 }
 
-// ─── Vault bootstrap whitelist ───
+// ─── Vault registry verification ───
 
 /**
- * At startup, whitelist any active range market CPMM pools that are not yet
- * registered in the Vault's whitelistedPools mapping.
+ * At startup, verify active range market pools are covered by the Vault PoolRegistry.
  */
 export async function bootstrapVaultWhitelist(): Promise<void> {
   if (!VAULT_ADDRESS) return;
 
-  const walletClient = getWalletClient();
   const publicClient = getPublicClient();
-  const nm = getNonceManager();
+  const registry = await publicClient.readContract({
+    address: VAULT_ADDRESS,
+    abi: VaultABI,
+    functionName: "poolRegistry",
+  }) as `0x${string}`;
 
   const active = await db
     .select({ id: rangeMarkets.id, rangeCpmmAddress: rangeMarkets.rangeCpmmAddress })
@@ -477,28 +483,17 @@ export async function bootstrapVaultWhitelist(): Promise<void> {
 
     try {
       const alreadyListed = await publicClient.readContract({
-        address: VAULT_ADDRESS!,
-        abi: VaultABI,
-        functionName: "whitelistedPools",
+        address: registry,
+        abi: PoolRegistryABI,
+        functionName: "isPool",
         args: [pool as `0x${string}`],
       }) as boolean;
 
       if (!alreadyListed) {
-        console.log(`[RangeMarketQueue] Whitelisting pool ${pool} in Vault…`);
-        const hash = await nm.withNonce((nonce) =>
-          walletClient.writeContract({
-            address: VAULT_ADDRESS!,
-            abi: VaultABI,
-            functionName: "whitelistPool",
-            args: [pool as `0x${string}`, true],
-            nonce,
-          })
-        );
-        await publicClient.waitForTransactionReceipt({ hash });
-        console.log(`[RangeMarketQueue] Pool ${pool} whitelisted (tx ${hash}).`);
+        console.warn(`[RangeMarketQueue] Pool ${pool} is not covered by PoolRegistry ${registry}.`);
       }
     } catch (err) {
-      console.warn(`[RangeMarketQueue] Could not whitelist pool ${pool}:`, err);
+      console.warn(`[RangeMarketQueue] Could not verify pool ${pool}:`, err);
     }
   }
 }
