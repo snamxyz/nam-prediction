@@ -831,6 +831,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   const { data: activity, isLoading: isActivityLoading } = useRangeActivity(market?.id);
   const [selectedRange, setSelectedRange] = useState<number | null>(null);
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false);
+  const [rangeChartTab, setRangeChartTab] = useState<"activity" | "prob">("prob");
   const [tab, setTab] = useState<"activity" | "rules">("activity");
   const countdown = useCountdown(market?.endTime);
   const refreshAfterTrade = () => {
@@ -956,21 +957,43 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
         </div>
 
         <div className="mt-[18px] border-t border-[var(--border-subtle)] pt-[18px]">
-          <RangeActivityChart
-            activity={activity}
-            isLoading={isActivityLoading}
-            label={marketType === "receipts" ? "Receipts Uploaded" : "Miners"}
-          />
-        </div>
-
-        <div className="mt-[18px] border-t border-[var(--border-subtle)] pt-[18px]">
-          <RangeProbabilityChart
-            ranges={ranges}
-            trades={trades}
-            currentPrices={prices}
-            colors={RANGE_COLORS}
-            marketCreatedAt={market.createdAt}
-          />
+          <div className="mb-3">
+            <div className="flex w-fit gap-[3px] rounded-lg border border-[var(--border)] bg-[var(--surface-hover)] p-[3px]">
+              {[
+                ["prob", "Probabilities"],
+                ["activity", marketType === "receipts" ? "Receipts" : "Miners"],
+                
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setRangeChartTab(value as "activity" | "prob")}
+                  className={`cursor-pointer rounded-md border-0 px-3.5 py-[5px] text-[11px] font-semibold ${
+                    rangeChartTab === value
+                      ? "bg-[var(--foreground)] text-[var(--background)]"
+                      : "bg-[var(--surface-hover)] text-[var(--muted)]"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {rangeChartTab === "activity" ? (
+            <RangeActivityChart
+              activity={activity}
+              isLoading={isActivityLoading}
+              label={marketType === "receipts" ? "Receipts Uploaded" : "Miners"}
+            />
+          ) : (
+            <RangeProbabilityChart
+              ranges={ranges}
+              trades={trades}
+              currentPrices={prices}
+              colors={RANGE_COLORS}
+              marketCreatedAt={market.createdAt}
+            />
+          )}
         </div>
       </div>
 
