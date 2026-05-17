@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useParams } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import { useAdminUser } from "@/hooks/useAdmin";
+import { useAdminUser, useAdminUserHoldings } from "@/hooks/useAdmin";
 import {
   usePortfolioForAddress,
   usePortfolioSummaryForAddress,
@@ -139,6 +139,7 @@ export default function AdminUserProfilePage() {
   const params = useParams();
   const id = String(params.id ?? "");
   const { data: detail, isLoading: isUserLoading } = useAdminUser(id);
+  const { data: adminHoldings } = useAdminUserHoldings(id);
   const walletAddress = detail?.user.walletAddress ?? undefined;
   const vaultWalletAddresses = useMemo(
     () => (walletAddress ? [walletAddress as `0x${string}`] : []),
@@ -165,6 +166,12 @@ export default function AdminUserProfilePage() {
     return sum + Number(pos.yesCurrentValue || "0") + Number(pos.noCurrentValue || "0");
   }, 0);
   const unrealisedPnl = activePositions.reduce((sum, pos) => sum + Number(pos.pnl || "0"), 0);
+  const vaultFlow = adminHoldings?.vault;
+  const snapshotSub = adminHoldings?.snapshotAt
+    ? `${adminHoldings.snapshotSource === "redis" ? "Redis" : "DB"} snapshot ${new Date(
+        adminHoldings.snapshotAt
+      ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${adminHoldings.stale ? " · rebuilt on demand" : ""}`
+    : undefined;
 
   if (isUserLoading) {
     return <div className="glass-card p-6 text-sm text-[var(--muted)]">Loading user profile...</div>;
@@ -213,6 +220,34 @@ export default function AdminUserProfilePage() {
             <p className="font-mono text-lg text-[var(--foreground)]">{value}</p>
           </div>
         ))}
+      </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+        <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--foreground)]">Vault Flow & Indexed Holdings</h2>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {snapshotSub ?? "Deposit, withdrawal, redemption, and position totals from admin snapshots."}
+            </p>
+          </div>
+          <span className="text-xs text-[var(--muted)]">
+            {(adminHoldings?.binary.length ?? 0) + (adminHoldings?.range.length ?? 0)} indexed positions
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-5">
+          {[
+            ["Deposits", fmtUsd(vaultFlow?.totalDeposits)],
+            ["Withdrawals", fmtUsd(vaultFlow?.totalWithdrawals)],
+            ["Redemptions", fmtUsd(vaultFlow?.totalRedemptions)],
+            ["Net Deposits", fmtUsd(vaultFlow?.netDeposits)],
+            ["Vault Txs", String(vaultFlow?.transactionCount ?? 0)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-3 py-2">
+              <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</p>
+              <p className="font-mono text-sm text-[var(--foreground)]">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {!walletAddress ? (

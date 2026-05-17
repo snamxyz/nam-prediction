@@ -48,6 +48,12 @@ export const cacheKeys = {
   userNoBalance: (wallet: string, marketId: number) => `user_no_balance:${wallet.toLowerCase()}:${marketId}`,
   marketYesPrice: (marketId: number) => `market_yes_price:${marketId}`,
   marketNoPrice: (marketId: number) => `market_no_price:${marketId}`,
+  adminOverview: () => "admin:overview:v1",
+  adminMarkets: (family: string, status: string) => `admin:markets:v1:${family}:${status}`,
+  adminMarket: (source: string, id: number | string) => `admin:market:v1:${source}:${id}`,
+  adminUser: (wallet: string) => `admin:user:v1:${wallet.toLowerCase()}`,
+  adminSnapshotHealth: () => "admin:snapshot:health",
+  adminSnapshotLock: () => "lock:admin:snapshots",
 } as const;
 
 // ─── Redis lock for resolution ───

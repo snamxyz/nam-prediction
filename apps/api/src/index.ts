@@ -19,6 +19,7 @@ import { initSocketIO } from "./ws/socket";
 import { startNamPricePoller } from "./services/nam-price-poller";
 import { createServer } from "http";
 import { setupRangeMarketSchedule, startRangeMarketWorker, bootstrapVaultWhitelist } from "./services/queue/range-market-queue";
+import { setupAdminSnapshotSchedule, startAdminSnapshotWorker } from "./services/queue/admin-snapshot-queue";
 
 const ENABLE_24H_MARKETS = (() => {
   const v = (process.env.ENABLE_24H_MARKETS || "").trim().toLowerCase();
@@ -156,5 +157,9 @@ if (ENABLE_RANGE_MARKETS) {
 } else {
   console.log("[RangeMarket] Range markets disabled (set ENABLE_RANGE_MARKETS=false to disable)");
 }
+
+// Keep Redis admin read models warm for dashboard liquidity and holdings views.
+setupAdminSnapshotSchedule().catch((err) => console.error("[AdminSnapshots] Schedule setup error:", err));
+startAdminSnapshotWorker();
 
 export type App = typeof app;

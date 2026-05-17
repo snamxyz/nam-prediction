@@ -20,6 +20,7 @@ import { db } from "../../db/client";
 import { rangeMarkets } from "../../db/schema";
 import { RangeMarketFactoryABI, VaultABI, PoolRegistryABI, ERC20ABI } from "@nam-prediction/shared";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { queueAdminSnapshotRefresh } from "../admin-snapshots";
 
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
 
@@ -223,6 +224,7 @@ async function createRangeMarketOnChain(
       .where(eq(rangeMarkets.id, dbId));
     console.log(`[RangeMarketQueue] ${marketType} market created (off-chain mode). dbId=${dbId}`);
     await publishEvent("market:update", { marketId: dbId, marketType, rangePrices: initialPrices, ranges, status: "active" });
+    queueAdminSnapshotRefresh("range-market-created");
     return;
   }
 
@@ -331,6 +333,7 @@ async function createRangeMarketOnChain(
       ranges,
       status: "active",
     });
+    queueAdminSnapshotRefresh("range-market-created");
   } catch (err) {
     console.error(`[RangeMarketQueue] Failed to create ${marketType} market on-chain:`, err);
     await db.update(rangeMarkets).set({ status: "cancelled" }).where(eq(rangeMarkets.id, dbId));
@@ -402,6 +405,7 @@ async function resolveExpiredMarkets(): Promise<void> {
         winningRangeIndex: winningIndex,
         winningLabel: ranges[winningIndex]?.label,
       });
+      queueAdminSnapshotRefresh("range-market-resolved");
 
       console.log(
         `[RangeMarketQueue] Market id=${market.id} resolved. Winner: range ${winningIndex} (${ranges[winningIndex]?.label})`

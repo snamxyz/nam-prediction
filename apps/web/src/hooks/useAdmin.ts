@@ -5,6 +5,9 @@ import { usePrivy } from "@privy-io/react-auth";
 import { authedGetApi } from "@/lib/api";
 
 export interface AdminOverview {
+  snapshotAt?: string;
+  snapshotSource?: "redis" | "db";
+  stale?: boolean;
   totalUsers: number;
   users24h: number;
   users7d: number;
@@ -17,6 +20,11 @@ export interface AdminOverview {
   totalDeposits: string;
   totalWithdrawals: string;
   tvl: string;
+  activeLiquidity?: string;
+  liquidityWithdrawn?: string;
+  reservedClaims?: string;
+  outstandingWinningClaims?: string;
+  liquidityAtRisk?: string;
 }
 
 export interface AdminUser {
@@ -41,6 +49,9 @@ export interface AdminUserDetail {
 }
 
 export interface AdminMarket {
+  snapshotAt?: string;
+  snapshotSource?: "redis" | "db";
+  stale?: boolean;
   id: number;
   onChainId: number;
   question: string;
@@ -66,6 +77,14 @@ export interface AdminMarket {
   poolAddress?: string | null;
   endTime?: string;
   createdAt: string;
+  holderCount?: number;
+  openInterestShares?: string;
+  largestHolderShares?: string;
+  holderConcentrationPct?: string;
+  liquidityAtRisk?: string;
+  totalYesShares?: string;
+  totalNoShares?: string;
+  totalRangeShares?: string;
 }
 
 export type AdminMarketStatus = "active" | "resolved" | "all";
@@ -90,6 +109,55 @@ export interface AdminTrade {
   shares: string;
   txHash: string;
   createdAt: string;
+}
+
+export interface AdminMarketsResponse {
+  snapshotAt?: string;
+  snapshotSource?: "redis" | "db";
+  stale?: boolean;
+  markets: AdminMarket[];
+}
+
+export interface AdminUserHoldings {
+  wallet: string;
+  snapshotAt?: string;
+  snapshotSource?: "redis" | "db";
+  stale?: boolean;
+  vault: {
+    totalDeposits: string;
+    totalWithdrawals: string;
+    totalRedemptions: string;
+    netDeposits: string;
+    transactionCount: number;
+    recentTransactions: Array<{
+      id: number;
+      type: string;
+      amount: string;
+      txHash: string;
+      timestamp: string;
+    }>;
+  };
+  binary: Array<{
+    marketId: number;
+    question: string;
+    resolved: boolean;
+    result: number;
+    yesBalance: string;
+    noBalance: string;
+    yesCostBasis: string;
+    noCostBasis: string;
+  }>;
+  range: Array<{
+    marketId: number;
+    question: string;
+    marketType: string;
+    rangeIndex: number;
+    balance: string;
+    costBasis: string;
+    avgEntryPrice: number;
+    resolved: boolean;
+    winningRangeIndex: number | null;
+  }>;
 }
 
 function useToken() {
@@ -154,9 +222,23 @@ export function useAdminMarkets(input: AdminMarketStatus | UseAdminMarketsOption
       if (status !== "all") params.set("status", status);
       if (options.family) params.set("family", options.family);
       const path = `/admin/markets?${params.toString()}`;
-      return authedGetApi<{ markets: AdminMarket[] }>(path, token);
+      return authedGetApi<AdminMarketsResponse>(path, token);
     },
     staleTime: 60_000,
+  });
+}
+
+export function useAdminUserHoldings(id: string | number | undefined) {
+  const getAccessToken = useToken();
+  return useQuery({
+    queryKey: ["admin-user-holdings", id],
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Not authenticated");
+      return authedGetApi<AdminUserHoldings>(`/admin/users/${id}/holdings`, token);
+    },
+    enabled: !!id,
+    staleTime: 30_000,
   });
 }
 

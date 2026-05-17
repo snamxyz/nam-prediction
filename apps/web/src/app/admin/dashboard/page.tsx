@@ -30,9 +30,16 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 
 function fmt(n: string | number) {
   const v = parseFloat(String(n));
+  if (!Number.isFinite(v)) return "$0.00";
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
   if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
   return `$${v.toFixed(2)}`;
+}
+
+function snapshotLabel(snapshotAt?: string, source?: string) {
+  if (!snapshotAt) return undefined;
+  const time = new Date(snapshotAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${source === "redis" ? "Redis" : "DB"} snapshot ${time}`;
 }
 
 export default function AdminDashboardPage() {
@@ -163,13 +170,27 @@ export default function AdminDashboardPage() {
     { icon: <Activity className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Trades", value: String(data.totalTrades), sub: `+${data.trades24h} today` },
     { icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Volume", value: fmt(data.totalVolume), sub: `${fmt(data.volume24h)} today` },
     { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "TVL (Vault)", value: tvlVaultValue, sub: tvlVaultSub },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Book TVL", value: fmt(data.tvl), sub: `${fmt(data.totalDeposits)} deposits · ${fmt(data.totalWithdrawals)} withdrawn` },
+    { icon: <ArrowDownLeft className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Deposits", value: fmt(data.totalDeposits), sub: "Indexed vault deposits" },
+    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Total Withdrawals", value: fmt(data.totalWithdrawals), sub: "Indexed vault withdrawals" },
+    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Active Liquidity", value: fmt(data.activeLiquidity ?? 0), sub: "Binary + range pools" },
+    { icon: <AlertTriangle className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Liquidity At Risk", value: fmt(data.liquidityAtRisk ?? 0), sub: `${fmt(data.reservedClaims ?? 0)} reserved · ${fmt(data.outstandingWinningClaims ?? 0)} claims` },
+    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Liquidity Withdrawn", value: fmt(data.liquidityWithdrawn ?? 0), sub: "Post-resolution drains" },
     { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Win Rate (avg)", value: "—" },
   ];
 
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold" style={{ color: "var(--foreground)" }}>Dashboard</h1>
+        <div>
+          <h1 className="text-2xl font-semibold" style={{ color: "var(--foreground)" }}>Dashboard</h1>
+          {data.snapshotAt && (
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {snapshotLabel(data.snapshotAt, data.snapshotSource)}
+              {data.stale ? " · rebuilt on demand" : ""}
+            </p>
+          )}
+        </div>
         <button
           type="button"
           onClick={handleEmergencyRefund}

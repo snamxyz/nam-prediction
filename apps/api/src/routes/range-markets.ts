@@ -32,6 +32,7 @@ import { publishEvent, getCache, setCache, cacheKeys, redis } from "../lib/redis
 import { getNonceManager } from "../lib/nonce-manager.instance";
 import { verifyPrivyToken, privyClient } from "../middleware/auth";
 import { fetchRangeActivity } from "../services/range-activity";
+import { queueAdminSnapshotRefresh } from "../services/admin-snapshots";
 
 // ─── Replay protection ───
 //
@@ -904,6 +905,8 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           console.error("[RangeMarkets] Buy: position upsert failed (non-fatal):", dbErr);
         }
 
+        queueAdminSnapshotRefresh("range-buy");
+
         return {
           success: true,
           data: {
@@ -1199,6 +1202,8 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           console.error("[RangeMarkets] Sell: position update failed (non-fatal):", dbErr);
         }
 
+        queueAdminSnapshotRefresh("range-sell");
+
         return {
           success: true,
           data: { txHash: sellHash, sharesSold: actualSharesSoldStr, rangePrices: newPrices },
@@ -1320,6 +1325,8 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
             blockNumber: receipt.blockNumber.toString(),
           })
           .onConflictDoNothing({ target: vaultTransactions.txHash });
+
+        queueAdminSnapshotRefresh("range-redemption");
 
         return { success: true, data: { txHash, amount: redeemedAmount } };
       } catch (err: unknown) {

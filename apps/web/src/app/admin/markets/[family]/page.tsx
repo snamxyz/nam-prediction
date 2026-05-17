@@ -71,6 +71,14 @@ function formatHousePnlDisplay(market: AdminMarket) {
   return formatted;
 }
 
+function formatShares(value: string | number | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toFixed(2);
+}
+
 function DayMarketRow({ market }: { market: AdminMarket }) {
   const housePnl =
     market.housePnl != null && market.housePnlSource !== "pending"
@@ -125,13 +133,19 @@ function DayMarketRow({ market }: { market: AdminMarket }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-10">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-12">
         <MetricCell label="Trades" value={String(market.tradeCount)} />
         <MetricCell label="Unique Traders" value={String(market.distinctTraderCount)} />
         <MetricCell label="Volume" value={formatMoney(market.totalVolume)} />
         <MetricCell label="Seeded" value={formatMoney(market.seededLiquidity ?? market.liquidity)} />
         <MetricCell label="Liquidity" value={formatMoney(market.liquidity)} />
+        <MetricCell label="At Risk" value={formatMoney(market.liquidityAtRisk)} />
+        <MetricCell label="Withdrawn" value={formatMoney(market.liquidityWithdrawn)} />
+        <MetricCell label="Reserved" value={formatMoney(market.reservedClaims)} />
         <MetricCell label="Claims" value={formatMoney(market.outstandingWinningClaims)} />
+        <MetricCell label="Holders" value={String(market.holderCount ?? 0)} />
+        <MetricCell label="Open Interest" value={formatShares(market.openInterestShares)} />
+        <MetricCell label="Top Holder" value={`${market.holderConcentrationPct ?? "0.0"}%`} />
         <MetricCell
           label="House P&L"
           value={formatHousePnlDisplay(market)}
@@ -140,6 +154,11 @@ function DayMarketRow({ market }: { market: AdminMarket }) {
         <MetricCell label="Pool" value={formatShortAddress(market.poolAddress)} />
         <MetricCell label="On-chain" value={market.onChainId ? `#${market.onChainId}` : "—"} />
         <MetricCell label="Ends" value={market.endTime ? formatAdminMarketDate({ ...market, date: undefined }) : "—"} />
+      </div>
+      <div className="mt-3 text-[11px] text-[var(--muted)]">
+        {market.totalRangeShares
+          ? `Range shares: ${formatShares(market.totalRangeShares)}`
+          : `YES shares: ${formatShares(market.totalYesShares)} · NO shares: ${formatShares(market.totalNoShares)}`}
       </div>
     </div>
   );
@@ -203,6 +222,13 @@ export default function AdminMarketFamilyPage() {
           <p className="max-w-3xl text-[13px] leading-5 text-[var(--muted)]">
             {meta.description} Rows are newest first and include all available days for this market family.
           </p>
+          {data?.snapshotAt && (
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              {data.snapshotSource === "redis" ? "Redis" : "DB"} snapshot from{" "}
+              {new Date(data.snapshotAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {data.stale ? " · rebuilt on demand" : ""}
+            </p>
+          )}
           {family !== "token" && (
             <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--muted)]">
               Trades and unique traders are activity on that day&apos;s market, not ecosystem-wide totals.

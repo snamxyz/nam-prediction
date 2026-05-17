@@ -26,6 +26,7 @@ import { db } from "../../db/client";
 import { markets, rangeMarkets } from "../../db/schema";
 import { publicClient } from "../indexer";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { queueAdminSnapshotRefresh } from "../admin-snapshots";
 
 const QUEUE_NAME = "liquidity-drain";
 
@@ -204,6 +205,7 @@ async function drainMarket(market: typeof markets.$inferSelect) {
           drainedAt: new Date(),
         })
         .where(eq(markets.id, market.id));
+      queueAdminSnapshotRefresh("liquidity-drain-heal");
       return;
     }
 
@@ -264,6 +266,7 @@ async function drainMarket(market: typeof markets.$inferSelect) {
       `[LiquidityDrain] Market #${market.onChainId} drained — tx=${txHash}, ` +
         `amount=${formatUnits(withdrawable, 6)} USDC`
     );
+    queueAdminSnapshotRefresh("liquidity-drain");
   } finally {
     await releaseLock(lockKey);
   }
@@ -310,6 +313,7 @@ async function drainRangeMarket(market: typeof rangeMarkets.$inferSelect) {
           drainedAt: new Date(),
         })
         .where(eq(rangeMarkets.id, market.id));
+      queueAdminSnapshotRefresh("range-liquidity-drain-heal");
       return;
     }
 
@@ -366,6 +370,7 @@ async function drainRangeMarket(market: typeof rangeMarkets.$inferSelect) {
       `[LiquidityDrain] Range market #${market.onChainMarketId} drained — tx=${txHash}, ` +
         `amount=${formatUnits(withdrawable, 6)} USDC`
     );
+    queueAdminSnapshotRefresh("range-liquidity-drain");
   } finally {
     await releaseLock(lockKey);
   }

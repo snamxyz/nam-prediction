@@ -5,6 +5,7 @@ import { markets, trades, userPositions, vaultTransactions } from "../db/schema"
 import { eq, and } from "drizzle-orm";
 import { MarketFactoryABI, CPMMABI, VaultABI } from "@nam-prediction/shared";
 import { publishEvent, setCache, cacheKeys } from "../lib/redis";
+import { queueAdminSnapshotRefresh } from "./admin-snapshots";
 
 // `RPC_URL` drives reads (indexer polling, multicalls, balance lookups).
 // Writes can optionally go through a different endpoint via `WRITE_RPC_URL`
@@ -477,6 +478,7 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
     wallet: traderAddr,
     marketId: dbMarket.id,
   });
+  queueAdminSnapshotRefresh("binary-trade");
 }
 
 async function handleTrade(log: any) {
@@ -521,6 +523,7 @@ async function handleMarketResolved(log: any) {
       result: Number(result),
     });
   }
+  queueAdminSnapshotRefresh("market-resolved");
 }
 
 async function handleRedeemed(log: any) {
@@ -577,6 +580,7 @@ async function handleRedeemed(log: any) {
     usdcBalance: balance,
     txHash: log.transactionHash,
   });
+  queueAdminSnapshotRefresh("binary-redemption");
 }
 
 // ─── Start watching events ───
@@ -686,6 +690,7 @@ async function handleVaultDeposit(log: any) {
     usdcBalance: balance,
     txHash: log.transactionHash,
   });
+  queueAdminSnapshotRefresh("vault-deposit");
 }
 
 async function handleVaultWithdraw(log: any) {
@@ -719,6 +724,7 @@ async function handleVaultWithdraw(log: any) {
     usdcBalance: balance,
     txHash: log.transactionHash,
   });
+  queueAdminSnapshotRefresh("vault-withdraw");
 }
 
 async function handleVaultBalanceUpdated(log: any) {
