@@ -1,14 +1,29 @@
 import type { AdminMarket, AdminMarketFamily } from "@/hooks/useAdmin";
+import { ResolutionSource, type ResolutionSourceType } from "@nam-prediction/shared";
 import { formatMarketQuestion } from "@/lib/marketDisplay";
 
+const RESOLUTION_SOURCES = new Set<string>(Object.values(ResolutionSource));
+
+function adminResolutionSource(
+  market: Pick<AdminMarket, "resolutionSource" | "cadence" | "marketType">
+): ResolutionSourceType {
+  if (market.resolutionSource && RESOLUTION_SOURCES.has(market.resolutionSource)) {
+    return market.resolutionSource as ResolutionSourceType;
+  }
+  if (market.cadence === "24h" || market.marketType === "24h") {
+    return ResolutionSource.DEXSCREENER;
+  }
+  return ResolutionSource.ADMIN;
+}
+
 export function formatAdminMarketQuestion(
-  market: Pick<AdminMarket, "question" | "endTime" | "resolutionSource">
+  market: Pick<AdminMarket, "question" | "endTime" | "resolutionSource" | "cadence" | "marketType">
 ) {
   if (!market.endTime) return market.question;
   return formatMarketQuestion({
     question: market.question,
     endTime: market.endTime,
-    resolutionSource: market.resolutionSource ?? "admin",
+    resolutionSource: adminResolutionSource(market),
   });
 }
 
