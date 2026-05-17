@@ -28,7 +28,6 @@ export function StatsBar() {
 
   const stats = [
     { label: "Total Volume", value: formatVolume(totalVolume), Icon: BarChart2 },
-    { label: "24h Volume", value: formatVolume(totalVolume * 0.12), Icon: Clock },
     { label: "Open Markets", value: String(openMarkets), Icon: Layers },
     { label: "NAM Price", value: namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—", accent: true, Icon: TrendingUp },
   ];
@@ -50,7 +49,7 @@ export function StatsBar() {
   }
 
   return (
-    <div className="mb-7 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+    <div className="mb-7 grid grid-cols-1 gap-2.5 lg:grid-cols-3">
       {stats.map((s) => (
         <div key={s.label} className="card px-[18px] py-3.5">
           <div className="mb-1.5 flex items-center justify-between">
