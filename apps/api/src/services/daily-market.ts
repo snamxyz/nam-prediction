@@ -266,6 +266,13 @@ export async function createDailyMarket(threshold: number): Promise<void> {
       .where(eq(dailyMarkets.date, dateStr));
 
     if (linkedMarketId) {
+      await db
+        .update(markets)
+        .set({
+          liquidity: DAILY_MARKET_LIQUIDITY.toString(),
+          seededLiquidity: DAILY_MARKET_LIQUIDITY.toString(),
+        })
+        .where(eq(markets.id, linkedMarketId));
       console.log(`[DailyMarket] Linked daily market to markets.id=${linkedMarketId}`);
     } else {
       console.warn(`[DailyMarket] Could not link market yet — fallback will resolve later`);

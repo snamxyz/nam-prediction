@@ -145,6 +145,7 @@ async function handleMarketCreated(log: any) {
       noPrice: 0.5,
       volume: "0",
       liquidity: "0",
+      seededLiquidity: "0",
       resolutionSource: sourceStr,
       resolutionConfig: resolutionConfig,
     })
@@ -293,15 +294,12 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
   // Always bump volume — we know `collateral` from the event itself, no RPC needed.
   // Only touch the price columns if we actually fetched on-chain prices.
   const newVolume = Number(dbMarket.volume) + Number(collateral) / 1e6;
-  const liveLiquidity = pricesFetched
-    ? Number(formatUnits((yesReserve + noReserve) / 2n, 18)).toFixed(6)
-    : null;
   try {
     await db
       .update(markets)
       .set(
         pricesFetched
-          ? { yesPrice: yesPriceNum, noPrice: noPriceNum, volume: newVolume.toString(), liquidity: liveLiquidity! }
+          ? { yesPrice: yesPriceNum, noPrice: noPriceNum, volume: newVolume.toString() }
           : { volume: newVolume.toString() }
       )
       .where(eq(markets.id, dbMarket.id));
@@ -333,7 +331,6 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
       lastTradeSide: isYes ? "YES" : "NO",
       lastTradeIsBuy: isBuy,
       volume: newVolume,
-      liquidity: liveLiquidity ? Number(liveLiquidity) : undefined,
       pricesStale: !pricesFetched,
     };
 

@@ -1,4 +1,16 @@
 import type { AdminMarket, AdminMarketFamily } from "@/hooks/useAdmin";
+import { formatMarketQuestion } from "@/lib/marketDisplay";
+
+export function formatAdminMarketQuestion(
+  market: Pick<AdminMarket, "question" | "endTime" | "resolutionSource">
+) {
+  if (!market.endTime) return market.question;
+  return formatMarketQuestion({
+    question: market.question,
+    endTime: market.endTime,
+    resolutionSource: market.resolutionSource ?? "admin",
+  });
+}
 
 export type AdminFamilyMeta = {
   key: AdminMarketFamily;

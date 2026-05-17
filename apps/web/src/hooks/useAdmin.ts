@@ -44,6 +44,7 @@ export interface AdminMarket {
   id: number;
   onChainId: number;
   question: string;
+  resolutionSource?: string;
   cadence: string;
   category?: string;
   marketType?: string;
@@ -58,7 +59,8 @@ export interface AdminMarket {
   liquidityWithdrawn?: string;
   reservedClaims?: string;
   outstandingWinningClaims?: string;
-  housePnl?: string;
+  housePnl?: string | null;
+  housePnlSource?: "final" | "estimated" | "pending";
   liquidityState?: string;
   seededLiquidity?: string;
   poolAddress?: string | null;

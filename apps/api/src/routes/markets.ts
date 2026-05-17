@@ -7,6 +7,7 @@ import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
 import { featureFlags } from "../config/feature-flags";
 import { getNamSnapshot } from "../services/nam-price-poller";
+import { formatMarketQuestion, withDisplayQuestion } from "../lib/market-display";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const rpcClient = createPublicClient({
@@ -51,7 +52,7 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
       .select()
       .from(markets)
       .orderBy(desc(markets.createdAt));
-    return { data: allMarkets, success: true };
+    return { data: allMarkets.map(withDisplayQuestion), success: true };
   })
 
   // GET /markets/daily/active — Get the active daily NAM market
@@ -107,7 +108,7 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
     return {
       data: {
         daily: daily[0],
-        market,
+        market: market ? withDisplayQuestion(market) : null,
       },
       success: true,
     };
@@ -153,7 +154,10 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
       .orderBy(desc(markets.createdAt))
       .limit(1);
 
-    return { data: result.length > 0 ? result[0] : null, success: true };
+    return {
+      data: result.length > 0 ? withDisplayQuestion(result[0]) : null,
+      success: true,
+    };
   })
 
   // GET /markets/24h/history — Last 7 days of 24h markets
@@ -170,7 +174,7 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
       )
       .orderBy(desc(markets.createdAt));
 
-    return { data: result, success: true };
+    return { data: result.map(withDisplayQuestion), success: true };
   })
 
   // GET /markets/recent-trades — Latest trades across all markets
@@ -190,12 +194,24 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         txHash: trades.txHash,
         timestamp: trades.timestamp,
         marketQuestion: markets.question,
+        endTime: markets.endTime,
+        resolutionSource: markets.resolutionSource,
       })
       .from(trades)
       .innerJoin(markets, eq(trades.marketId, markets.id))
       .orderBy(desc(trades.timestamp))
       .limit(limit);
-    return { data: recentTrades, success: true };
+    return {
+      data: recentTrades.map((row) => ({
+        ...row,
+        marketQuestion: formatMarketQuestion({
+          question: row.marketQuestion,
+          endTime: row.endTime,
+          resolutionSource: row.resolutionSource,
+        }),
+      })),
+      success: true,
+    };
   }, {
     query: t.Optional(t.Object({ limit: t.Optional(t.String()) })),
   })
@@ -214,7 +230,7 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
         set.status = 404;
         return { data: null, success: false, error: "Market not found" };
       }
-      return { data: market[0], success: true };
+      return { data: withDisplayQuestion(market[0]), success: true };
     },
     { params: t.Object({ id: t.String() }) }
   )

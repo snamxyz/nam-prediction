@@ -33,6 +33,8 @@ export const markets = pgTable(
     noPrice: real("no_price").notNull().default(0.5),
     volume: numeric("volume", { precision: 30, scale: 6 }).notNull().default("0"),
     liquidity: numeric("liquidity", { precision: 30, scale: 6 }).notNull().default("0"),
+    // Immutable USDC seed at market creation — never overwritten by trade indexer.
+    seededLiquidity: numeric("seeded_liquidity", { precision: 30, scale: 6 }).notNull().default("0"),
     resolutionSource: text("resolution_source").notNull().default("admin"), // admin | api | dexscreener | uma
     resolutionConfig: jsonb("resolution_config"), // source-specific JSON config
     // Liquidity breaker: set after the post-resolution drain job pulls excess

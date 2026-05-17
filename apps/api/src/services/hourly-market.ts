@@ -22,6 +22,7 @@ import { db } from "../db/client";
 import { markets } from "../db/schema";
 import { fetchNamPrice } from "./daily-market";
 import { getNonceManager } from "../lib/nonce-manager.instance";
+import { formatEasternMarketDay } from "../lib/market-display";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -148,7 +149,10 @@ export async function createNextHourlyMarket(
   const endTimeUnix = BigInt(Math.floor(endTime.getTime() / 1000));
   const lockTimeUnix = BigInt(Math.floor(lockTime.getTime() / 1000));
 
-  const question = `Will NAM be ${comparison} $${threshold.toFixed(6)} at 00:00 ET on ${etDate}?`;
+  const marketDay = formatEasternMarketDay(endTime);
+  const question = marketDay
+    ? `NAM Up or Down on ${marketDay}?`
+    : `NAM Up or Down on ${etDate}?`;
 
   const resolutionConfig = {
     comparison,
@@ -255,6 +259,7 @@ export async function createNextHourlyMarket(
       noPrice: 0.5,
       volume: "0",
       liquidity: HOURLY_LIQUIDITY.toString(),
+      seededLiquidity: HOURLY_LIQUIDITY.toString(),
       resolutionSource: "dexscreener",
       resolutionConfig,
     })
@@ -268,6 +273,8 @@ export async function createNextHourlyMarket(
       status: "open",
       lockTime,
       endTime,
+      liquidity: HOURLY_LIQUIDITY.toString(),
+      seededLiquidity: HOURLY_LIQUIDITY.toString(),
       resolutionSource: "dexscreener",
       resolutionConfig,
     })

@@ -1,12 +1,19 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
 import { markets, users, trades, userPositions, vaultTransactions, rangeMarkets, rangeTrades } from "../db/schema";
-import { eq, desc, count, sum, gte, lt, and, sql, ne, lte } from "drizzle-orm";
+import { eq, desc, count, sum, gte, lt, and, sql, ne, lte, inArray } from "drizzle-orm";
+import {
+  computeHousePnl,
+  formatHousePnl,
+  sumBinaryTraderRealisedPnl,
+  sumRangeTraderRealisedPnl,
+} from "../lib/pnl";
 import { resolveMarketOnChain } from "../services/resolution";
 import { processDailyResolution } from "../services/queue/resolution-queue";
 import { processHourlyTick } from "../services/queue/hourly-queue";
 import { createNextHourlyMarket } from "../services/hourly-market";
 import { verifyAdminToken } from "../middleware/admin";
+import { formatMarketQuestion } from "../lib/market-display";
 
 // ─── Helper: 403 shorthand ───
 function forbidden() {
@@ -220,7 +227,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           recentTrades,
           positions: positions.map((p) => ({
             ...p.position,
-            question: p.market.question,
+            question: formatMarketQuestion(p.market),
             resolved: p.market.resolved,
             result: p.market.result,
           })),
@@ -301,26 +308,73 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
             .limit(limit)
         : [];
 
+      const resolvedBinaryIds = rows
+        .filter((r) => r.market.resolved)
+        .map((r) => r.market.id);
+
+      const binaryTraderPnlByMarket = new Map<number, number>();
+      if (resolvedBinaryIds.length > 0) {
+        const resolvedBinaryTrades = await db
+          .select({
+            trader: trades.trader,
+            marketId: trades.marketId,
+            isYes: trades.isYes,
+            isBuy: trades.isBuy,
+            shares: trades.shares,
+            collateral: trades.collateral,
+            result: markets.result,
+          })
+          .from(trades)
+          .innerJoin(markets, eq(trades.marketId, markets.id))
+          .where(
+            and(
+              inArray(trades.marketId, resolvedBinaryIds),
+              eq(markets.resolved, true)
+            )
+          );
+
+        for (const marketId of resolvedBinaryIds) {
+          const marketTrades = resolvedBinaryTrades.filter((t) => t.marketId === marketId);
+          binaryTraderPnlByMarket.set(
+            marketId,
+            sumBinaryTraderRealisedPnl(marketTrades)
+          );
+        }
+      }
+
       const binaryMarkets = rows.map((r) => {
         const liquidity = Number(r.market.liquidity ?? 0);
+        const seededLiquidity =
+          Number(r.market.seededLiquidity ?? 0) ||
+          (r.market.cadence === "24h" ? 1 : liquidity);
         const liquidityWithdrawn = Number(r.market.liquidityWithdrawn ?? 0);
         const reservedClaims = Number(r.market.reservedClaims ?? 0);
         const outstandingWinningClaims = Number(r.market.outstandingWinningClaims ?? 0);
+        const traderPnl = binaryTraderPnlByMarket.get(r.market.id) ?? 0;
+        const { pnl: housePnlValue, source: housePnlSource } = computeHousePnl({
+          resolved: r.market.resolved,
+          liquidityDrained: r.market.liquidityDrained,
+          seededLiquidity,
+          liquidityWithdrawn,
+          traderRealisedPnlSum: traderPnl,
+        });
         return {
           ...r.market,
+          question: formatMarketQuestion(r.market),
           category: r.market.cadence === "24h" ? "24h" : "binary",
           marketType: r.market.cadence === "24h" ? "24h" : "binary",
           tradeCount: Number(r.tradeCount ?? 0),
           distinctTraderCount: Number(r.distinctTraderCount ?? 0),
           totalVolume: Number(r.totalVol ?? 0).toFixed(2),
           liquidity: liquidity.toFixed(2),
-          seededLiquidity: liquidity.toFixed(2),
+          seededLiquidity: seededLiquidity.toFixed(2),
           poolAddress: r.market.ammAddress,
           endTime: r.market.endTime,
           liquidityWithdrawn: liquidityWithdrawn.toFixed(2),
           reservedClaims: reservedClaims.toFixed(2),
           outstandingWinningClaims: outstandingWinningClaims.toFixed(2),
-          housePnl: (liquidityWithdrawn - liquidity).toFixed(2),
+          housePnl: formatHousePnl(housePnlValue),
+          housePnlSource,
           liquidityState: r.market.resolved
             ? r.market.liquidityDrained
               ? "drained"
@@ -329,8 +383,53 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         };
       });
 
+      const resolvedRangeIds = rangeRows
+        .filter((r) => r.market.resolved)
+        .map((r) => r.market.id);
+
+      const rangeTraderPnlByMarket = new Map<number, number>();
+      if (resolvedRangeIds.length > 0) {
+        const resolvedRangeTrades = await db
+          .select({
+            trader: rangeTrades.trader,
+            marketId: rangeTrades.rangeMarketId,
+            rangeIndex: rangeTrades.rangeIndex,
+            isBuy: rangeTrades.isBuy,
+            shares: rangeTrades.shares,
+            collateral: rangeTrades.collateral,
+            winningRangeIndex: rangeMarkets.winningRangeIndex,
+          })
+          .from(rangeTrades)
+          .innerJoin(rangeMarkets, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
+          .where(
+            and(
+              inArray(rangeTrades.rangeMarketId, resolvedRangeIds),
+              eq(rangeMarkets.resolved, true)
+            )
+          );
+
+        for (const marketId of resolvedRangeIds) {
+          const marketTrades = resolvedRangeTrades.filter((t) => t.marketId === marketId);
+          rangeTraderPnlByMarket.set(
+            marketId,
+            sumRangeTraderRealisedPnl(marketTrades)
+          );
+        }
+      }
+
       const rangeAdminMarkets = rangeRows.map((r) => {
-        const liquidity = Number(r.market.totalLiquidity ?? 0);
+        const seededLiquidity = Number(r.market.totalLiquidity ?? 0);
+        const liquidityWithdrawn = Number(r.market.liquidityWithdrawn ?? 0);
+        const reservedClaims = Number(r.market.reservedClaims ?? 0);
+        const outstandingWinningClaims = Number(r.market.outstandingWinningClaims ?? 0);
+        const traderPnl = rangeTraderPnlByMarket.get(r.market.id) ?? 0;
+        const { pnl: housePnlValue, source: housePnlSource } = computeHousePnl({
+          resolved: r.market.resolved,
+          liquidityDrained: r.market.liquidityDrained,
+          seededLiquidity,
+          liquidityWithdrawn,
+          traderRealisedPnlSum: traderPnl,
+        });
         return {
           id: r.market.id,
           onChainId: r.market.onChainMarketId ?? 0,
@@ -346,15 +445,20 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           distinctTraderCount: Number(r.distinctTraderCount ?? 0),
           totalVolume: Number(r.totalVol ?? 0).toFixed(2),
           createdAt: r.market.createdAt,
-          liquidity: liquidity.toFixed(2),
-          seededLiquidity: liquidity.toFixed(2),
+          liquidity: seededLiquidity.toFixed(2),
+          seededLiquidity: seededLiquidity.toFixed(2),
           poolAddress: r.market.rangeCpmmAddress,
           endTime: r.market.endTime,
-          liquidityWithdrawn: "0.00",
-          reservedClaims: "0.00",
-          outstandingWinningClaims: "0.00",
-          housePnl: "0.00",
-          liquidityState: r.market.resolved ? "settled by winning range" : "active LMSR",
+          liquidityWithdrawn: liquidityWithdrawn.toFixed(2),
+          reservedClaims: reservedClaims.toFixed(2),
+          outstandingWinningClaims: outstandingWinningClaims.toFixed(2),
+          housePnl: formatHousePnl(housePnlValue),
+          housePnlSource,
+          liquidityState: r.market.resolved
+            ? r.market.liquidityDrained
+              ? "drained"
+              : "awaiting drain"
+            : "active LMSR",
         };
       });
 
@@ -416,7 +520,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
             traderAddress: r.trade.trader,
             side: r.trade.isYes ? "YES" : "NO",
             createdAt: r.trade.timestamp,
-            question: r.market.question,
+            question: formatMarketQuestion(r.market),
             cadence: r.market.cadence,
             source: "binary" as const,
           },

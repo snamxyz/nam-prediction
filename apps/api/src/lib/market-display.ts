@@ -30,3 +30,8 @@ export function formatMarketQuestion(market: MarketDisplayInput) {
 
   return `NAM Up or Down on ${date}?`;
 }
+
+/** Apply display-friendly question text while preserving other market fields. */
+export function withDisplayQuestion<T extends MarketDisplayInput>(market: T): T {
+  return { ...market, question: formatMarketQuestion(market) };
+}

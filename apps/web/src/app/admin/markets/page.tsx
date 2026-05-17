@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { useAdminMarkets, type AdminMarket } from "@/hooks/useAdmin";
 import { useLatestHourlyMarket } from "@/hooks/useMarkets";
+import { formatMarketQuestion } from "@/lib/marketDisplay";
 import { useNamPrice } from "@/hooks/useNamPrice";
 import {
   ADMIN_MARKET_FAMILIES,
@@ -11,6 +12,7 @@ import {
   formatAdminMarketDate,
   formatCompactMoney,
   getFamilyMeta,
+  formatAdminMarketQuestion,
 } from "@/lib/adminMarketDisplay";
 
 function SkeletonLine({ className }: { className: string }) {
@@ -108,7 +110,7 @@ function RangeFamilyCard({
         </span>
       </div>
       <p className="mb-4 min-h-10 text-xs leading-5 text-[var(--muted)]">
-        {market?.question ?? "No active market row exists for today yet."}
+        {market ? formatAdminMarketQuestion(market) : "No active market row exists for today yet."}
       </p>
       <MarketStats market={market} />
       <div className="mt-3.5 border-t border-white/[0.04] pt-3 text-[11px] text-[var(--muted)]">
@@ -174,7 +176,11 @@ export default function AdminMarketsPage() {
               </span>
             </div>
             <p className="mb-4 min-h-10 text-xs leading-5 text-[var(--muted)]">
-              {tokenMarket?.question ?? hourlyMarket?.question ?? "No token price market is active yet."}
+              {tokenMarket
+                ? formatAdminMarketQuestion(tokenMarket)
+                : hourlyMarket
+                ? formatMarketQuestion(hourlyMarket)
+                : "No token price market is active yet."}
             </p>
             <div className="mb-3.5 grid grid-cols-[1fr_1px_1fr] overflow-hidden rounded-lg border border-[var(--border-subtle)]">
               <div className="bg-yes/[0.04] px-3 py-4 text-center">

@@ -20,6 +20,7 @@ import {
   isAdminMarketFamily,
   sortMarketsByDay,
   statusText,
+  formatAdminMarketQuestion,
 } from "@/lib/adminMarketDisplay";
 
 const STATUS_FILTERS: Array<{ key: AdminMarketStatus; label: string }> = [
@@ -59,8 +60,30 @@ function MetricCell({
   );
 }
 
+function formatHousePnlDisplay(market: AdminMarket) {
+  if (market.housePnl == null || market.housePnlSource === "pending") {
+    return "—";
+  }
+  const formatted = formatMoney(market.housePnl);
+  if (market.housePnlSource === "estimated") {
+    return `${formatted} (est.)`;
+  }
+  return formatted;
+}
+
 function DayMarketRow({ market }: { market: AdminMarket }) {
-  const housePnl = parseFloat(market.housePnl ?? "0");
+  const housePnl =
+    market.housePnl != null && market.housePnlSource !== "pending"
+      ? parseFloat(market.housePnl)
+      : 0;
+  const housePnlTone =
+    market.housePnlSource === "pending"
+      ? undefined
+      : housePnl < 0
+      ? "negative"
+      : housePnl > 0
+      ? "positive"
+      : undefined;
 
   return (
     <div className="glass-card p-4">
@@ -89,7 +112,7 @@ function DayMarketRow({ market }: { market: AdminMarket }) {
             </span>
           </div>
           <div className="max-w-3xl text-sm font-medium text-[var(--foreground)]">
-            {market.question}
+            {formatAdminMarketQuestion(market)}
           </div>
         </div>
         <div className="text-left md:text-right">
@@ -111,8 +134,8 @@ function DayMarketRow({ market }: { market: AdminMarket }) {
         <MetricCell label="Claims" value={formatMoney(market.outstandingWinningClaims)} />
         <MetricCell
           label="House P&L"
-          value={formatMoney(market.housePnl)}
-          tone={housePnl < 0 ? "negative" : housePnl > 0 ? "positive" : undefined}
+          value={formatHousePnlDisplay(market)}
+          tone={housePnlTone}
         />
         <MetricCell label="Pool" value={formatShortAddress(market.poolAddress)} />
         <MetricCell label="On-chain" value={market.onChainId ? `#${market.onChainId}` : "—"} />
