@@ -3,10 +3,10 @@
  *  - Creates the "receipts" market daily at 00:00 ET.
  *  - Optionally creates the "participants" (NAM distribution) market when
  *    ENABLE_PARTICIPANTS_RANGE_MARKET=true.
- *  - Ticks every minute to resolve active markets that have passed their endTime.
+ *  - Uses delayed jobs near market endTime plus a low-frequency catch-up sweep.
  *  - Resolution is manual by default until production data sources are wired.
  *
- * Schedule: tick every minute (same pattern as hourly-queue.ts).
+ * Schedule: delayed lifecycle jobs plus catch-up sweep.
  * Creation trigger: checked inside each tick — if today's market for a type
  * doesn't exist yet AND we're past 00:00 ET, create it.
  */
@@ -21,10 +21,12 @@ import { rangeMarkets } from "../../db/schema";
 import { RangeMarketFactoryABI, VaultABI, PoolRegistryABI, ERC20ABI } from "@nam-prediction/shared";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
 import { queueAdminSnapshotRefresh } from "../admin-snapshots";
+import { runtimeConfig } from "../../config/runtime";
 
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
 
 const QUEUE_NAME = "range-market";
+const CATCHUP_INTERVAL_MS = runtimeConfig.intervals.rangeMarketCatchupMs;
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = (process.env.RANGE_FACTORY_ADDRESS || process.env.MARKET_FACTORY_ADDRESS) as `0x${string}`;
@@ -224,6 +226,7 @@ async function createRangeMarketOnChain(
       .where(eq(rangeMarkets.id, dbId));
     console.log(`[RangeMarketQueue] ${marketType} market created (off-chain mode). dbId=${dbId}`);
     await publishEvent("market:update", { marketId: dbId, marketType, rangePrices: initialPrices, ranges, status: "active" });
+    await scheduleRangeMarketLifecycleJob({ id: dbId, endTime });
     queueAdminSnapshotRefresh("range-market-created");
     return;
   }
@@ -333,6 +336,7 @@ async function createRangeMarketOnChain(
       ranges,
       status: "active",
     });
+    await scheduleRangeMarketLifecycleJob({ id: dbId, endTime });
     queueAdminSnapshotRefresh("range-market-created");
   } catch (err) {
     console.error(`[RangeMarketQueue] Failed to create ${marketType} market on-chain:`, err);
@@ -507,6 +511,32 @@ export async function bootstrapVaultWhitelist(): Promise<void> {
 const connection = createRedisConnection();
 export const rangeMarketQueue = new Queue(QUEUE_NAME, { connection });
 
+async function scheduleRangeMarketLifecycleJob(
+  market: Pick<typeof rangeMarkets.$inferSelect, "id" | "endTime">
+): Promise<void> {
+  await rangeMarketQueue.add(
+    "range-lifecycle-resolve",
+    { marketId: market.id },
+    {
+      delay: Math.max(0, new Date(market.endTime).getTime() - Date.now()),
+      jobId: `range:${market.id}:resolve`,
+      removeOnComplete: 100,
+      removeOnFail: 50,
+    }
+  );
+}
+
+async function scheduleActiveRangeMarketLifecycleJobs(): Promise<void> {
+  const active = await db
+    .select()
+    .from(rangeMarkets)
+    .where(and(eq(rangeMarkets.resolved, false), eq(rangeMarkets.status, "active")));
+
+  for (const market of active) {
+    await scheduleRangeMarketLifecycleJob(market);
+  }
+}
+
 export async function setupRangeMarketSchedule(): Promise<void> {
   const existing = await rangeMarketQueue.getRepeatableJobs();
   for (const job of existing) {
@@ -517,7 +547,7 @@ export async function setupRangeMarketSchedule(): Promise<void> {
     "tick",
     {},
     {
-      repeat: { pattern: "* * * * *", tz: "UTC" },
+      repeat: { every: CATCHUP_INTERVAL_MS },
       removeOnComplete: 100,
       removeOnFail: 50,
     }
@@ -525,8 +555,11 @@ export async function setupRangeMarketSchedule(): Promise<void> {
 
   // One-shot bootstrap job so the first tick runs immediately on startup
   await rangeMarketQueue.add("bootstrap", {}, { removeOnComplete: true, removeOnFail: true });
+  await scheduleActiveRangeMarketLifecycleJobs();
 
-  console.log("[RangeMarketQueue] Scheduled: every minute + bootstrap job enqueued");
+  console.log(
+    `[RangeMarketQueue] Catch-up scheduled every ${CATCHUP_INTERVAL_MS / 1000}s + bootstrap job enqueued`
+  );
 }
 
 export function startRangeMarketWorker() {

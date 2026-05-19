@@ -11,8 +11,7 @@
  * see drift and publishes `user:shares` so the websocket client refetches.
  *
  * There is also an on-demand path — `reconcilePositionsForWallet(wallet)` —
- * triggered by the frontend `usePortfolio` hook (on mount + every 15s)
- * and by `POST /trading/reconcile/:wallet`.
+ * triggered by wallet actions and by `POST /trading/reconcile/:wallet`.
  */
 import { eq, and, ne } from "drizzle-orm";
 import { formatUnits } from "viem";
@@ -21,13 +20,12 @@ import { db } from "../db/client";
 import { markets, userPositions, riskEvents } from "../db/schema";
 import { publicClient } from "./indexer";
 import { publishEvent } from "../lib/redis";
+import { runtimeConfig } from "../config/runtime";
 
 // Wei-level tolerance for "balance matches". Anything smaller than this
 // is float / decimal-string rounding noise.
 const WEI_TOLERANCE = 1_000n; // 1e-15 in 18-decimal units
-const RECONCILE_INTERVAL_MS = Number(
-  process.env.POSITION_RECONCILE_INTERVAL_MS || 30_000
-);
+const RECONCILE_INTERVAL_MS = runtimeConfig.intervals.positionReconcileMs;
 
 let reconcilerStarted = false;
 

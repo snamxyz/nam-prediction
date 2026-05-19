@@ -2,7 +2,7 @@
  * BullMQ recurring job that reconciles the NonceManager state against on-chain
  * nonce counts and handles stuck transactions.
  *
- * Schedule: every 30 seconds
+ * Schedule: configurable; defaults by runtime worker profile
  * Concurrency: 1
  *
  * Actions:
@@ -13,8 +13,10 @@
 import { Queue, Worker } from "bullmq";
 import { createRedisConnection } from "../../lib/redis";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { runtimeConfig } from "../../config/runtime";
 
 const QUEUE_NAME = "nonce-reconciliation";
+const RECONCILE_INTERVAL_MS = runtimeConfig.intervals.nonceReconciliationMs;
 
 // ─── Queue ───
 
@@ -23,7 +25,7 @@ const connection = createRedisConnection();
 export const nonceReconciliationQueue = new Queue(QUEUE_NAME, { connection });
 
 /**
- * Set up the repeatable reconciliation job (every 30 seconds).
+ * Set up the repeatable reconciliation job.
  */
 export async function setupNonceReconciliation() {
   // Remove stale repeatable jobs first
@@ -37,14 +39,14 @@ export async function setupNonceReconciliation() {
     {},
     {
       repeat: {
-        every: 60_000, // every 60 seconds (halves eth_getTransactionCount calls vs 30 s)
+        every: RECONCILE_INTERVAL_MS,
       },
       removeOnComplete: 50,
       removeOnFail: 20,
     }
   );
 
-  console.log("[BullMQ] Nonce reconciliation job scheduled (every 30s)");
+  console.log(`[BullMQ] Nonce reconciliation job scheduled every ${RECONCILE_INTERVAL_MS / 1000}s`);
 }
 
 // ─── Worker ───

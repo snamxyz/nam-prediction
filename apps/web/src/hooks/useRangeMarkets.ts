@@ -13,7 +13,7 @@ export function useRangeMarkets(type?: string) {
     queryKey: ["range-markets", type ?? "all"],
     queryFn: () =>
       fetchApi<RangeMarket[]>(type ? `/range-markets?type=${type}` : "/range-markets"),
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -21,7 +21,7 @@ export function useActiveRangeMarkets() {
   return useQuery<RangeMarket[]>({
     queryKey: ["range-markets-active"],
     queryFn: () => fetchApi<RangeMarket[]>("/range-markets/active"),
-    refetchInterval: 10_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -30,7 +30,7 @@ export function useRangeMarket(id: number | undefined) {
     queryKey: ["range-market", id],
     queryFn: () => fetchApi<RangeMarket>(`/range-markets/${id}`),
     enabled: id != null,
-    refetchInterval: 10_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -45,7 +45,7 @@ export function useRangePositions(marketId: number | undefined, userAddress: str
     queryFn: () =>
       fetchApi<RangePosition[]>(`/range-markets/${marketId}/positions/${userAddress}`),
     enabled: marketId != null && !!userAddress,
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -54,7 +54,7 @@ export function useRangeTrades(marketId: number | undefined) {
     queryKey: ["range-trades", marketId],
     queryFn: () => fetchApi<RangeTrade[]>(`/range-markets/${marketId}/trades`),
     enabled: marketId != null,
-    refetchInterval: 10_000,
+    refetchInterval: 60_000,
   });
 }
 
@@ -75,7 +75,7 @@ export function useRangeActivity(marketId: number | undefined) {
     queryKey: ["range-activity", marketId],
     queryFn: () => fetchApi<RangeActivity>(`/range-markets/${marketId}/activity`),
     enabled: marketId != null,
-    refetchInterval: 60_000,
+    refetchInterval: 5 * 60_000,
     retry: false,
   });
 }
@@ -173,7 +173,6 @@ export function useRangeMarketSocket(marketId: number | undefined) {
       if (data.type && data.type !== "range") return;
       patchRangeMarket(data);
       queryClient.invalidateQueries({ queryKey: ["range-markets-active"] });
-      queryClient.refetchQueries({ queryKey: ["range-markets-active"] });
     };
 
     const handleResolved = (data: RangeResolvedUpdate) => {

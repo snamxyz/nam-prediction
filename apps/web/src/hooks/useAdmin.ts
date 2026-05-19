@@ -111,6 +111,22 @@ export interface AdminTrade {
   createdAt: string;
 }
 
+export interface AdminMarketHolder {
+  userAddress: string;
+  shortAddress?: string | null;
+  displayName?: string | null;
+  loginMethod?: string | null;
+  side: string;
+  rangeIndex?: number;
+  rangeLabel?: string;
+  yesBalance?: string;
+  noBalance?: string;
+  balance?: string;
+  openInterestShares: string;
+  costBasis: string;
+  avgEntryPrice?: number | null;
+}
+
 export interface AdminMarketsResponse {
   snapshotAt?: string;
   snapshotSource?: "redis" | "db";
@@ -228,6 +244,49 @@ export function useAdminMarkets(input: AdminMarketStatus | UseAdminMarketsOption
   });
 }
 
+export function useAdminMarketDetail(family: AdminMarketFamily | undefined, marketId: string | number | undefined) {
+  const getAccessToken = useToken();
+  return useQuery({
+    queryKey: ["admin-market-detail", family, marketId],
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Not authenticated");
+      return authedGetApi<{ market: AdminMarket }>(`/admin/markets/${family}/${marketId}`, token);
+    },
+    enabled: !!family && !!marketId,
+    staleTime: 30_000,
+  });
+}
+
+export function useAdminMarketHolders(family: AdminMarketFamily | undefined, marketId: string | number | undefined) {
+  const getAccessToken = useToken();
+  return useQuery({
+    queryKey: ["admin-market-holders", family, marketId],
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Not authenticated");
+      return authedGetApi<{ holders: AdminMarketHolder[] }>(`/admin/markets/${family}/${marketId}/holders`, token);
+    },
+    enabled: !!family && !!marketId,
+    staleTime: 30_000,
+  });
+}
+
+export function useAdminMarketTrades(family: AdminMarketFamily | undefined, marketId: string | number | undefined) {
+  const getAccessToken = useToken();
+  return useQuery({
+    queryKey: ["admin-market-trades", family, marketId],
+    queryFn: async () => {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Not authenticated");
+      return authedGetApi<{ trades: AdminTrade[] }>(`/admin/markets/${family}/${marketId}/trades?limit=100`, token);
+    },
+    enabled: !!family && !!marketId,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
 export function useAdminUserHoldings(id: string | number | undefined) {
   const getAccessToken = useToken();
   return useQuery({
@@ -251,8 +310,8 @@ export function useAdminTrades() {
       if (!token) throw new Error("Not authenticated");
       return authedGetApi<{ trades: AdminTrade[] }>("/admin/trades?limit=50", token);
     },
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   });
 }
 

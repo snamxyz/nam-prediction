@@ -3,7 +3,11 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { Badge } from "@/components/UI/badge";
+import { Button } from "@/components/UI/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/UI/card";
+import { Skeleton } from "@/components/UI/skeleton";
 import {
   useAdminMarkets,
   type AdminMarket,
@@ -29,7 +33,7 @@ const STATUS_FILTERS: Array<{ key: AdminMarketStatus; label: string }> = [
   { key: "resolved", label: "Resolved" },
 ];
 
-function MetricCell({
+function MetricPill({
   label,
   value,
   tone,
@@ -79,7 +83,7 @@ function formatShares(value: string | number | undefined) {
   return n.toFixed(2);
 }
 
-function DayMarketRow({ market }: { market: AdminMarket }) {
+function DayMarketRow({ market, family }: { market: AdminMarket; family: AdminMarketFamily }) {
   const housePnl =
     market.housePnl != null && market.housePnlSource !== "pending"
       ? parseFloat(market.housePnl)
@@ -90,77 +94,76 @@ function DayMarketRow({ market }: { market: AdminMarket }) {
       : housePnl < 0
       ? "negative"
       : housePnl > 0
-      ? "positive"
-      : undefined;
+        ? "positive"
+        : undefined;
+
+  const isAwaitingDrain = market.liquidityState === "awaiting drain";
+  const liquidityTone = isAwaitingDrain ? "text-amber-300" : market.resolved ? "text-[var(--muted-strong)]" : "text-yes";
 
   return (
-    <div className="glass-card p-4">
-      <div className="mb-3 flex flex-col justify-between gap-3 md:flex-row md:items-start">
-        <div>
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded-md bg-[var(--surface-hover)] px-2 py-0.5 text-[11px] font-semibold text-[var(--muted)]">
+    <Card className="bg-[var(--surface)] transition">
+      <CardHeader className="p-5 pb-3">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="text-[11px]">
               {formatAdminMarketDate(market)}
-            </span>
+            </Badge>
             {market.date === getTodayET() && (
-              <span className="rounded-md bg-yes/[0.12] px-2 py-0.5 text-[11px] font-semibold text-yes">
+              <Badge className="bg-yes/15 text-yes hover:bg-yes/20">
                 Current day
-              </span>
+              </Badge>
             )}
-            <span
-              className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
-              style={{
-                background: market.resolved ? "var(--surface-hover)" : "rgba(1,210,67,0.15)",
-                color: market.resolved ? "var(--muted)" : "var(--yes)",
-              }}
+            <Badge
+              variant={market.resolved ? "secondary" : "default"}
+              className={market.resolved ? "text-[11px]" : "bg-yes/15 text-yes hover:bg-yes/20"}
             >
               {statusText(market)}
-            </span>
+            </Badge>
             <span className="text-[11px] text-[var(--muted)]">
               {formatMarketType(market)}
             </span>
           </div>
-          <div className="max-w-3xl text-sm font-medium text-[var(--foreground)]">
+            <CardTitle className="text-base font-semibold leading-6 tracking-[-0.01em]">
             {formatAdminMarketQuestion(market)}
+            </CardTitle>
+            <CardDescription className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <span>Pool {formatShortAddress(market.poolAddress)}</span>
+              <span>On-chain {market.onChainId ? `#${market.onChainId}` : "—"}</span>
+              <span>Ends {market.endTime ? formatAdminMarketDate({ ...market, date: undefined }) : "—"}</span>
+            </CardDescription>
           </div>
+          <Link href={`/admin/markets/${family}/${market.id}`} className="no-underline">
+            <Button variant="outline" size="sm">
+              Details <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          </Link>
         </div>
-        <div className="text-left md:text-right">
-          <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
-            Liquidity State
-          </div>
-          <div className="text-xs text-[var(--foreground)]">
-            {market.liquidityState ?? "—"}
-          </div>
-        </div>
-      </div>
+      </CardHeader>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-12">
-        <MetricCell label="Trades" value={String(market.tradeCount)} />
-        <MetricCell label="Unique Traders" value={String(market.distinctTraderCount)} />
-        <MetricCell label="Volume" value={formatMoney(market.totalVolume)} />
-        <MetricCell label="Seeded" value={formatMoney(market.seededLiquidity ?? market.liquidity)} />
-        <MetricCell label="Liquidity" value={formatMoney(market.liquidity)} />
-        <MetricCell label="At Risk" value={formatMoney(market.liquidityAtRisk)} />
-        <MetricCell label="Withdrawn" value={formatMoney(market.liquidityWithdrawn)} />
-        <MetricCell label="Reserved" value={formatMoney(market.reservedClaims)} />
-        <MetricCell label="Claims" value={formatMoney(market.outstandingWinningClaims)} />
-        <MetricCell label="Holders" value={String(market.holderCount ?? 0)} />
-        <MetricCell label="Open Interest" value={formatShares(market.openInterestShares)} />
-        <MetricCell label="Top Holder" value={`${market.holderConcentrationPct ?? "0.0"}%`} />
-        <MetricCell
-          label="House P&L"
-          value={formatHousePnlDisplay(market)}
-          tone={housePnlTone}
-        />
-        <MetricCell label="Pool" value={formatShortAddress(market.poolAddress)} />
-        <MetricCell label="On-chain" value={market.onChainId ? `#${market.onChainId}` : "—"} />
-        <MetricCell label="Ends" value={market.endTime ? formatAdminMarketDate({ ...market, date: undefined }) : "—"} />
-      </div>
-      <div className="mt-3 text-[11px] text-[var(--muted)]">
-        {market.totalRangeShares
-          ? `Range shares: ${formatShares(market.totalRangeShares)}`
-          : `YES shares: ${formatShares(market.totalYesShares)} · NO shares: ${formatShares(market.totalNoShares)}`}
-      </div>
-    </div>
+      <CardContent className="p-5 pt-0">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+          <MetricPill label="Liquidity State" value={market.liquidityState ?? "—"} tone={isAwaitingDrain ? "negative" : undefined} />
+          <MetricPill label="Volume" value={formatMoney(market.totalVolume)} />
+          <MetricPill label="Trades" value={`${market.tradeCount} / ${market.distinctTraderCount} users`} />
+          <MetricPill label="Holders" value={String(market.holderCount ?? 0)} />
+          <MetricPill label="Open Interest" value={formatShares(market.openInterestShares)} />
+          <MetricPill label="At Risk" value={formatMoney(market.liquidityAtRisk)} />
+          <MetricPill label="Claims" value={formatMoney(market.outstandingWinningClaims)} />
+          <MetricPill label="House P&L" value={formatHousePnlDisplay(market)} tone={housePnlTone} />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-3 text-[11px] text-[var(--muted)]">
+          <span>
+            {market.totalRangeShares
+              ? `Range shares ${formatShares(market.totalRangeShares)}`
+              : `YES ${formatShares(market.totalYesShares)} · NO ${formatShares(market.totalNoShares)}`}
+          </span>
+          <span className={liquidityTone}>
+            Seeded {formatMoney(market.seededLiquidity ?? market.liquidity)} · Withdrawn {formatMoney(market.liquidityWithdrawn)}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -177,17 +180,21 @@ export default function AdminMarketFamilyPage() {
 
   if (!isValidFamily) {
     return (
-      <div className="glass-card max-w-xl p-6">
-        <h1 className="mb-2 text-xl font-semibold text-[var(--foreground)]">
+      <Card className="max-w-xl  bg-card">
+        <CardHeader>
+        <CardTitle>
           Unknown market family
-        </h1>
-        <p className="mb-5 text-sm text-[var(--muted)]">
+        </CardTitle>
+        <CardDescription>
           Choose one of the production market families from the admin Markets hub.
-        </p>
-        <Link href="/admin/markets" className="text-sm font-semibold text-yes no-underline">
-          Back to Markets
-        </Link>
-      </div>
+        </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link href="/admin/markets" className="no-underline">
+            <Button variant="outline">Back to Markets</Button>
+          </Link>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -204,16 +211,16 @@ export default function AdminMarketFamilyPage() {
       <div className="mb-7 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="rounded bg-yes/[0.08] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-yes">
+            <Badge className="bg-yes/10 text-yes hover:bg-yes/20">
               {meta.badge}
-            </span>
-            <span className="rounded bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] text-[var(--muted-strong)]">
+            </Badge>
+            <Badge variant="secondary">
               {markets.length} days
-            </span>
+            </Badge>
             {currentDayCount > 0 && (
-              <span className="rounded bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] text-[var(--muted-strong)]">
+              <Badge variant="secondary">
                 Current day included
-              </span>
+              </Badge>
             )}
           </div>
           <h1 className="mb-1.5 text-[22px] font-semibold tracking-[-0.025em] text-[var(--foreground)]">
@@ -238,27 +245,15 @@ export default function AdminMarketFamilyPage() {
 
         <div className="flex gap-2">
           {STATUS_FILTERS.map((filter) => (
-            <button
+            <Button
               key={filter.key}
               type="button"
               onClick={() => setStatus(filter.key)}
-              className="rounded-full border px-3.5 py-1.5 text-xs font-medium transition"
-              style={
-                status === filter.key
-                  ? {
-                      background: "var(--surface-hover)",
-                      borderColor: "var(--border)",
-                      color: "var(--foreground)",
-                    }
-                  : {
-                      background: "transparent",
-                      borderColor: "transparent",
-                      color: "var(--muted)",
-                    }
-              }
+              variant={status === filter.key ? "secondary" : "ghost"}
+              size="sm"
             >
               {filter.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -266,17 +261,19 @@ export default function AdminMarketFamilyPage() {
       {isLoading ? (
         <div className="space-y-3">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="glass-card h-32 animate-pulse" />
+            <Skeleton key={item} className="h-32 rounded-xl" />
           ))}
         </div>
       ) : markets.length === 0 ? (
-        <div className="glass-card px-5 py-10 text-center text-sm text-[var(--muted)]">
-          No markets found for this family and filter.
-        </div>
+        <Card className=" bg-card">
+          <CardContent className="px-5 py-10 text-center text-sm text-[var(--muted)]">
+            No markets found for this family and filter.
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-3">
           {markets.map((market) => (
-            <DayMarketRow key={`${family}-${market.id}`} market={market} />
+            <DayMarketRow key={`${family}-${market.id}`} market={market} family={family} />
           ))}
         </div>
       )}

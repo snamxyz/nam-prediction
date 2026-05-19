@@ -12,6 +12,6 @@ export function useRecentTrades(limit = 50) {
   return useQuery<RecentTrade[]>({
     queryKey: ["recent-trades", limit],
     queryFn: () => fetchApi<RecentTrade[]>(`/markets/recent-trades?limit=${limit}`),
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   });
 }

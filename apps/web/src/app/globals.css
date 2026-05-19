@@ -1,3 +1,5 @@
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,14 +7,28 @@
 :root {
   --background: #07080c;
   --foreground: #e4e5eb;
+  --card: #0d0e14;
+  --card-foreground: #e4e5eb;
+  --popover: #0d0e14;
+  --popover-foreground: #e4e5eb;
+  --primary: #e4e5eb;
+  --primary-foreground: #07080c;
+  --secondary: #111320;
+  --secondary-foreground: #e4e5eb;
   --accent: #009930;
+  --accent-foreground: #e4e5eb;
   --muted: #4c4e68;
+  --muted-foreground: #8081a0;
   --muted-strong: #8081a0;
   --surface: #0d0e14;
   --surface-hover: #111320;
   --surface-raised: #151722;
   --border: rgba(255,255,255,0.07);
   --border-subtle: rgba(255,255,255,0.04);
+  --input: rgba(255,255,255,0.12);
+  --ring: rgba(255,255,255,0.25);
+  --destructive: #f0324c;
+  --radius: 0.625rem;
   --yes: #009930;
   --no: #f0324c;
   color-scheme: dark;
@@ -21,22 +37,33 @@
 [data-theme="light"] {
   --background: #f4f6fb;
   --foreground: #10121a;
+  --card: #ffffff;
+  --card-foreground: #10121a;
+  --popover: #ffffff;
+  --popover-foreground: #10121a;
+  --primary: #10121a;
+  --primary-foreground: #ffffff;
+  --secondary: #eef2f8;
+  --secondary-foreground: #10121a;
   --accent: #00df46;
+  --accent-foreground: #10121a;
   --muted: #596177;
+  --muted-foreground: #596177;
   --muted-strong: #394052;
   --surface: #ffffff;
   --surface-hover: #eef2f8;
   --surface-raised: #e7ebf3;
   --border: rgba(16,18,26,0.14);
   --border-subtle: rgba(16,18,26,0.09);
+  --input: rgba(16,18,26,0.14);
+  --ring: rgba(16,18,26,0.25);
+  --destructive: #d92740;
   --yes: #00df46;
   --no: #d92740;
   color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
   font-family: 'Space Grotesk', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -131,4 +158,20 @@ input[type=number] {
 }
 #nprogress .peg {
   box-shadow: 0 0 10px var(--accent), 0 0 5px var(--accent);
+}
+
+@layer base {
+  .theme {
+    --font-heading: 'Space Grotesk', system-ui, sans-serif;
+  }
+  * {
+    @apply border-border;
+    outline-color: var(--ring);
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

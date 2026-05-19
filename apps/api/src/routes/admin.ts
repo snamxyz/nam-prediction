@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { db } from "../db/client";
-import { markets, users, trades, userPositions, vaultTransactions, rangeMarkets, rangeTrades } from "../db/schema";
+import { markets, users, trades, userPositions, vaultTransactions, rangeMarkets, rangeTrades, rangePositions } from "../db/schema";
 import { and, count, desc, eq, lte, sql, sum } from "drizzle-orm";
 import { resolveMarketOnChain } from "../services/resolution";
 import { processDailyResolution } from "../services/queue/resolution-queue";
@@ -20,6 +20,48 @@ import {
 // ─── Helper: 403 shorthand ───
 function forbidden() {
   return { success: false as const, error: "Forbidden" };
+}
+
+const MARKET_FAMILIES = new Set(["token", "participants", "receipts"]);
+const DUST = 1e-9;
+
+function asNumber(value: unknown): number {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function compactAddress(address: string | null | undefined) {
+  if (!address) return null;
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+function rangeLabel(ranges: unknown, index: number): string {
+  if (!Array.isArray(ranges)) return `Range ${index + 1}`;
+  const range = ranges[index] as { label?: unknown } | undefined;
+  return typeof range?.label === "string" ? range.label : `Range ${index + 1}`;
+}
+
+async function findAdminMarket(family: AdminMarketFamily, marketId: number) {
+  const snapshot = await getAdminMarketsSnapshot({ family, status: "all", limit: 200 });
+  return snapshot.markets.find((market) => market.id === marketId) ?? null;
+}
+
+async function assertMarketExists(family: AdminMarketFamily, marketId: number) {
+  if (family === "token") {
+    const [market] = await db
+      .select({ id: markets.id })
+      .from(markets)
+      .where(and(eq(markets.id, marketId), eq(markets.cadence, "24h")))
+      .limit(1);
+    return Boolean(market);
+  }
+
+  const [market] = await db
+    .select({ id: rangeMarkets.id })
+    .from(rangeMarkets)
+    .where(and(eq(rangeMarkets.id, marketId), eq(rangeMarkets.marketType, family)))
+    .limit(1);
+  return Boolean(market);
 }
 
 export const adminRoutes = new Elysia({ prefix: "/admin" })
@@ -273,6 +315,243 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         limit: t.Optional(t.String()),
         status: t.Optional(t.String()),
         family: t.Optional(t.String()),
+      }),
+    }
+  )
+
+  // ─── GET /admin/markets/:family/:marketId ───
+  .get(
+    "/markets/:family/:marketId",
+    async ({ headers, params, set }) => {
+      const claims = await verifyAdminToken(headers.authorization);
+      if (!claims) { set.status = 403; return forbidden(); }
+
+      const family = params.family as AdminMarketFamily;
+      const marketId = Number(params.marketId);
+      if (!MARKET_FAMILIES.has(family) || !Number.isFinite(marketId)) {
+        set.status = 400;
+        return { success: false, error: "Invalid market" };
+      }
+
+      const market = await findAdminMarket(family, marketId);
+      if (!market) {
+        set.status = 404;
+        return { success: false, error: "Market not found" };
+      }
+
+      return { success: true, data: { market } };
+    },
+    {
+      params: t.Object({
+        family: t.String(),
+        marketId: t.String(),
+      }),
+    }
+  )
+
+  // ─── GET /admin/markets/:family/:marketId/holders ───
+  .get(
+    "/markets/:family/:marketId/holders",
+    async ({ headers, params, set }) => {
+      const claims = await verifyAdminToken(headers.authorization);
+      if (!claims) { set.status = 403; return forbidden(); }
+
+      const family = params.family as AdminMarketFamily;
+      const marketId = Number(params.marketId);
+      if (!MARKET_FAMILIES.has(family) || !Number.isFinite(marketId)) {
+        set.status = 400;
+        return { success: false, error: "Invalid market" };
+      }
+
+      const exists = await assertMarketExists(family, marketId);
+      if (!exists) {
+        set.status = 404;
+        return { success: false, error: "Market not found" };
+      }
+
+      if (family === "token") {
+        const rows = await db
+          .select({
+            position: userPositions,
+            displayName: users.displayName,
+            loginMethod: users.loginMethod,
+          })
+          .from(userPositions)
+          .leftJoin(users, eq(sql`lower(${users.walletAddress})`, userPositions.userAddress))
+          .where(eq(userPositions.marketId, marketId));
+
+        const holders = rows
+          .map((row) => {
+            const yesBalance = asNumber(row.position.yesBalance);
+            const noBalance = asNumber(row.position.noBalance);
+            const openInterestShares = Math.max(0, yesBalance) + Math.max(0, noBalance);
+            const side =
+              yesBalance > DUST && noBalance > DUST
+                ? "BOTH"
+                : yesBalance >= noBalance
+                  ? "YES"
+                  : "NO";
+
+            return {
+              userAddress: row.position.userAddress,
+              shortAddress: compactAddress(row.position.userAddress),
+              displayName: row.displayName,
+              loginMethod: row.loginMethod,
+              side,
+              yesBalance: row.position.yesBalance,
+              noBalance: row.position.noBalance,
+              openInterestShares: openInterestShares.toFixed(6),
+              costBasis: (asNumber(row.position.yesCostBasis) + asNumber(row.position.noCostBasis)).toFixed(2),
+              avgEntryPrice:
+                side === "NO"
+                  ? row.position.noAvgPrice
+                  : side === "YES"
+                    ? row.position.yesAvgPrice
+                    : null,
+            };
+          })
+          .filter((holder) => asNumber(holder.openInterestShares) > DUST)
+          .sort((a, b) => asNumber(b.openInterestShares) - asNumber(a.openInterestShares));
+
+        return { success: true, data: { holders } };
+      }
+
+      const [market] = await db
+        .select({ ranges: rangeMarkets.ranges })
+        .from(rangeMarkets)
+        .where(and(eq(rangeMarkets.id, marketId), eq(rangeMarkets.marketType, family)))
+        .limit(1);
+
+      const rows = await db
+        .select({
+          position: rangePositions,
+          displayName: users.displayName,
+          loginMethod: users.loginMethod,
+        })
+        .from(rangePositions)
+        .leftJoin(users, eq(sql`lower(${users.walletAddress})`, rangePositions.userAddress))
+        .where(eq(rangePositions.rangeMarketId, marketId));
+
+      const holders = rows
+        .map((row) => {
+          const balance = Math.max(0, asNumber(row.position.balance));
+          return {
+            userAddress: row.position.userAddress,
+            shortAddress: compactAddress(row.position.userAddress),
+            displayName: row.displayName,
+            loginMethod: row.loginMethod,
+            side: rangeLabel(market?.ranges, row.position.rangeIndex),
+            rangeIndex: row.position.rangeIndex,
+            rangeLabel: rangeLabel(market?.ranges, row.position.rangeIndex),
+            balance: row.position.balance,
+            openInterestShares: balance.toFixed(6),
+            costBasis: asNumber(row.position.costBasis).toFixed(2),
+            avgEntryPrice: row.position.avgEntryPrice,
+          };
+        })
+        .filter((holder) => asNumber(holder.openInterestShares) > DUST)
+        .sort((a, b) => asNumber(b.openInterestShares) - asNumber(a.openInterestShares));
+
+      return { success: true, data: { holders } };
+    },
+    {
+      params: t.Object({
+        family: t.String(),
+        marketId: t.String(),
+      }),
+    }
+  )
+
+  // ─── GET /admin/markets/:family/:marketId/trades ───
+  .get(
+    "/markets/:family/:marketId/trades",
+    async ({ headers, params, query, set }) => {
+      const claims = await verifyAdminToken(headers.authorization);
+      if (!claims) { set.status = 403; return forbidden(); }
+
+      const family = params.family as AdminMarketFamily;
+      const marketId = Number(params.marketId);
+      const limit = Math.min(Number(query?.limit ?? 100), 500);
+      if (!MARKET_FAMILIES.has(family) || !Number.isFinite(marketId)) {
+        set.status = 400;
+        return { success: false, error: "Invalid market" };
+      }
+
+      if (family === "token") {
+        const [market] = await db
+          .select()
+          .from(markets)
+          .where(and(eq(markets.id, marketId), eq(markets.cadence, "24h")))
+          .limit(1);
+        if (!market) {
+          set.status = 404;
+          return { success: false, error: "Market not found" };
+        }
+
+        const rows = await db
+          .select()
+          .from(trades)
+          .where(eq(trades.marketId, marketId))
+          .orderBy(desc(trades.timestamp))
+          .limit(limit);
+
+        return {
+          success: true,
+          data: {
+            trades: rows.map((trade) => ({
+              ...trade,
+              traderAddress: trade.trader,
+              side: trade.isYes ? "YES" : "NO",
+              createdAt: trade.timestamp,
+              question: formatMarketQuestion(market),
+              cadence: market.cadence,
+              source: "binary" as const,
+            })),
+          },
+        };
+      }
+
+      const [market] = await db
+        .select()
+        .from(rangeMarkets)
+        .where(and(eq(rangeMarkets.id, marketId), eq(rangeMarkets.marketType, family)))
+        .limit(1);
+      if (!market) {
+        set.status = 404;
+        return { success: false, error: "Market not found" };
+      }
+
+      const rows = await db
+        .select()
+        .from(rangeTrades)
+        .where(eq(rangeTrades.rangeMarketId, marketId))
+        .orderBy(desc(rangeTrades.timestamp))
+        .limit(limit);
+
+      return {
+        success: true,
+        data: {
+          trades: rows.map((trade) => ({
+            ...trade,
+            marketId: trade.rangeMarketId,
+            traderAddress: trade.trader,
+            side: rangeLabel(market.ranges, trade.rangeIndex),
+            rangeIndex: trade.rangeIndex,
+            createdAt: trade.timestamp,
+            question: market.question,
+            cadence: "range",
+            source: "range" as const,
+          })),
+        },
+      };
+    },
+    {
+      params: t.Object({
+        family: t.String(),
+        marketId: t.String(),
+      }),
+      query: t.Object({
+        limit: t.Optional(t.String()),
       }),
     }
   )

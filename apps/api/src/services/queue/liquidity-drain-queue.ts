@@ -27,6 +27,7 @@ import { markets, rangeMarkets } from "../../db/schema";
 import { publicClient } from "../indexer";
 import { getNonceManager } from "../../lib/nonce-manager.instance";
 import { queueAdminSnapshotRefresh } from "../admin-snapshots";
+import { runtimeConfig } from "../../config/runtime";
 
 const QUEUE_NAME = "liquidity-drain";
 
@@ -38,7 +39,7 @@ const WRITE_RPC_URL =
   process.env.RPC_URL ||
   "https://mainnet.base.org";
 
-const POLL_INTERVAL_MS = Number(process.env.LIQUIDITY_DRAIN_POLL_MS) || 60_000;
+const POLL_INTERVAL_MS = runtimeConfig.intervals.liquidityDrainMs;
 
 // ─── Queue ───
 
@@ -209,14 +210,6 @@ async function drainMarket(market: typeof markets.$inferSelect) {
       return;
     }
 
-    if (withdrawable === 0n) {
-      // Pool balance is still at or below claims + buffer. This is normal right
-      // after resolution — as winners redeem, `claims` (and therefore the
-      // reserved amount) decreases, releasing the excess for the next tick.
-      // Do NOT mark the DB row as drained; just move on.
-      return;
-    }
-
     console.log(
       `[LiquidityDrain] Draining market #${market.onChainId}: ` +
         `withdrawable=${formatUnits(withdrawable, 6)} USDC, ` +
@@ -251,11 +244,17 @@ async function drainMarket(market: typeof markets.$inferSelect) {
       throw new Error(`drainMarketLiquidity reverted (tx=${txHash})`);
     }
 
+    const withdrawnOnChain = (await publicClient.readContract({
+      address: ammAddress,
+      abi: CPMMABI,
+      functionName: "liquidityWithdrawn",
+    })) as bigint;
+
     await db
       .update(markets)
       .set({
         liquidityDrained: true,
-        liquidityWithdrawn: formatUnits(withdrawable, 6),
+        liquidityWithdrawn: formatUnits(withdrawnOnChain, 6),
         reservedClaims: formatUnits(outstandingClaims, 6),
         outstandingWinningClaims: formatUnits(outstandingClaims, 6),
         drainedAt: new Date(),
@@ -264,7 +263,7 @@ async function drainMarket(market: typeof markets.$inferSelect) {
 
     console.log(
       `[LiquidityDrain] Market #${market.onChainId} drained — tx=${txHash}, ` +
-        `amount=${formatUnits(withdrawable, 6)} USDC`
+        `amount=${formatUnits(withdrawnOnChain, 6)} USDC`
     );
     queueAdminSnapshotRefresh("liquidity-drain");
   } finally {

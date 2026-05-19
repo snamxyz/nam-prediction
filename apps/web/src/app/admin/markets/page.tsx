@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { Badge } from "@/components/UI/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/UI/card";
+import { Skeleton } from "@/components/UI/skeleton";
 import { useAdminMarkets, type AdminMarket } from "@/hooks/useAdmin";
 import { useLatestHourlyMarket } from "@/hooks/useMarkets";
 import { formatMarketQuestion } from "@/lib/marketDisplay";
@@ -16,7 +19,7 @@ import {
 } from "@/lib/adminMarketDisplay";
 
 function SkeletonLine({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded bg-[var(--surface-hover)] ${className}`} />;
+  return <Skeleton className={className} />;
 }
 
 function CardShell({
@@ -31,21 +34,23 @@ function CardShell({
   return (
     <Link
       href={href}
-      className="card group relative block h-full min-h-[260px] overflow-hidden p-5 no-underline transition duration-150 hover:-translate-y-px hover:border-yes/30"
+      className="group block h-full no-underline"
     >
-      <div className="pointer-events-none absolute -left-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#01d24307_0%,transparent_65%)]" />
-      <div className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#f0324c05_0%,transparent_65%)]" />
-      <div className="relative">
-        <div className="mb-3.5 flex items-center justify-between">
-          <span className="rounded bg-yes/[0.08] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-yes">
-            {badge}
-          </span>
-          <span className="text-[11px] font-semibold text-yes">
-            View days <ArrowRight className="ml-1 inline h-3 w-3 transition group-hover:translate-x-0.5" />
-          </span>
-        </div>
+      <Card className="relative h-full min-h-[260px] overflow-hidden bg-card transition duration-150 group-hover:-translate-y-px">
+        <div className="pointer-events-none absolute -left-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#01d24307_0%,transparent_65%)]" />
+        <div className="pointer-events-none absolute -right-20 -top-20 h-[400px] w-[400px] bg-[radial-gradient(circle,#f0324c05_0%,transparent_65%)]" />
+        <CardContent className="relative p-5">
+          <div className="mb-3.5 flex items-center justify-between">
+            <Badge variant="secondary" className="bg-yes/10 text-yes">
+              {badge}
+            </Badge>
+            <span className="inline-flex items-center text-[11px] font-semibold text-yes">
+              View days <ArrowRight className="ml-1 h-3 w-3 transition group-hover:translate-x-0.5" />
+            </span>
+          </div>
         {children}
-      </div>
+        </CardContent>
+      </Card>
     </Link>
   );
 }
@@ -58,13 +63,13 @@ function MarketStats({
   volumeLabel?: string;
 }) {
   return (
-    <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+    <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-border">
       {[
         ["Trades", market ? String(market.tradeCount) : "—"],
         ["Unique Traders", market ? String(market.distinctTraderCount) : "—"],
         [volumeLabel, market ? formatCompactMoney(market.totalVolume) : "—"],
       ].map(([label, value]) => (
-        <div key={label} className="border-r border-[var(--border-subtle)] px-3 py-4 last:border-r-0">
+        <div key={label} className="border-r border-border px-3 py-4 last:border-r-0">
           <div className="mono text-lg font-medium leading-none tracking-[-0.03em] text-[var(--foreground)]">
             {value}
           </div>
@@ -90,28 +95,30 @@ function RangeFamilyCard({
 
   if (isLoading) {
     return (
-      <div className="card h-full min-h-[260px] p-5">
+      <Card className="h-full min-h-[260px]  bg-card">
+        <CardContent className="p-5">
         <SkeletonLine className="mb-4 h-4 w-24" />
         <SkeletonLine className="mb-2 h-4 w-2/3" />
         <SkeletonLine className="mb-5 h-3 w-full" />
         <SkeletonLine className="h-24 w-full" />
-      </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
     <CardShell href={meta.path} badge={meta.badge}>
       <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
+        <CardTitle className="text-sm leading-[1.4] tracking-[-0.01em]">
           {meta.label}
-        </h2>
+        </CardTitle>
         <span className="text-[11px] text-[var(--muted)]">
           {market ? formatAdminMarketDate(market) : "No current day"}
         </span>
       </div>
-      <p className="mb-4 min-h-10 text-xs leading-5 text-[var(--muted)]">
+      <CardDescription className="mb-4 min-h-10 text-xs leading-5">
         {market ? formatAdminMarketQuestion(market) : "No active market row exists for today yet."}
-      </p>
+      </CardDescription>
       <MarketStats market={market} />
       <div className="mt-3.5 border-t border-white/[0.04] pt-3 text-[11px] text-[var(--muted)]">
         Trading activity on today&apos;s market, not ecosystem totals.
@@ -159,29 +166,31 @@ export default function AdminMarketsPage() {
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {isTokenLoading || isHourlyLoading ? (
-          <div className="card h-full min-h-[260px] p-5">
+          <Card className="h-full min-h-[260px]  bg-card">
+            <CardContent className="p-5">
             <SkeletonLine className="mb-4 h-4 w-28" />
             <SkeletonLine className="mb-2 h-4 w-2/3" />
             <SkeletonLine className="mb-5 h-3 w-full" />
             <SkeletonLine className="h-24 w-full" />
-          </div>
+            </CardContent>
+          </Card>
         ) : (
           <CardShell href={tokenMeta.path} badge={tokenMeta.badge}>
             <div className="mb-1 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold leading-[1.4] tracking-[-0.01em] text-[var(--foreground)]">
+              <CardTitle className="text-sm leading-[1.4] tracking-[-0.01em]">
                 {tokenMeta.label}
-              </h2>
+              </CardTitle>
               <span className="text-[11px] text-[var(--muted)]">
                 NAM {namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—"}
               </span>
             </div>
-            <p className="mb-4 min-h-10 text-xs leading-5 text-[var(--muted)]">
+            <CardDescription className="mb-4 min-h-10 text-xs leading-5">
               {tokenMarket
                 ? formatAdminMarketQuestion(tokenMarket)
                 : hourlyMarket
                 ? formatMarketQuestion(hourlyMarket)
                 : "No token price market is active yet."}
-            </p>
+            </CardDescription>
             <div className="mb-3.5 grid grid-cols-[1fr_1px_1fr] overflow-hidden rounded-lg border border-[var(--border-subtle)]">
               <div className="bg-yes/[0.04] px-3 py-4 text-center">
                 <div className="mono text-2xl font-medium leading-none tracking-[-0.03em] text-yes">
@@ -228,14 +237,16 @@ export default function AdminMarketsPage() {
           ["Participant days", participantsData?.markets.length ?? 0],
           ["Receipt days", receiptsData?.markets.length ?? 0],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] px-4 py-3">
+          <Card key={label} className="bg-card">
+            <CardContent className="px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
               {label}
             </div>
             <div className="mono mt-1 text-sm text-[var(--foreground)]">
               {value}
             </div>
-          </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 

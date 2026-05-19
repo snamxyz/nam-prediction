@@ -18,7 +18,7 @@ export function useVaultBalance() {
     queryKey: ["vault-balance", address, balanceUpdated],
     queryFn: () => fetchApi<BalanceData>(`/trading/balance/${address}`),
     enabled: !!address,
-    refetchInterval: 30000,
+    refetchInterval: 2 * 60_000,
   });
 
   return {

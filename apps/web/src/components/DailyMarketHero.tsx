@@ -68,7 +68,7 @@ export function DailyMarketHero() {
       }
     }
     fetchDaily();
-    const interval = setInterval(fetchDaily, 15000);
+    const interval = setInterval(fetchDaily, 60_000);
     return () => clearInterval(interval);
   }, []);
 

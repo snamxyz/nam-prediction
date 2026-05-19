@@ -66,6 +66,30 @@ Copy `.env` at the repo root and fill in the values. Key variables:
 | `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Privy server auth |
 | `NEXT_PUBLIC_*` | Frontend-exposed public vars |
 
+Worker/runtime controls:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `APP_ENV` | `dev` unless `NODE_ENV`/`VERCEL_ENV` imply otherwise | Runtime environment (`dev`, `staging`, `prod`) |
+| `WORKER_PROFILE` | Same as `APP_ENV` | Chooses safe default worker intervals and enabled workers |
+| `RUN_WORKERS` | `false` outside prod, `true` in prod | Master switch for background workers and recurring pollers |
+| `WORKER_ROLE` | `all` | Use `api` for HTTP-only processes, `workers` or `all` for background work |
+| `ENABLE_INDEXER` | Follows `RUN_WORKERS` | Enables chain event watchers |
+| `ENABLE_PRICE_RECONCILER` | Follows `RUN_WORKERS` | Enables slower price drift safety sweep |
+| `ENABLE_POSITION_RECONCILER` | Follows `RUN_WORKERS` | Enables position balance safety sweep |
+| `ENABLE_RESOLUTION_POLLER` | Follows `RUN_WORKERS` | Enables legacy API-source resolution polling |
+| `ENABLE_LIQUIDITY_DRAIN_WORKER` | Follows `RUN_WORKERS` | Enables resolved-market liquidity drain sweeps |
+| `ENABLE_NONCE_RECONCILIATION` | Follows `RUN_WORKERS` | Enables nonce safety reconciliation |
+| `ENABLE_NAM_PRICE_POLLER` | Follows `RUN_WORKERS` | Enables recurring DexScreener price polling and socket broadcasts |
+| `ENABLE_ADMIN_SNAPSHOT_WORKER` | Follows `RUN_WORKERS` | Processes event-driven admin snapshot refresh jobs |
+| `ENABLE_ADMIN_SNAPSHOT_SCHEDULE` | `true` only in prod worker profile | Enables slow fallback admin snapshot refresh cron |
+| `ENABLE_RANGE_MARKETS` | `true` only in prod worker profile | Enables range lifecycle worker |
+| `ENABLE_24H_MARKETS` | `true` only in prod worker profile | Enables 24h lifecycle worker |
+| `ADMIN_SNAPSHOT_INTERVAL_MS` | 10-15 minutes by profile | Fallback admin snapshot refresh cadence |
+| `RANGE_MARKET_CATCHUP_MS` / `HOURLY_MARKET_CATCHUP_MS` | 10-15 minutes by profile | Lifecycle catch-up sweeps; delayed jobs handle timely resolution |
+
+For local development against Neon, keep `RUN_WORKERS=false` or omit it. This starts the API routes without recurring DB workers so Neon can autosuspend when you stop making requests. Use `RUN_WORKERS=true WORKER_PROFILE=prod` only when you intentionally want to test the full background system locally.
+
 Feature flags:
 
 | Flag | Default | Purpose |

@@ -1,8 +1,10 @@
 import { Queue, Worker } from "bullmq";
 import { createRedisConnection } from "../../lib/redis";
 import { refreshAdminSnapshots } from "../admin-snapshots";
+import { runtimeConfig } from "../../config/runtime";
 
 const QUEUE_NAME = "admin-snapshots";
+const REFRESH_INTERVAL_MS = runtimeConfig.intervals.adminSnapshotMs;
 
 const connection = createRedisConnection();
 export const adminSnapshotQueue = new Queue(QUEUE_NAME, { connection });
@@ -17,7 +19,7 @@ export async function setupAdminSnapshotSchedule(): Promise<void> {
     "refresh",
     {},
     {
-      repeat: { pattern: "* * * * *", tz: "UTC" },
+      repeat: { every: REFRESH_INTERVAL_MS },
       removeOnComplete: 100,
       removeOnFail: 50,
     }
@@ -25,7 +27,7 @@ export async function setupAdminSnapshotSchedule(): Promise<void> {
 
   await adminSnapshotQueue.add("bootstrap", {}, { removeOnComplete: true, removeOnFail: true });
 
-  console.log("[AdminSnapshots] Scheduled: every minute + bootstrap job enqueued");
+  console.log(`[AdminSnapshots] Scheduled: every ${REFRESH_INTERVAL_MS / 1000}s + bootstrap job enqueued`);
 }
 
 export function startAdminSnapshotWorker() {

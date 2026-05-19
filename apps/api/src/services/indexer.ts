@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { MarketFactoryABI, CPMMABI, VaultABI } from "@nam-prediction/shared";
 import { publishEvent, setCache, cacheKeys } from "../lib/redis";
 import { queueAdminSnapshotRefresh } from "./admin-snapshots";
+import { runtimeConfig } from "../config/runtime";
 
 // `RPC_URL` drives reads (indexer polling, multicalls, balance lookups).
 // Writes can optionally go through a different endpoint via `WRITE_RPC_URL`
@@ -585,7 +586,7 @@ async function handleRedeemed(log: any) {
 
 // ─── Start watching events ───
 
-export async function startIndexer() {
+export async function startIndexer(options: { startPriceReconciler?: boolean } = {}) {
   // Always watch pools for existing markets, even if the factory address isn't
   // configured (e.g. a dev left MARKET_FACTORY_ADDRESS unset) — trades still
   // need to be indexed.
@@ -630,10 +631,13 @@ export async function startIndexer() {
   // Start watching Vault events
   startVaultWatcher();
 
-  // Start the price reconciler — heals any market whose DB-cached prices
-  // diverge from the on-chain AMM (e.g. a post-trade RPC failure left the
-  // row stale) and fixes already-stuck markets on boot.
-  startPriceReconciler();
+  // Trade/event handlers update prices immediately; this slower loop is only
+  // the safety net for missed chain reads.
+  if (options.startPriceReconciler ?? true) {
+    startPriceReconciler();
+  } else {
+    console.log("[Reconciler] Price reconciler disabled by runtime config");
+  }
 
   console.log("[Indexer] Event watchers started");
 }
@@ -807,9 +811,7 @@ function unwatchPool(ammAddress: string): void {
 // row whose DB-cached price has drifted from the chain by more than
 // PRICE_EPSILON.
 const PRICE_EPSILON = 0.005;
-const RECONCILE_INTERVAL_MS = Number(
-  process.env.PRICE_RECONCILE_INTERVAL_MS || 15_000
-);
+const RECONCILE_INTERVAL_MS = runtimeConfig.intervals.priceReconcileMs;
 
 let reconcilerStarted = false;
 

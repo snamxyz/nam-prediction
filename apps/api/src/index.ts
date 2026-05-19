@@ -20,16 +20,7 @@ import { startNamPricePoller } from "./services/nam-price-poller";
 import { createServer } from "http";
 import { setupRangeMarketSchedule, startRangeMarketWorker, bootstrapVaultWhitelist } from "./services/queue/range-market-queue";
 import { setupAdminSnapshotSchedule, startAdminSnapshotWorker } from "./services/queue/admin-snapshot-queue";
-
-const ENABLE_24H_MARKETS = (() => {
-  const v = (process.env.ENABLE_24H_MARKETS || "").trim().toLowerCase();
-  return ["1", "true", "yes", "on"].includes(v);
-})();
-
-const ENABLE_RANGE_MARKETS = (() => {
-  const v = (process.env.ENABLE_RANGE_MARKETS || "true").trim().toLowerCase();
-  return ["1", "true", "yes", "on"].includes(v);
-})();
+import { enabledWorkerNames, runtimeConfig } from "./config/runtime";
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
@@ -52,6 +43,17 @@ const app = new Elysia()
   })
   // Health check
   .get("/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
+  .get("/health/workers", () => ({
+    status: "ok",
+    runtime: {
+      appEnv: runtimeConfig.appEnv,
+      workerProfile: runtimeConfig.workerProfile,
+      workerRole: runtimeConfig.workerRole,
+      runWorkers: runtimeConfig.runWorkers,
+    },
+    enabledWorkers: enabledWorkerNames(),
+    intervals: runtimeConfig.intervals,
+  }))
   .get("/config", () => ({
     data: {
       contracts: {
@@ -108,58 +110,111 @@ httpServer.listen(PORT, () => {
   console.log(
     `[Features] AMM=${featureFlags.enableAmmTrading} CLOB=${featureFlags.enableClobTrading} default=${featureFlags.defaultMarketExecutionMode}`
   );
+  console.log(
+    `[Runtime] env=${runtimeConfig.appEnv} workerProfile=${runtimeConfig.workerProfile} role=${runtimeConfig.workerRole} runWorkers=${runtimeConfig.runWorkers}`
+  );
+  console.log(`[Runtime] enabledWorkers=${enabledWorkerNames().join(", ") || "none"}`);
 });
 
 // Start NAM price poller (feeds WebSocket updates + HTTP cache)
-startNamPricePoller();
+if (runtimeConfig.workers.namPricePoller) {
+  startNamPricePoller();
+} else {
+  console.log("[NAMPrice] Poller disabled by runtime config");
+}
 
 // Start background services
-initNonceManager()
-  .then(() => {
-    console.log("[NonceManager] Initialized successfully");
-    // Whitelist any active range-market CPMM pools that were missed (e.g. created
-    // before the vault was deployed, or whose on-creation whitelist tx failed).
-    return bootstrapVaultWhitelist();
-  })
-  .then(() => console.log("[VaultWhitelist] Bootstrap complete"))
-  .catch((err) => console.error("[NonceManager/VaultWhitelist] Init error:", err));
-startIndexer().catch((err) => console.error("[Indexer] Startup error:", err));
-// Defense-in-depth for the share-balance double-count bug (see
-// services/position-reconciler.ts). Runs every 30s and heals any DB row
-// whose share balance has drifted from the on-chain OutcomeToken.balanceOf.
-startPositionReconciler();
-startResolutionService();
+if (runtimeConfig.workers.nonceManager) {
+  initNonceManager()
+    .then(() => {
+      console.log("[NonceManager] Initialized successfully");
+      // Whitelist any active range-market CPMM pools that were missed (e.g. created
+      // before the vault was deployed, or whose on-creation whitelist tx failed).
+      if (!runtimeConfig.workers.vaultWhitelistBootstrap) return undefined;
+      return bootstrapVaultWhitelist();
+    })
+    .then(() => {
+      if (runtimeConfig.workers.vaultWhitelistBootstrap) {
+        console.log("[VaultWhitelist] Bootstrap complete");
+      }
+    })
+    .catch((err) => console.error("[NonceManager/VaultWhitelist] Init error:", err));
+} else {
+  console.log("[NonceManager] Disabled by runtime config");
+}
+
+if (runtimeConfig.workers.indexer) {
+  startIndexer({ startPriceReconciler: runtimeConfig.workers.priceReconciler }).catch((err) =>
+    console.error("[Indexer] Startup error:", err)
+  );
+} else {
+  console.log("[Indexer] Disabled by runtime config");
+}
+
+// Defense-in-depth for share-balance drift (see services/position-reconciler.ts).
+// Runtime config decides whether this safety sweep runs and how often.
+if (runtimeConfig.workers.positionReconciler) {
+  startPositionReconciler();
+} else {
+  console.log("[Reconciler] Position reconciler disabled by runtime config");
+}
+
+if (runtimeConfig.workers.resolutionPoller) {
+  startResolutionService();
+} else {
+  console.log("[Resolution] Poller disabled by runtime config");
+}
 
 // Start BullMQ resolution worker + schedule
-setupResolutionSchedule().catch((err) => console.error("[BullMQ] Schedule setup error:", err));
-startResolutionWorker();
+if (runtimeConfig.workers.dailyResolution) {
+  setupResolutionSchedule().catch((err) => console.error("[BullMQ] Schedule setup error:", err));
+  startResolutionWorker();
+} else {
+  console.log("[BullMQ] Daily resolution worker disabled by runtime config");
+}
 
 // Start nonce reconciliation (every 30s)
-setupNonceReconciliation().catch((err) => console.error("[BullMQ] Nonce reconciliation setup error:", err));
-startNonceReconciliationWorker();
+if (runtimeConfig.workers.nonceReconciliation) {
+  setupNonceReconciliation().catch((err) => console.error("[BullMQ] Nonce reconciliation setup error:", err));
+  startNonceReconciliationWorker();
+} else {
+  console.log("[BullMQ] Nonce reconciliation disabled by runtime config");
+}
 
 // Liquidity-breaker: drain excess USDC from resolved AMM pools to the treasury.
-setupLiquidityDrainSchedule().catch((err) => console.error("[LiquidityDrain] Schedule setup error:", err));
-startLiquidityDrainWorker();
+if (runtimeConfig.workers.liquidityDrain) {
+  setupLiquidityDrainSchedule().catch((err) => console.error("[LiquidityDrain] Schedule setup error:", err));
+  startLiquidityDrainWorker();
+} else {
+  console.log("[LiquidityDrain] Worker disabled by runtime config");
+}
 
 // Start dedicated BullMQ 24h market lifecycle worker (lock + resolve + create)
-if (ENABLE_24H_MARKETS) {
+if (runtimeConfig.workers.hourlyMarkets) {
   setupHourlySchedule().catch((err) => console.error("[24h] Schedule setup error:", err));
   startHourlyWorker();
 } else {
-  console.log("[24h] 24h markets disabled (set ENABLE_24H_MARKETS=true to enable)");
+  console.log("[24h] 24h markets disabled by runtime config");
 }
 
 // Start range market lifecycle worker (daily receipts; participants/NAM-distribution optional)
-if (ENABLE_RANGE_MARKETS) {
+if (runtimeConfig.workers.rangeMarkets) {
   setupRangeMarketSchedule().catch((err) => console.error("[RangeMarket] Schedule setup error:", err));
   startRangeMarketWorker();
 } else {
-  console.log("[RangeMarket] Range markets disabled (set ENABLE_RANGE_MARKETS=false to disable)");
+  console.log("[RangeMarket] Range markets disabled by runtime config");
 }
 
 // Keep Redis admin read models warm for dashboard liquidity and holdings views.
-setupAdminSnapshotSchedule().catch((err) => console.error("[AdminSnapshots] Schedule setup error:", err));
-startAdminSnapshotWorker();
+if (runtimeConfig.workers.adminSnapshots) {
+  if (runtimeConfig.workers.adminSnapshotSchedule) {
+    setupAdminSnapshotSchedule().catch((err) => console.error("[AdminSnapshots] Schedule setup error:", err));
+  } else {
+    console.log("[AdminSnapshots] Repeatable schedule disabled; event-driven refresh only");
+  }
+  startAdminSnapshotWorker();
+} else {
+  console.log("[AdminSnapshots] Worker disabled by runtime config");
+}
 
 export type App = typeof app;

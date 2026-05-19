@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
 import { getNonceManager } from "../lib/nonce-manager.instance";
+import { runtimeConfig } from "../config/runtime";
 
 // NOTE: hourly markets are owned by the dedicated BullMQ worker in ./queue/hourly-queue.ts.
 // This poller intentionally ignores cadence === "24h" rows.
@@ -14,7 +15,7 @@ import { getNonceManager } from "../lib/nonce-manager.instance";
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
 const RESOLUTION_API_URL = process.env.RESOLUTION_API_URL || "";
-const RESOLUTION_POLL_INTERVAL = Number(process.env.RESOLUTION_POLL_INTERVAL) || 60000;
+const RESOLUTION_POLL_INTERVAL = runtimeConfig.intervals.resolutionPollMs;
 
 // ─── Resolve a single market on-chain ───
 

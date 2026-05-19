@@ -78,7 +78,8 @@ export interface PortfolioSummary {
   resolvedValue: string;
 }
 
-const RECONCILE_INTERVAL_MS = 15_000;
+const PORTFOLIO_REFETCH_INTERVAL_MS = 60_000;
+const RECONCILE_INTERVAL_MS = 5 * 60_000;
 
 export function usePortfolioForAddress(targetAddress: string | undefined, options?: { refetchInterval?: number | false }) {
   return useQuery<PositionWithMarket[]>({
@@ -105,7 +106,7 @@ export function usePortfolio() {
   const lastReconcileRef = useRef<number>(0);
 
   const query = usePortfolioForAddress(address, {
-    refetchInterval: RECONCILE_INTERVAL_MS,
+    refetchInterval: PORTFOLIO_REFETCH_INTERVAL_MS,
   });
 
   // On-demand reconcile: calls the backend to re-read on-chain OutcomeToken
@@ -116,7 +117,7 @@ export function usePortfolio() {
     async function reconcile() {
       const now = Date.now();
       // Avoid hammering when multiple effects fire at once.
-      if (now - lastReconcileRef.current < 5_000) return;
+      if (now - lastReconcileRef.current < 30_000) return;
       lastReconcileRef.current = now;
 
       try {
@@ -142,6 +143,6 @@ export function usePortfolioSummary() {
   const { address } = useAccount();
 
   return usePortfolioSummaryForAddress(address, {
-    refetchInterval: RECONCILE_INTERVAL_MS,
+    refetchInterval: PORTFOLIO_REFETCH_INTERVAL_MS,
   });
 }

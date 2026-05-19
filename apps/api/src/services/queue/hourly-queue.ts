@@ -15,8 +15,10 @@ import { markets } from "../../db/schema";
 import { resolveMarketOnChain } from "../resolution";
 import { fetchNamPrice } from "../daily-market";
 import { createNextHourlyMarket, hasActiveHourlyMarket } from "../hourly-market";
+import { runtimeConfig } from "../../config/runtime";
 
 const QUEUE_NAME = "hourly-resolution";
+const CATCHUP_INTERVAL_MS = runtimeConfig.intervals.hourlyMarketCatchupMs;
 
 /**
  * Detect the "Already resolved" revert from the MarketFactory contract.
@@ -51,8 +53,8 @@ const connection = createRedisConnection();
 export const hourlyQueue = new Queue(QUEUE_NAME, { connection });
 
 /**
- * Set up the repeatable job that ticks every minute, plus a one-shot bootstrap
- * job so the worker runs immediately on startup.
+ * Set up low-frequency catch-up plus delayed lifecycle jobs for known active
+ * markets. Delayed jobs do the timely work; catch-up protects worker downtime.
  */
 export async function setupHourlySchedule() {
   // Remove any stale repeatable jobs first
@@ -62,12 +64,11 @@ export async function setupHourlySchedule() {
   }
 
   await hourlyQueue.add(
-    "tick-24h",
+    "tick-24h-catchup",
     {},
     {
       repeat: {
-        pattern: "* * * * *", // every minute
-        tz: "UTC",
+        every: CATCHUP_INTERVAL_MS,
       },
       removeOnComplete: 100,
       removeOnFail: 50,
@@ -83,7 +84,45 @@ export async function setupHourlySchedule() {
     }
   );
 
-  console.log("[HourlyQueue] Repeatable 24h tick scheduled every minute (UTC) + bootstrap job enqueued");
+  await scheduleActiveHourlyLifecycleJobs();
+
+  console.log(
+    `[HourlyQueue] Catch-up scheduled every ${CATCHUP_INTERVAL_MS / 1000}s + bootstrap job enqueued`
+  );
+}
+
+async function scheduleHourlyLifecycleJob(
+  market: Pick<typeof markets.$inferSelect, "id" | "lockTime" | "endTime">
+): Promise<void> {
+  const now = Date.now();
+  const timestamps = [
+    market.lockTime ? { name: "lock", at: new Date(market.lockTime).getTime() } : null,
+    { name: "resolve", at: new Date(market.endTime).getTime() },
+  ].filter((item): item is { name: string; at: number } => Boolean(item));
+
+  for (const item of timestamps) {
+    await hourlyQueue.add(
+      `hourly-lifecycle-${item.name}`,
+      { marketId: market.id },
+      {
+        delay: Math.max(0, item.at - now),
+        jobId: `hourly:${market.id}:${item.name}`,
+        removeOnComplete: 100,
+        removeOnFail: 50,
+      }
+    );
+  }
+}
+
+async function scheduleActiveHourlyLifecycleJobs(): Promise<void> {
+  const active = await db
+    .select()
+    .from(markets)
+    .where(and(eq(markets.cadence, "24h"), eq(markets.resolved, false)));
+
+  for (const market of active) {
+    await scheduleHourlyLifecycleJob(market);
+  }
 }
 
 // ─── Worker ───
@@ -279,10 +318,22 @@ export async function processHourlyTick(): Promise<void> {
             console.log(
               `[HourlyQueue] Creating next hourly market with threshold $${settlementPrice}`
             );
-            await createNextHourlyMarket(">=", settlementPrice);
+            const created = await createNextHourlyMarket(">=", settlementPrice);
+            const [createdMarket] = await db
+              .select()
+              .from(markets)
+              .where(eq(markets.onChainId, created.onChainId))
+              .limit(1);
+            if (createdMarket) await scheduleHourlyLifecycleJob(createdMarket);
           } else {
             console.log("[HourlyQueue] No active hourly market found — creating one");
-            await createNextHourlyMarket();
+            const created = await createNextHourlyMarket();
+            const [createdMarket] = await db
+              .select()
+              .from(markets)
+              .where(eq(markets.onChainId, created.onChainId))
+              .limit(1);
+            if (createdMarket) await scheduleHourlyLifecycleJob(createdMarket);
           }
         } catch (err) {
           console.error("[HourlyQueue] Failed to create next hourly market:", err);
