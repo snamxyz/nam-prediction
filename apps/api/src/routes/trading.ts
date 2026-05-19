@@ -233,6 +233,18 @@ async function readPoolFees(ammAddress: `0x${string}`): Promise<{
   };
 }
 
+async function readPoolCollateral(ammAddress: `0x${string}`): Promise<bigint | null> {
+  try {
+    return (await publicClient.readContract({
+      address: ammAddress,
+      abi: CPMMABI,
+      functionName: "getCollateralBalance",
+    })) as bigint;
+  } catch {
+    return null;
+  }
+}
+
 function getWalletClient() {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error("PRIVATE_KEY not set");
@@ -466,9 +478,10 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
       const m = market[0];
       const ammAddress = m.ammAddress as `0x${string}`;
 
-      const [[yesReserve, noReserve], { lpFeeBps, protocolFeeBps }] = await Promise.all([
+      const [[yesReserve, noReserve], { lpFeeBps, protocolFeeBps }, poolCollateral] = await Promise.all([
         readReserves(ammAddress),
         readPoolFees(ammAddress),
+        readPoolCollateral(ammAddress),
       ]);
 
       const usdcIn = parseUnits(usdcAmount, 6);
@@ -488,6 +501,20 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         sharesOut > 0n
           ? Number(formatUnits(usdcIn, 6)) / Number(formatUnits(sharesOut, 18))
           : 0;
+      const reserveTotal = yesReserve + noReserve;
+      const spotPrice =
+        reserveTotal > 0n
+          ? Number(formatUnits(isYes ? noReserve : yesReserve, 18)) /
+            Number(formatUnits(reserveTotal, 18))
+          : 0;
+      const idealShares =
+        spotPrice > 0 ? Number(formatUnits(netIn, 6)) / spotPrice : 0;
+      const quotedShares = Number(formatUnits(sharesOut, 18));
+      const priceImpactPct =
+        idealShares > 0 && quotedShares > 0
+          ? Math.max(0, ((idealShares - quotedShares) / idealShares) * 100)
+          : 0;
+      const poolLiquidity = (yesReserve + noReserve) / 2n;
 
       return {
         success: true,
@@ -501,6 +528,12 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           protocolFeeRaw: protocolFee.toString(),
           netAmount: formatUnits(netIn, 6),
           netAmountRaw: netIn.toString(),
+          spotPrice: spotPrice.toFixed(6),
+          priceImpactPct: priceImpactPct.toFixed(6),
+          poolLiquidity: formatUnits(poolLiquidity, 18),
+          poolCollateral: poolCollateral != null ? formatUnits(poolCollateral, 6) : undefined,
+          yesReserve: formatUnits(yesReserve, 18),
+          noReserve: formatUnits(noReserve, 18),
           lpFeeBps: lpFeeBps.toString(),
           protocolFeeBps: protocolFeeBps.toString(),
         },

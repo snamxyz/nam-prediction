@@ -542,21 +542,47 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
     try {
       const client = getPublicClient();
       const usdcAmountRaw = parseUnits(String(usdcAmount), 6);
-      const sharesOut = await client.readContract({
-        address: market.rangeCpmmAddress as `0x${string}`,
-        abi: RangePoolABI,
-        functionName: "quoteBuy",
-        args: [BigInt(rangeIndex), usdcAmountRaw],
-      }) as bigint;
+      const cpmmAddress = market.rangeCpmmAddress as `0x${string}`;
+      const [sharesOut, rawPrices, poolCollateral] = await Promise.all([
+        client.readContract({
+          address: cpmmAddress,
+          abi: RangePoolABI,
+          functionName: "quoteBuy",
+          args: [BigInt(rangeIndex), usdcAmountRaw],
+        }) as Promise<bigint>,
+        client.readContract({
+          address: cpmmAddress,
+          abi: RangePoolABI,
+          functionName: "getPrices",
+        }).catch(() => []) as Promise<bigint[]>,
+        client.readContract({
+          address: cpmmAddress,
+          abi: RangePoolABI,
+          functionName: "getCollateralBalance",
+        }).catch(() => null) as Promise<bigint | null>,
+      ]);
 
       const sharesOutStr = bigintToDecimalShares(sharesOut);
+      const sharesOutFloat = Number(sharesOut) / 1e18;
+      const spotPrice = rawPrices[rangeIndex] != null ? Number(rawPrices[rangeIndex]) / 1e18 : 0;
+      const avgPrice = sharesOutFloat > 0 ? usdcAmount / sharesOutFloat : 0;
+      const idealShares = spotPrice > 0 ? usdcAmount / spotPrice : 0;
+      const priceImpactPct =
+        idealShares > 0 && sharesOutFloat > 0
+          ? Math.max(0, ((idealShares - sharesOutFloat) / idealShares) * 100)
+          : 0;
       return {
         success: true,
         data: {
           rangeIndex,
           usdcAmount,
           sharesOut: sharesOutStr,
-          sharesOutFloat: Number(sharesOut) / 1e18,
+          sharesOutFloat,
+          avgPrice: avgPrice.toFixed(6),
+          spotPrice: spotPrice.toFixed(6),
+          priceImpactPct: priceImpactPct.toFixed(6),
+          poolLiquidity: market.totalLiquidity,
+          poolCollateral: poolCollateral != null ? formatUnits(poolCollateral, 6) : undefined,
         },
       };
     } catch (err: unknown) {

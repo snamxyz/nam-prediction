@@ -53,6 +53,9 @@ interface EstimateBuyResponse {
   netAmountRaw?: string;
   lpFeeBps?: string;
   protocolFeeBps?: string;
+  priceImpactPct?: string;
+  poolLiquidity?: string;
+  poolCollateral?: string;
 }
 
 interface EstimateSellResponse {
@@ -112,6 +115,12 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         grossAmount?: string;
         protocolFee?: string;
         protocolFeeBps?: string;
+        priceImpactPct?: string;
+        poolLiquidity?: string;
+        poolCollateral?: string;
+        quoteAmount?: string;
+        quoteSide?: "YES" | "NO";
+        quoteMode?: "BUY" | "SELL";
       }
     | null
   >(null);
@@ -130,6 +139,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
       setEstimate(null);
       return;
     }
+    setEstimate(null);
 
     const timer = setTimeout(async () => {
       try {
@@ -145,6 +155,12 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             netAmount: data.netAmount,
             protocolFee: data.protocolFee,
             protocolFeeBps: data.protocolFeeBps,
+            priceImpactPct: data.priceImpactPct,
+            poolLiquidity: data.poolLiquidity,
+            poolCollateral: data.poolCollateral,
+            quoteAmount: amount,
+            quoteSide: side,
+            quoteMode: "BUY",
           });
         } else {
           const data = await fetchApi<EstimateSellResponse>(
@@ -158,6 +174,9 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             netAmount: data.netAmount,
             protocolFee: data.protocolFee,
             protocolFeeBps: data.protocolFeeBps,
+            quoteAmount: amount,
+            quoteSide: side,
+            quoteMode: "SELL",
           });
         }
       } catch {
@@ -281,19 +300,35 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const labels = outcomeLabels ?? { yes: "Yes", no: "No", yesShort: "YES", noShort: "NO" };
   const sideLabel = isYes ? labels.yes : labels.no;
   const sideShortLabel = isYes ? labels.yesShort : labels.noShort;
+  const hasCurrentBuyEstimate =
+    mode === "BUY" &&
+    estimate?.quoteMode === "BUY" &&
+    estimate.quoteAmount === amount &&
+    estimate.quoteSide === side &&
+    !!estimate.shares;
+  const hasCurrentSellEstimate =
+    mode === "SELL" &&
+    estimate?.quoteMode === "SELL" &&
+    estimate.quoteAmount === amount &&
+    estimate.quoteSide === side &&
+    !!estimate.usdc;
+  const hasCurrentEstimate = mode === "BUY" ? hasCurrentBuyEstimate : hasCurrentSellEstimate;
 
   // Display values
-  const estimatedShares = estimate?.shares
-    ? parseFloat(estimate.shares)
-    : (mode === "BUY" && price > 0 ? num / price : 0);
-  const estimatedUsdc = estimate?.usdc ? parseFloat(estimate.usdc) : 0;
-  const avgPriceNum = estimate?.avgPrice ? parseFloat(estimate.avgPrice) : price;
+  const estimatedShares = hasCurrentBuyEstimate && estimate?.shares ? parseFloat(estimate.shares) : 0;
+  const estimatedUsdc = hasCurrentSellEstimate && estimate?.usdc ? parseFloat(estimate.usdc) : 0;
+  const avgPriceNum = hasCurrentEstimate && estimate?.avgPrice ? parseFloat(estimate.avgPrice) : price;
 
   // Fee breakdown values
-  const protocolFeeNum = estimate?.protocolFee ? parseFloat(estimate.protocolFee) : 0;
-  const netAmountNum = estimate?.netAmount ? parseFloat(estimate.netAmount) : 0;
-  const grossAmountNum = estimate?.grossAmount ? parseFloat(estimate.grossAmount) : 0;
-  const protocolFeePctLabel = estimate?.protocolFeeBps
+  const protocolFeeNum = hasCurrentEstimate && estimate?.protocolFee ? parseFloat(estimate.protocolFee) : 0;
+  const netAmountNum = hasCurrentEstimate && estimate?.netAmount ? parseFloat(estimate.netAmount) : 0;
+  const grossAmountNum = hasCurrentEstimate && estimate?.grossAmount ? parseFloat(estimate.grossAmount) : 0;
+  const poolDepthNum = hasCurrentBuyEstimate && estimate?.poolCollateral
+    ? parseFloat(estimate.poolCollateral)
+    : hasCurrentBuyEstimate && estimate?.poolLiquidity
+      ? parseFloat(estimate.poolLiquidity)
+      : 0;
+  const protocolFeePctLabel = hasCurrentEstimate && estimate?.protocolFeeBps
     ? `${(Number(estimate.protocolFeeBps) / 100).toFixed(2)}%`
     : "";
 
@@ -303,6 +338,9 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const priceImpactPct = useMemo(() => {
     if (price <= 0 || !Number.isFinite(price)) return 0;
     if (mode === "BUY") {
+      if (hasCurrentBuyEstimate && estimate?.priceImpactPct) {
+        return parseFloat(estimate.priceImpactPct) || 0;
+      }
       const midBasis =
         netAmountNum > 0 && Number.isFinite(netAmountNum) ? netAmountNum : num;
       if (midBasis <= 0) return 0;
@@ -322,13 +360,23 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
     netAmountNum,
     estimatedShares,
     estimatedUsdc,
+    hasCurrentBuyEstimate,
+    estimate?.priceImpactPct,
   ]);
 
   const highImpact = priceImpactPct >= WARN_PRICE_IMPACT_PCT;
 
-  const potentialPayout = mode === "BUY" ? estimatedShares : estimatedUsdc;
-  /** ROI if the outcome wins, relative to the headline mid (binary: pay ~p for $1). Not the filled-size PnL. */
-  const buyRoiAtMidPct = mode === "BUY" && price > 0 ? ((1 / price) - 1) * 100 : 0;
+  const potentialPayout = mode === "BUY" && hasCurrentBuyEstimate ? estimatedShares : estimatedUsdc;
+  const buyRoiPct =
+    mode === "BUY" && num > 0 && hasCurrentBuyEstimate
+      ? ((potentialPayout - num) / num) * 100
+      : 0;
+  const canSubmitTrade =
+    isConnected &&
+    num > 0 &&
+    !isLoading &&
+    !!preferredWallet &&
+    (mode === "BUY" ? hasCurrentBuyEstimate : hasCurrentSellEstimate);
 
   const formatCents = (p: number) => `${(p * 100).toFixed(1)}¢`;
   /** USDC under $1 uses extra decimals so payouts are not rounded up to the cent. */
@@ -536,7 +584,16 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             <div className="mb-2 flex justify-between text-[11px]">
               <span className="text-[var(--muted)]">Price impact (vs mid)</span>
               <span className={`mono ${highImpact ? "text-no" : "text-[var(--foreground)]"}`}>
-                {priceImpactPct.toFixed(2)}%
+                {hasCurrentEstimate ? `${priceImpactPct.toFixed(2)}%` : "Estimating…"}
+              </span>
+            </div>
+          )}
+
+          {mode === "BUY" && poolDepthNum > 0 && (
+            <div className="mb-2 flex justify-between text-[11px]">
+              <span className="text-[var(--muted)]">Pool depth</span>
+              <span className="mono text-[var(--foreground)]">
+                {formatTradeUsd(poolDepthNum)}
               </span>
             </div>
           )}
@@ -574,32 +631,35 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
               <div className="mb-2 flex justify-between text-[11px]">
                 <span className="text-[var(--muted)]">Shares</span>
                 <span className="mono text-[var(--foreground)]">
-                  {num > 0 ? estimatedShares.toFixed(4) : "—"}
+                  {num > 0 ? (hasCurrentBuyEstimate ? estimatedShares.toFixed(4) : "Estimating…") : "—"}
                 </span>
               </div>
               <div className="my-2 h-px bg-white/[0.04]" />
               <div className="mb-2 flex justify-between gap-2 text-[11px]">
                 <span className="shrink-0 text-[var(--muted)]">Potential return</span>
                 <div className={`min-w-0 text-right ${num > 0 ? sideAccentClass : "text-[var(--muted)]"}`}>
-                  {num > 0 ? (
+                  {num > 0 && hasCurrentBuyEstimate ? (
                     <>
                       <span className="mono font-semibold">
-                        {buyRoiAtMidPct >= 0 ? "+" : ""}
-                        {buyRoiAtMidPct.toFixed(1)}%
+                        {buyRoiPct >= 0 ? "+" : ""}
+                        {buyRoiPct.toFixed(1)}%
                       </span>
                       <span className="mt-0.5 block font-sans text-[9px] font-normal leading-snug text-[var(--muted)]">
-                        if {sideLabel} wins ($1/share) vs {formatCents(price)} mid
+                        if {sideLabel} wins ($1/share) at quoted fill
                       </span>
                     </>
                   ) : (
-                    <span className="mono font-normal">—</span>
+                    <span className="mono font-normal">{num > 0 ? "Estimating…" : "—"}</span>
                   )}
                 </div>
               </div>
               <div className="flex justify-between text-[11px]">
-                <span className="text-[var(--muted)]">Payout if {sideLabel} wins</span>
+                <span className="text-[var(--muted)]">
+                  Payout if {sideLabel} wins
+                  {hasCurrentBuyEstimate && <span className="ml-1 text-[9px]">(quoted)</span>}
+                </span>
                 <span className="mono text-[var(--foreground)]/80">
-                  {num > 0 ? formatTradeUsd(potentialPayout) : "—"}
+                  {num > 0 ? (hasCurrentBuyEstimate ? formatTradeUsd(potentialPayout) : "Estimating…") : "—"}
                 </span>
               </div>
             </>
@@ -663,9 +723,9 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         ) : (
           <button
             onClick={handleTrade}
-            disabled={!isConnected || num <= 0 || isLoading || !preferredWallet}
+            disabled={!canSubmitTrade}
             className={`w-full rounded-[10px] border-0 py-3 text-[13px] font-bold transition-all duration-150 ${
-              isConnected && num > 0 && !isLoading && preferredWallet
+              canSubmitTrade
                 ? `cursor-pointer ${sideButtonClass}`
                 : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]"
             }`}

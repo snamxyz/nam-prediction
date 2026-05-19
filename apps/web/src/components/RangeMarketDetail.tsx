@@ -238,6 +238,9 @@ function TradePanelRange({
   const [quotedSellUsdcRaw, setQuotedSellUsdcRaw] = useState<string | null>(null);
   const [quotedAmount, setQuotedAmount] = useState("");
   const [quotedRangeIndex, setQuotedRangeIndex] = useState<number | null>(null);
+  const [quotedAvgPrice, setQuotedAvgPrice] = useState<number | null>(null);
+  const [quotedPriceImpactPct, setQuotedPriceImpactPct] = useState<number | null>(null);
+  const [quotedPoolCollateral, setQuotedPoolCollateral] = useState<number | null>(null);
   const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const userAddress = user?.wallet?.address?.toLowerCase() ?? null;
@@ -251,7 +254,7 @@ function TradePanelRange({
   const ownedBalance = parseFloat(ownedBalanceStr) || 0;
 
   const num = parseFloat(amount) || 0;
-  const fallbackEstimate = mode === "BUY" && selectedPrice > 0 && num > 0 ? num / selectedPrice : 0;
+  const idealTokensAtSpot = mode === "BUY" && selectedPrice > 0 && num > 0 ? num / selectedPrice : 0;
   const hasCurrentBuyQuote =
     mode !== "BUY" ||
     (quotedTokens !== null &&
@@ -264,13 +267,20 @@ function TradePanelRange({
       quotedSellUsdcRaw !== null &&
       quotedAmount === amount &&
       quotedRangeIndex === selectedRangeIndex);
-  const estimatedTokens = (hasCurrentBuyQuote && quotedTokens !== null && quotedTokens > 0) ? quotedTokens : fallbackEstimate;
-  const poolLiquidity = parseFloat(market.totalLiquidity || "0") || 0;
+  const estimatedTokens = mode === "BUY" && hasCurrentBuyQuote && quotedTokens !== null ? quotedTokens : 0;
+  const poolLiquidity =
+    mode === "BUY" && hasCurrentBuyQuote && quotedPoolCollateral != null
+      ? quotedPoolCollateral
+      : parseFloat(market.totalLiquidity || "0") || 0;
   const priceImpactPct =
-    mode === "BUY" && num > 0 && quotedTokens !== null && fallbackEstimate > 0
-      ? Math.max(0, ((fallbackEstimate - quotedTokens) / fallbackEstimate) * 100)
+    mode === "BUY" && num > 0 && hasCurrentBuyQuote
+      ? quotedPriceImpactPct ?? (
+          idealTokensAtSpot > 0 && quotedTokens !== null
+            ? Math.max(0, ((idealTokensAtSpot - quotedTokens) / idealTokensAtSpot) * 100)
+            : 0
+        )
       : 0;
-  const winPayout = mode === "BUY" && num > 0 ? estimatedTokens : 0;
+  const winPayout = mode === "BUY" && num > 0 && hasCurrentBuyQuote ? estimatedTokens : 0;
   const netIfWins = winPayout - num;
 
   useEffect(() => {
@@ -281,19 +291,33 @@ function TradePanelRange({
       setQuotedSellUsdcRaw(null);
       setQuotedAmount("");
       setQuotedRangeIndex(null);
+      setQuotedAvgPrice(null);
+      setQuotedPriceImpactPct(null);
+      setQuotedPoolCollateral(null);
       return;
     }
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     quoteTimerRef.current = setTimeout(async () => {
       try {
         if (mode === "BUY") {
-          const result = await fetchApi<{ rangeIndex: number; usdcAmount: number; sharesOut: string; sharesOutFloat: number }>(
+          const result = await fetchApi<{
+            rangeIndex: number;
+            usdcAmount: number;
+            sharesOut: string;
+            sharesOutFloat: number;
+            avgPrice?: string;
+            priceImpactPct?: string;
+            poolCollateral?: string;
+          }>(
             `/range-markets/${market.id}/quote?rangeIndex=${selectedRangeIndex}&usdcAmount=${num}`
           );
           setQuotedTokens(result.sharesOutFloat);
           setQuotedSharesRaw(result.sharesOut);
           setQuotedSellUsdc(null);
           setQuotedSellUsdcRaw(null);
+          setQuotedAvgPrice(result.avgPrice ? parseFloat(result.avgPrice) : null);
+          setQuotedPriceImpactPct(result.priceImpactPct ? parseFloat(result.priceImpactPct) : null);
+          setQuotedPoolCollateral(result.poolCollateral ? parseFloat(result.poolCollateral) : null);
         } else {
           const result = await fetchApi<{ rangeIndex: number; shares: number; usdcOutRaw: string; usdcOutFloat: number }>(
             `/range-markets/${market.id}/quote-sell?rangeIndex=${selectedRangeIndex}&shares=${encodeURIComponent(amount)}`
@@ -302,6 +326,9 @@ function TradePanelRange({
           setQuotedSharesRaw(null);
           setQuotedSellUsdc(result.usdcOutFloat);
           setQuotedSellUsdcRaw(result.usdcOutRaw);
+          setQuotedAvgPrice(null);
+          setQuotedPriceImpactPct(null);
+          setQuotedPoolCollateral(null);
         }
         setQuotedAmount(amount);
         setQuotedRangeIndex(selectedRangeIndex);
@@ -312,6 +339,9 @@ function TradePanelRange({
         setQuotedSellUsdcRaw(null);
         setQuotedAmount("");
         setQuotedRangeIndex(null);
+        setQuotedAvgPrice(null);
+        setQuotedPriceImpactPct(null);
+        setQuotedPoolCollateral(null);
         if (mode === "SELL") {
           setError((err as Error).message || "Sell quote unavailable");
         }
@@ -329,6 +359,9 @@ function TradePanelRange({
     setQuotedSellUsdcRaw(null);
     setQuotedAmount("");
     setQuotedRangeIndex(null);
+    setQuotedAvgPrice(null);
+    setQuotedPriceImpactPct(null);
+    setQuotedPoolCollateral(null);
   };
 
   const setSellPercent = (pct: number) => {
@@ -707,12 +740,21 @@ function TradePanelRange({
               <div className="mb-2 flex justify-between text-[11px]">
                 <span className="text-[var(--muted)]">
                   Est. tokens
-                  {quotedTokens !== null && <span className="ml-1 text-[9px] text-[var(--muted)]">(exact)</span>}
+                  {hasCurrentBuyQuote && <span className="ml-1 text-[9px] text-[var(--muted)]">(quoted)</span>}
                 </span>
-                <span className="mono text-[var(--foreground)]">{num > 0 ? estimatedTokens.toFixed(4) : "—"}</span>
+                <span className="mono text-[var(--foreground)]">
+                  {num > 0 ? (hasCurrentBuyQuote ? estimatedTokens.toFixed(4) : "Estimating…") : "—"}
+                </span>
               </div>
-              {num > 0 && quotedTokens !== null && fallbackEstimate > 0 &&
-                priceImpactPct > 5 && (
+              {num > 0 && hasCurrentBuyQuote && quotedAvgPrice != null && (
+                <div className="mb-2 flex justify-between text-[11px]">
+                  <span className="text-[var(--muted)]">Avg price</span>
+                  <span className="mono text-[var(--foreground)]">
+                    {quotedAvgPrice > 1 ? `$${quotedAvgPrice.toFixed(3)}/$1` : `${(quotedAvgPrice * 100).toFixed(1)}¢`}
+                  </span>
+                </div>
+              )}
+              {num > 0 && hasCurrentBuyQuote && priceImpactPct > 5 && (
                 <div className="mb-1.5 text-[10px] text-[#f0a832]">
                   High price impact ({priceImpactPct.toFixed(1)}%)
                 </div>
@@ -725,15 +767,18 @@ function TradePanelRange({
               </div>
               <div className="my-2 h-px bg-[var(--border-subtle)]" />
               <div className="flex justify-between text-[11px]">
-                <span className="text-[var(--muted)]">Win payout</span>
+                <span className="text-[var(--muted)]">
+                  Win payout
+                  {hasCurrentBuyQuote && <span className="ml-1 text-[9px]">(quoted)</span>}
+                </span>
                 <span className={`mono ${num > 0 ? "font-semibold text-yes" : "font-normal text-[var(--muted)]"}`}>
-                  {num > 0 ? `$${winPayout.toFixed(2)}` : "—"}
+                  {num > 0 ? (hasCurrentBuyQuote ? `$${winPayout.toFixed(2)}` : "Estimating…") : "—"}
                 </span>
               </div>
               <div className="mt-2 flex justify-between text-[11px]">
                 <span className="text-[var(--muted)]">Net if wins</span>
                 <span className={`mono ${num > 0 ? "font-semibold text-[var(--foreground)]" : "font-normal text-[var(--muted)]"}`}>
-                  {num > 0 ? `${netIfWins >= 0 ? "+" : "-"}$${Math.abs(netIfWins).toFixed(2)}` : "—"}
+                  {num > 0 ? (hasCurrentBuyQuote ? `${netIfWins >= 0 ? "+" : "-"}$${Math.abs(netIfWins).toFixed(2)}` : "Estimating…") : "—"}
                 </span>
               </div>
             </>
