@@ -88,11 +88,11 @@ export default function HomePage() {
     tab === "all" ? true : tab === "open" ? !m.resolved : m.resolved
   );
 
-  const tabs = [
-    { key: "all" as const, label: "All Markets" },
-    { key: "open" as const, label: "Open" },
-    { key: "resolved" as const, label: "Resolved" },
-  ];
+  // const tabs = [
+  //   { key: "all" as const, label: "All Markets" },
+  //   { key: "open" as const, label: "Open" },
+  //   { key: "resolved" as const, label: "Resolved" },
+  // ];
 
   return (
     <div className="fade-up">
@@ -131,29 +131,46 @@ export default function HomePage() {
       </div>
 
       {/* Tab filters */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+      {/* <div className="mb-4 flex gap-1">
         {tabs.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 20,
-              fontSize: 12,
-              fontWeight: 500,
-              background: tab === key ? "var(--surface-hover)" : "transparent",
-              color: tab === key ? "var(--foreground)" : "var(--muted)",
-              border: `1px solid ${tab === key ? "var(--border)" : "transparent"}`,
-              cursor: "pointer",
-              transition: "all 0.12s",
-            }}
+            className={`rounded-full px-[14px] py-[6px] text-[12px] font-medium transition-all duration-150 ${
+              tab === key
+                ? "border border-[var(--border)] bg-[var(--surface-hover)] text-[var(--foreground)]"
+                : "border border-transparent text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
           >
             {label}
           </button>
         ))}
-      </div>
+      </div> */}
 
-      
+      {/* Market card grid */}
+      {/* {isMarketsLoading ? (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))" }}
+        >
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <MarketCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card py-16 text-center">
+          <p className="text-[13px] text-[var(--muted)]">No markets found</p>
+        </div>
+      ) : (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))" }}
+        >
+          {filtered.map((m) => (
+            <MarketCard key={m.id} market={m} />
+          ))}
+        </div>
+      )} */}
     </div>
   );
 }

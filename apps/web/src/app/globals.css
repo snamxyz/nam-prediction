@@ -15,8 +15,8 @@
   --primary-foreground: #07080c;
   --secondary: #111320;
   --secondary-foreground: #e4e5eb;
-  --accent: #009930;
-  --accent-foreground: #e4e5eb;
+  --accent: #01d243;
+  --accent-foreground: #000000;
   --muted: #4c4e68;
   --muted-foreground: #8081a0;
   --muted-strong: #8081a0;
@@ -29,7 +29,7 @@
   --ring: rgba(255,255,255,0.25);
   --destructive: #f0324c;
   --radius: 0.625rem;
-  --yes: #009930;
+  --yes: #01d243;
   --no: #f0324c;
   color-scheme: dark;
 }
@@ -98,6 +98,29 @@ body {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
 }
+@keyframes priceFlash {
+  0%   { opacity: 1; transform: scale(1); }
+  30%  { opacity: 0.45; transform: scale(0.97); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes tradeSuccess {
+  0%   { transform: scale(1); box-shadow: 0 0 0 0 rgba(1,210,67,0.5); }
+  40%  { transform: scale(1.025); box-shadow: 0 0 0 10px rgba(1,210,67,0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(1,210,67,0); }
+}
+@keyframes tradeRing {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(1,210,67,0.35); }
+  50%       { box-shadow: 0 0 0 6px rgba(1,210,67,0); }
+}
+@keyframes rowFlash {
+  0%   { background: rgba(1,210,67,0.12); }
+  100% { background: transparent; }
+}
+
+.price-flash { animation: priceFlash 0.4s ease-out forwards; }
+.trade-success-btn { animation: tradeSuccess 0.55s ease-out forwards; }
+.trade-ring-btn { animation: tradeRing 1.8s ease-in-out infinite; }
+.row-flash { animation: rowFlash 1.2s ease-out forwards; }
 
 .fade-up { animation: fadeUp 0.35s ease-out forwards; }
 .nam-live-dot { animation: namDotPulse 2.4s ease-in-out infinite; }

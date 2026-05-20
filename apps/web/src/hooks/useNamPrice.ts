@@ -7,7 +7,7 @@ export function useNamPrice() {
   const { data, isLoading } = useQuery({
     queryKey: ["nam-price"],
     queryFn: () => fetchApi<{ priceUsd: string }>("/markets/nam-price"),
-    refetchInterval: 60_000,
+    refetchInterval: 3_000,
   });
 
   const price = data ? parseFloat(data.priceUsd) : null;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNamPrice } from "@/hooks/useNamPrice";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
@@ -25,10 +25,25 @@ export function Navbar() {
   const { usdcBalance, isLoading: isBalanceLoading } = useVaultBalance();
   const { theme, toggleTheme } = useTheme();
   const prevPriceRef = useRef<number | null>(null);
+  const [priceFlashing, setPriceFlashing] = useState(false);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const up =
     price !== null &&
     (prevPriceRef.current === null || price >= prevPriceRef.current);
-  if (price !== null && price !== prevPriceRef.current) prevPriceRef.current = price;
+
+  useEffect(() => {
+    if (price !== null && prevPriceRef.current !== null && price !== prevPriceRef.current) {
+      setPriceFlashing(false);
+      // Force reflow so the animation re-triggers
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setPriceFlashing(true));
+      });
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = setTimeout(() => setPriceFlashing(false), 450);
+    }
+    if (price !== null) prevPriceRef.current = price;
+  }, [price]);
 
   const truncatedAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`
@@ -107,7 +122,7 @@ export function Navbar() {
             <span
               className={`mono text-xs font-medium ${
                 up ? "text-[var(--yes)]" : "text-[var(--no)]"
-              }`}
+              } ${priceFlashing ? "price-flash" : ""}`}
             >
               {price !== null ? `$${price.toFixed(5)}` : "$—"}
             </span>
@@ -245,7 +260,7 @@ export function Navbar() {
               <span
                 className={`mono text-xs font-medium ${
                   up ? "text-[var(--yes)]" : "text-[var(--no)]"
-                }`}
+                } ${priceFlashing ? "price-flash" : ""}`}
               >
                 {price !== null ? `$${price.toFixed(5)}` : "$—"}
               </span>

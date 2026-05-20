@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useHourlyHistory, useMarket, useMarketTrades } from "@/hooks/useMarkets";
@@ -47,9 +47,20 @@ export default function MarketPage() {
   const { data: market, isLoading } = useMarket(id);
   const { data: trades } = useMarketTrades(id);
   const { data: hourlyHistory = [] } = useHourlyHistory();
-  const { prices: livePrices, stats: liveStats, resolved: liveResolved, locked: liveLocked } = useMarketSocket(market?.id);
+  const { prices: livePrices, stats: liveStats, resolved: liveResolved, locked: liveLocked, lastTrade } = useMarketSocket(market?.id);
   const [chartMode, setChartMode] = useState<"price" | "prob">("price");
   const [tab, setTab] = useState<"trades" | "about">("trades");
+  const [flashingTradeId, setFlashingTradeId] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Flash the newest trade row whenever a live trade arrives via websocket
+  useEffect(() => {
+    if (!lastTrade) return;
+    const id = lastTrade.txHash ?? String(Date.now());
+    setFlashingTradeId(id);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashingTradeId(null), 1400);
+  }, [lastTrade]);
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false);
   const [mobileSide, setMobileSide] = useState<"YES" | "NO">("YES");
   const { price: namPrice, iconUrl: namIconUrl, history: namHistory } = useNamPriceStream();
@@ -243,7 +254,11 @@ export default function MarketPage() {
                   {["Outcome", "Trader", "Shares", "Amount", "Time"].map((h) => <span key={h} className={`text-[9px] font-bold uppercase tracking-[0.07em] text-[var(--muted)] ${h === "Shares" || h === "Time" ? "hidden md:inline" : ""}`}>{h}</span>)}
                 </div>
                 {(trades ?? []).slice(0, 8).map((trade, i, arr) => (
-                  <div key={trade.id} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-[11px] md:grid-cols-[110px_1fr_80px_80px_80px] ${i < arr.length - 1 ? "border-b border-[var(--border-subtle)]" : ""}`}>
+                  <div key={trade.id} className={[
+                    "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-[11px] md:grid-cols-[110px_1fr_80px_80px_80px]",
+                    i < arr.length - 1 ? "border-b border-[var(--border-subtle)]" : "",
+                    i === 0 && flashingTradeId ? "row-flash rounded-lg" : "",
+                  ].join(" ")}>
                     <span className={`w-fit rounded px-2 py-[3px] text-[9px] font-bold tracking-[0.04em] ${trade.isYes ? "bg-yes/10 text-yes" : "bg-no/10 text-no"}`}>{trade.isBuy ? "BUY" : "SELL"} {trade.isYes ? outcomeLabels.yesShort : outcomeLabels.noShort}</span>
                     <span className="truncate font-mono text-[11px] text-[var(--muted)]">{trade.trader.slice(0, 6)}…{trade.trader.slice(-4)}</span>
                     <span className="hidden font-mono text-[11px] md:inline">{formatTradeShares(trade.shares)}</span>
