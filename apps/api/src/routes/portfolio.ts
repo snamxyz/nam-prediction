@@ -1,8 +1,12 @@
 import { Elysia, t } from "elysia";
+import { formatUnits, parseUnits } from "viem";
 import { db } from "../db/client";
 import { userPositions, markets, trades, rangePositions, rangeMarkets, rangeTrades } from "../db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { formatMarketQuestion } from "../lib/market-display";
+import { CPMMABI, RangeLMSRABI } from "@nam-prediction/shared";
+import { publicClient } from "../services/indexer";
+import { estimateSell } from "../lib/amm-estimates";
 import {
   DUST,
   buildBinaryExposureMap,
@@ -13,6 +17,72 @@ import {
   hasBinaryExposure,
   hasRangeExposure,
 } from "../lib/pnl";
+
+async function readBinaryPoolState(ammAddress: `0x${string}`): Promise<{
+  yesReserve: bigint;
+  noReserve: bigint;
+  lpFeeBps: bigint;
+  protocolFeeBps: bigint;
+}> {
+  const [yesReserve, noReserve, lpFeeBps, protocolFeeBps] = await publicClient.multicall({
+    allowFailure: false,
+    contracts: [
+      { address: ammAddress, abi: CPMMABI, functionName: "yesReserve" },
+      { address: ammAddress, abi: CPMMABI, functionName: "noReserve" },
+      { address: ammAddress, abi: CPMMABI, functionName: "feeBps" },
+      { address: ammAddress, abi: CPMMABI, functionName: "protocolFeeBps" },
+    ],
+  });
+
+  return {
+    yesReserve: yesReserve as bigint,
+    noReserve: noReserve as bigint,
+    lpFeeBps: lpFeeBps as bigint,
+    protocolFeeBps: protocolFeeBps as bigint,
+  };
+}
+
+async function quoteBinaryExitValue(
+  ammAddress: string | null,
+  balance: string,
+  isYes: boolean
+): Promise<number | null> {
+  if (!ammAddress) return null;
+  const sharesIn = parseUnits(balance, 18);
+  if (sharesIn <= 0n) return 0;
+
+  try {
+    const { yesReserve, noReserve, lpFeeBps, protocolFeeBps } = await readBinaryPoolState(ammAddress as `0x${string}`);
+    const { usdcOut } = estimateSell(sharesIn, lpFeeBps, protocolFeeBps, yesReserve, noReserve, isYes);
+    return Number(formatUnits(usdcOut, 6));
+  } catch (err) {
+    console.warn("[Portfolio] Binary exit quote failed", { ammAddress, isYes, err });
+    return null;
+  }
+}
+
+async function quoteRangeExitValue(
+  cpmmAddress: string | null,
+  rangeIndex: number,
+  balance: string
+): Promise<number | null> {
+  if (!cpmmAddress) return null;
+  const sharesIn = parseUnits(balance, 18);
+  if (sharesIn <= 0n) return 0;
+
+  try {
+    const usdcOut = await publicClient.readContract({
+      address: cpmmAddress as `0x${string}`,
+      abi: RangeLMSRABI,
+      functionName: "quoteSell",
+      args: [BigInt(rangeIndex), sharesIn],
+    }) as bigint;
+    return Number(formatUnits(usdcOut, 6));
+  } catch (err) {
+    console.warn("[Portfolio] Range exit quote failed", { cpmmAddress, rangeIndex, err });
+    return null;
+  }
+}
 
 export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
   // GET /portfolio/:user/summary — Aggregated user stats that should include
@@ -169,8 +239,8 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
       }
       const rangeExposureByPosition = buildRangeExposureMap(latestRangeTrades);
 
-      const binaryMapped = rows
-        .map((p) => {
+      const binaryMapped = (await Promise.all(rows
+        .map(async (p) => {
           const { position: pos, market: m } = p;
 
           const historical = binaryExposureByMarket.get(pos.marketId);
@@ -183,10 +253,18 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
           if (yesBal < DUST && noBal < DUST && yesCost < DUST && noCost < DUST) return null;
 
           // Resolved markets settle at $1 for the winner and $0 for the loser.
+          // Active markets use full-position executable sell quotes, so value
+          // reflects fees, liquidity, and price impact instead of spot marks.
           const yesCurrentPrice = m.resolved ? (m.result === 1 ? 1 : 0) : m.yesPrice;
           const noCurrentPrice = m.resolved ? (m.result === 2 ? 1 : 0) : m.noPrice;
-          const yesCurrentVal = yesBal * yesCurrentPrice;
-          const noCurrentVal = noBal * noCurrentPrice;
+          const [yesExitValue, noExitValue] = m.resolved
+            ? [null, null]
+            : await Promise.all([
+                yesBal >= DUST ? quoteBinaryExitValue(m.ammAddress, pos.yesBalance, true) : Promise.resolve(0),
+                noBal >= DUST ? quoteBinaryExitValue(m.ammAddress, pos.noBalance, false) : Promise.resolve(0),
+              ]);
+          const yesCurrentVal = m.resolved ? yesBal * yesCurrentPrice : yesExitValue ?? yesBal * yesCurrentPrice;
+          const noCurrentVal = m.resolved ? noBal * noCurrentPrice : noExitValue ?? noBal * noCurrentPrice;
 
           // PnL = current value − cost basis (unrealised P&L).
           const yesPnl = yesBal >= DUST ? yesCurrentVal - yesCost : 0;
@@ -239,10 +317,10 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
             sortTs: latestByMarket.get(pos.marketId)?.getTime() ?? 0,
           };
         })
-        .filter((position) => position !== null);
+      )).filter((position) => position !== null);
 
-      const rangeMapped = rangeRows
-        .map((p) => {
+      const rangeMapped = (await Promise.all(rangeRows
+        .map(async (p) => {
           const { position: pos, market: m } = p;
           const historical = rangeExposureByPosition.get(`${pos.rangeMarketId}:${pos.rangeIndex}`);
           const balance = m.resolved && historical ? historical.shares : Number(pos.balance || "0");
@@ -255,7 +333,10 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
           const currentPrice = m.resolved
             ? pos.rangeIndex === m.winningRangeIndex ? 1 : 0
             : prices[pos.rangeIndex] ?? 0;
-          const currentValue = balance * currentPrice;
+          const exitValue = m.resolved
+            ? null
+            : await quoteRangeExitValue(m.rangeCpmmAddress, pos.rangeIndex, pos.balance);
+          const currentValue = m.resolved ? balance * currentPrice : exitValue ?? balance * currentPrice;
           const pnl = currentValue - costBasis;
           const pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
 
@@ -286,7 +367,7 @@ export const portfolioRoutes = new Elysia({ prefix: "/portfolio" })
             sortTs: latestByRangeMarket.get(pos.rangeMarketId)?.getTime() ?? 0,
           };
         })
-        .filter((position) => position !== null);
+      )).filter((position) => position !== null);
 
       const mapped = [...binaryMapped, ...rangeMapped];
 

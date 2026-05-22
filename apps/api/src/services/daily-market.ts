@@ -12,6 +12,15 @@ const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
 const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const DEFAULT_FEE_BPS = Number(process.env.DEFAULT_FEE_BPS) || 200;
 const DAILY_MARKET_LIQUIDITY = Number(process.env.DAILY_MARKET_LIQUIDITY) || 100; // USDC
+export const DEFAULT_NAM_TOKEN_ADDRESS = "0xd7c767def449c0c7ce76af96ab4b5b3c518b80d4";
+
+type DexScreenerPair = {
+  priceUsd?: string;
+  pairAddress?: string;
+  quoteToken?: { symbol?: string; address?: string };
+  liquidity?: { usd?: number };
+  info?: { imageUrl?: string };
+};
 
 function getWalletClient() {
   const privateKey = process.env.PRIVATE_KEY;
@@ -43,18 +52,29 @@ export type NamPriceData = {
  */
 export async function fetchNamPriceEnriched(): Promise<NamPriceData | null> {
   const pairAddress = process.env.DEXSCREENER_PAIR_ADDRESS;
-  if (!pairAddress) {
-    console.warn("[DailyMarket] DEXSCREENER_PAIR_ADDRESS not set");
-    return null;
-  }
 
   try {
-    const url = `https://api.dexscreener.com/latest/dex/pairs/base/${pairAddress}`;
+    const tokenAddress = process.env.NAM_TOKEN_ADDRESS || DEFAULT_NAM_TOKEN_ADDRESS;
+    const url = pairAddress
+      ? `https://api.dexscreener.com/latest/dex/pairs/base/${pairAddress}`
+      : `https://api.dexscreener.com/latest/dex/tokens/base/${tokenAddress}`;
     const response = await fetch(url);
     if (!response.ok) return null;
 
     const data = await response.json();
-    const pair = data.pair;
+    const pairs: DexScreenerPair[] = Array.isArray(data.pairs)
+      ? data.pairs
+      : data.pair
+        ? [data.pair]
+        : [];
+    const pair = pairs
+      .filter((item) => item.priceUsd)
+      .sort((a, b) => {
+        const aIsUsdc = a.quoteToken?.symbol?.toUpperCase() === "USDC";
+        const bIsUsdc = b.quoteToken?.symbol?.toUpperCase() === "USDC";
+        if (aIsUsdc !== bIsUsdc) return aIsUsdc ? -1 : 1;
+        return Number(b.liquidity?.usd ?? 0) - Number(a.liquidity?.usd ?? 0);
+      })[0];
     if (!pair?.priceUsd) return null;
 
     return {

@@ -1266,14 +1266,14 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
   .post(
     "/:id/redeem",
     async ({ params, body, headers, set }) => {
-      const userAddress = await resolveAuthenticatedWallet(headers.authorization);
+      const { txHash, userAddress: requestedUserAddress } = body as { txHash: string; userAddress?: string };
+      const userAddress = await resolveAuthenticatedWallet(headers.authorization, requestedUserAddress);
       if (!userAddress) {
         set.status = 401;
         return { error: "Unauthorized", success: false };
       }
 
       const id = Number(params.id);
-      const { txHash } = body as { txHash: string };
 
       if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
         set.status = 400;
@@ -1352,6 +1352,24 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           })
           .onConflictDoNothing({ target: vaultTransactions.txHash });
 
+        await db
+          .update(rangePositions)
+          .set({ balance: "0" })
+          .where(
+            and(
+              eq(rangePositions.rangeMarketId, id),
+              eq(rangePositions.userAddress, userAddress),
+              eq(rangePositions.rangeIndex, market.winningRangeIndex)
+            )
+          );
+
+        await refreshAndEmitVaultBalance(userAddress);
+        await publishEvent("user:shares", {
+          wallet: userAddress,
+          marketId: id,
+          type: "range",
+        });
+
         queueAdminSnapshotRefresh("range-redemption");
 
         return { success: true, data: { txHash, amount: redeemedAmount } };
@@ -1362,6 +1380,6 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       }
     },
     {
-      body: t.Object({ txHash: t.String() }),
+      body: t.Object({ txHash: t.String(), userAddress: t.Optional(t.String()) }),
     }
   );

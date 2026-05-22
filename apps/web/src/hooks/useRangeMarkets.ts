@@ -172,7 +172,6 @@ export function useRangeMarketSocket(marketId: number | undefined) {
       if (data.marketId !== marketId || !data.rangePrices) return;
       if (data.type && data.type !== "range") return;
       patchRangeMarket(data);
-      queryClient.invalidateQueries({ queryKey: ["range-markets-active"] });
     };
 
     const handleResolved = (data: RangeResolvedUpdate) => {

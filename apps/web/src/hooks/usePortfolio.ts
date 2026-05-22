@@ -1,10 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAccount } from "wagmi";
 import { useEffect, useRef } from "react";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { usePrivy } from "@privy-io/react-auth";
+import { useUserSocket } from "./useUserSocket";
 
 export interface BinaryPositionWithMarket {
   positionType?: "binary";
@@ -103,6 +104,8 @@ export function usePortfolioSummaryForAddress(targetAddress: string | undefined,
 export function usePortfolio() {
   const { address } = useAccount();
   const { getAccessToken } = usePrivy();
+  const queryClient = useQueryClient();
+  const { balanceUpdated } = useUserSocket(address);
   const lastReconcileRef = useRef<number>(0);
 
   const query = usePortfolioForAddress(address, {
@@ -135,6 +138,12 @@ export function usePortfolio() {
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
+
+  useEffect(() => {
+    if (!address || balanceUpdated === 0) return;
+    void queryClient.invalidateQueries({ queryKey: ["portfolio", address] });
+    void queryClient.invalidateQueries({ queryKey: ["portfolio-summary", address] });
+  }, [address, balanceUpdated, queryClient]);
 
   return query;
 }

@@ -7,6 +7,7 @@ import { base } from "viem/chains";
 import { CPMMABI } from "@nam-prediction/shared";
 import { featureFlags } from "../config/feature-flags";
 import { getNamSnapshot } from "../services/nam-price-poller";
+import { DEFAULT_NAM_TOKEN_ADDRESS } from "../services/daily-market";
 import { formatMarketQuestion, withDisplayQuestion } from "../lib/market-display";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
@@ -125,7 +126,7 @@ export const marketRoutes = new Elysia({ prefix: "/markets" })
       success: true,
       data: {
         priceUsd: snap.priceUsd,
-        tokenAddress: process.env.NAM_TOKEN_ADDRESS ?? null,
+        tokenAddress: process.env.NAM_TOKEN_ADDRESS ?? DEFAULT_NAM_TOKEN_ADDRESS,
         tokenIconUrl: snap.tokenIconUrl,
         lastUpdatedAt: snap.lastUpdatedAt,
         history: snap.history,

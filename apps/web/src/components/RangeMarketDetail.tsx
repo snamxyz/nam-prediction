@@ -11,6 +11,7 @@ import {
   TRADING_DOMAIN,
   RANGE_TRADE_INTENT_TYPES,
   RANGE_TRADE_INTENT_PRIMARY_TYPE,
+  RangeMarketFactoryABI,
 } from "@nam-prediction/shared";
 import { fetchApi, authedPostApi } from "@/lib/api";
 import { RangeProbabilityChart } from "@/components/RangeProbabilityChart";
@@ -25,14 +26,20 @@ import {
 } from "@/components/UI/drawer";
 import { usePrivy } from "@privy-io/react-auth";
 import { useAccount } from "wagmi";
-import { createWalletClient, custom, parseUnits } from "viem";
+import { createPublicClient, createWalletClient, custom, http, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { toast } from "sonner";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
 import { usePreferredWallet } from "@/hooks/usePreferredWallet";
+import { useContractConfig } from "@/hooks/useContractConfig";
 import { formatEasternShortDate } from "@/lib/dateDisplay";
 import { floorBalance } from "@/lib/format";
 import { getRangeMarketAccent, getRangeMarketLabel, type RangeMarketKind } from "@/lib/rangeMarketDisplay";
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(process.env.NEXT_PUBLIC_RPC_URL || "https://mainnet.base.org"),
+});
 
 const RANGE_COLORS = [
   "#6c7aff",
@@ -226,6 +233,7 @@ function TradePanelRange({
   const { getAccessToken, user } = usePrivy();
   const preferredWallet = usePreferredWallet();
   const { usdcBalance } = useVaultBalance();
+  const { rangeFactoryAddress } = useContractConfig();
 
   const [mode, setMode] = useState<"BUY" | "SELL">("BUY");
   const [amount, setAmount] = useState("");
@@ -482,17 +490,35 @@ function TradePanelRange({
   };
 
   const handleRedeem = async () => {
-    if (!userAddress) return;
+    if (!userAddress || !preferredWallet || !rangeFactoryAddress) return;
+    if (market.onChainMarketId == null || market.winningRangeIndex == null) return;
     setIsLoading(true);
     setError(null);
     const toastId = `range-redeem-${Date.now()}`;
     try {
       const token = await getAccessToken();
       if (!token) throw new Error("Not authenticated");
+      const wallet = preferredWallet;
+      const signerAddress = wallet.address as `0x${string}`;
+      const provider = await wallet.getEthereumProvider();
+      const walletClient = createWalletClient({
+        account: signerAddress,
+        chain: base,
+        transport: custom(provider),
+      });
+
+      toast.loading("Confirm redeem in your wallet…", { id: toastId });
+      const txHash = await walletClient.writeContract({
+        address: rangeFactoryAddress,
+        abi: RangeMarketFactoryABI,
+        functionName: "redeemRange",
+        args: [BigInt(market.onChainMarketId), BigInt(market.winningRangeIndex)],
+      });
       toast.loading("Redeeming…", { id: toastId });
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
       await authedPostApi(
         `/range-markets/${market.id}/redeem`,
-        { userAddress },
+        { txHash, userAddress: signerAddress },
         token
       );
       toast.success("Winnings redeemed!", { id: toastId });
@@ -861,7 +887,7 @@ interface RangeMarketDetailProps {
 export function RangeMarketDetail({ marketType, title, description }: RangeMarketDetailProps) {
   const searchParams = useSearchParams();
   const selectedMarketId = Number(searchParams.get("marketId"));
-  const { data: allMarkets, isLoading, refetch } = useRangeMarkets(marketType);
+  const { data: allMarkets, isLoading } = useRangeMarkets(marketType);
   const market =
     allMarkets?.find((m) => Number.isFinite(selectedMarketId) && m.id === selectedMarketId) ??
     allMarkets?.find((m) => m.marketType === marketType && m.status === "active") ??
@@ -880,17 +906,30 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   const [tab, setTab] = useState<"activity" | "rules">("activity");
   const countdown = useCountdown(market?.endTime);
   const refreshAfterTrade = () => {
-    void refetch();
     void refetchPositions();
     if (market?.id != null) {
-      void queryClient.invalidateQueries({ queryKey: ["range-markets-active"] });
-      void queryClient.invalidateQueries({ queryKey: ["range-market", market.id] });
-      void queryClient.invalidateQueries({ queryKey: ["range-markets"] });
       void queryClient.invalidateQueries({ queryKey: ["range-trades", market.id] });
       if (userAddress) {
         void queryClient.invalidateQueries({ queryKey: ["range-positions", market.id, userAddress] });
+        void queryClient.invalidateQueries({ queryKey: ["vault-balance", userAddress] });
+        void queryClient.invalidateQueries({ queryKey: ["vault-transactions", userAddress] });
       }
     }
+  };
+
+  const patchRangePrices = (nextPrices: number[]) => {
+    setLivePrices(nextPrices);
+    if (market?.id == null) return;
+    queryClient.setQueryData<RangeMarket>(["range-market", market.id], (current) =>
+      current ? { ...current, rangePrices: nextPrices } : current
+    );
+    queryClient.setQueriesData<RangeMarket[]>(
+      { queryKey: ["range-markets"] },
+      (current) => current?.map((item) => item.id === market.id ? { ...item, rangePrices: nextPrices } : item)
+    );
+    queryClient.setQueryData<RangeMarket[]>(["range-markets-active"], (current) =>
+      current?.map((item) => item.id === market.id ? { ...item, rangePrices: nextPrices } : item)
+    );
   };
 
   const prices: number[] = livePrices ?? (market?.rangePrices as number[]) ?? [];
@@ -1130,7 +1169,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
             prices={prices}
             positions={positions}
             onSuccess={refreshAfterTrade}
-            onPricesUpdate={setLivePrices}
+            onPricesUpdate={patchRangePrices}
           />
         </div>
       </div>
@@ -1234,7 +1273,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
                 prices={prices}
                 positions={positions}
                 onSuccess={refreshAfterTrade}
-                onPricesUpdate={setLivePrices}
+                onPricesUpdate={patchRangePrices}
               />
             </div>
           </DrawerContent>

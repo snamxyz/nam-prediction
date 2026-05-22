@@ -29,13 +29,14 @@ async function fetchTransactions(address: string): Promise<VaultTransaction[]> {
   return (json.data as VaultTransaction[]) ?? [];
 }
 
-export function useVaultTransactions() {
+export function useVaultTransactions(addressOverride?: string | null) {
   const { address } = useAccount();
+  const targetAddress = addressOverride ?? address;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["vault-transactions", address],
-    queryFn: () => fetchTransactions(address!),
-    enabled: !!address,
+    queryKey: ["vault-transactions", targetAddress],
+    queryFn: () => fetchTransactions(targetAddress!),
+    enabled: !!targetAddress,
     staleTime: 30_000,
   });
 

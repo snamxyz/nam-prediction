@@ -5,4 +5,4 @@ export const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS ||
   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 
 export const NAM_TOKEN_ADDRESS = (process.env.NEXT_PUBLIC_NAM_TOKEN_ADDRESS ||
-  "") as `0x${string}`;
+  "0xd7c767def449c0c7ce76af96ab4b5b3c518b80d4") as `0x${string}`;

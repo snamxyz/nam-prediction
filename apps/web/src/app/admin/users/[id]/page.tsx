@@ -11,6 +11,7 @@ import {
   type PositionWithMarket,
 } from "@/hooks/usePortfolio";
 import { useVaultUserBalances } from "@/hooks/useVaultUserBalances";
+import { useVaultTransactions, type VaultTransaction } from "@/hooks/useVaultTransactions";
 
 const DUST = 1e-6;
 
@@ -51,6 +52,78 @@ function positionHref(pos: PositionWithMarket) {
   return `/market/${pos.marketId}`;
 }
 
+function txLabel(tx: VaultTransaction) {
+  if (tx.type === "withdraw") return "Withdrawal";
+  if (tx.type === "redemption") return "Redemption";
+  return tx.type.charAt(0).toUpperCase() + tx.type.slice(1);
+}
+
+function txDetail(tx: VaultTransaction) {
+  if (tx.question) return `${tx.side ? `${tx.side} - ` : ""}${tx.question}`;
+  return tx.source ? tx.source.charAt(0).toUpperCase() + tx.source.slice(1) : "Vault";
+}
+
+function TransactionTable({
+  transactions,
+  isLoading,
+}: {
+  transactions: VaultTransaction[];
+  isLoading: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-[var(--foreground)]">Wallet Transactions</h2>
+        <span className="text-xs text-[var(--muted)]">{transactions.length} recent</span>
+      </div>
+      <div className="min-w-[720px]">
+        <div className="grid grid-cols-[120px_minmax(220px,1fr)_90px_130px_40px] gap-3 border-b border-[var(--border-subtle)] pb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
+          <span>Type</span>
+          <span>Detail</span>
+          <span>Amount</span>
+          <span>Time</span>
+          <span>Tx</span>
+        </div>
+        {isLoading ? (
+          <p className="py-8 text-center text-xs text-[var(--muted)]">Loading transactions...</p>
+        ) : transactions.length === 0 ? (
+          <p className="py-8 text-center text-xs text-[var(--muted)]">No wallet transactions</p>
+        ) : (
+          transactions.map((tx) => {
+            const positive = tx.type === "deposit" || tx.type === "sell" || tx.type === "redemption";
+            return (
+              <div
+                key={tx.id}
+                className="grid grid-cols-[120px_minmax(220px,1fr)_90px_130px_40px] gap-3 border-b border-[var(--border-subtle)] py-3 text-xs"
+              >
+                <span className="text-[var(--foreground)]">{txLabel(tx)}</span>
+                <span className="truncate text-[var(--muted)]">{txDetail(tx)}</span>
+                <span className={`font-mono ${positive ? "text-yes" : "text-no"}`}>
+                  {positive ? "+" : "-"}{fmtUsd(tx.amount)}
+                </span>
+                <span className="text-[var(--muted)]">{new Date(tx.timestamp).toLocaleString()}</span>
+                <a
+                  href={`https://basescan.org/tx/${tx.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--muted)] hover:text-[var(--foreground)]"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function positionRowCount(pos: PositionWithMarket) {
+  if (isRangePosition(pos)) return 1;
+  return Number(pos.yesBalance || "0") >= DUST && Number(pos.noBalance || "0") >= DUST ? 2 : 1;
+}
+
 function PositionRow({ pos, resolved }: { pos: PositionWithMarket; resolved?: boolean }) {
   const href = positionHref(pos);
 
@@ -80,23 +153,43 @@ function PositionRow({ pos, resolved }: { pos: PositionWithMarket; resolved?: bo
 
   const yesBalance = Number(pos.yesBalance || "0");
   const noBalance = Number(pos.noBalance || "0");
-  const side = yesBalance >= noBalance ? "YES" : "NO";
-  const shares = Math.max(yesBalance, noBalance);
-  const pnl = Number(pos.pnl || "0");
+  const legs = [
+    yesBalance >= DUST
+      ? {
+          side: "YES",
+          shares: yesBalance,
+          cost: Number(pos.yesCostBasis || "0"),
+          pnl: Number(pos.yesPnl || "0"),
+        }
+      : null,
+    noBalance >= DUST
+      ? {
+          side: "NO",
+          shares: noBalance,
+          cost: Number(pos.noCostBasis || "0"),
+          pnl: Number(pos.noPnl || "0"),
+        }
+      : null,
+  ].filter((leg) => leg !== null);
 
   return (
-    <Link
-      href={href}
-      className="grid grid-cols-[minmax(180px,2fr)_110px_90px_90px_90px] gap-3 border-b border-[var(--border-subtle)] py-3 text-xs no-underline"
-    >
-      <span className="truncate font-medium text-[var(--foreground)]">{pos.question}</span>
-      <span className="text-[var(--muted)]">{side}</span>
-      <span className="font-mono text-[var(--foreground)]">{shares.toFixed(2)}</span>
-      <span className="font-mono text-[var(--foreground)]">{fmtUsd(pos.totalCost)}</span>
-      <span className={`font-mono ${pnl >= 0 ? "text-yes" : "text-no"}`}>
-        {pnl >= 0 ? "+" : ""}{fmtUsd(pnl)}
-      </span>
-    </Link>
+    <>
+      {legs.map((leg) => (
+        <Link
+          key={`${pos.id}-${leg.side}`}
+          href={href}
+          className="grid grid-cols-[minmax(180px,2fr)_110px_90px_90px_90px] gap-3 border-b border-[var(--border-subtle)] py-3 text-xs no-underline"
+        >
+          <span className="truncate font-medium text-[var(--foreground)]">{pos.question}</span>
+          <span className="text-[var(--muted)]">{leg.side}</span>
+          <span className="font-mono text-[var(--foreground)]">{leg.shares.toFixed(2)}</span>
+          <span className="font-mono text-[var(--foreground)]">{fmtUsd(leg.cost)}</span>
+          <span className={`font-mono ${leg.pnl >= 0 ? "text-yes" : "text-no"}`}>
+            {leg.pnl >= 0 ? "+" : ""}{fmtUsd(leg.pnl)}
+          </span>
+        </Link>
+      ))}
+    </>
   );
 }
 
@@ -109,11 +202,12 @@ function PositionTable({
   positions: PositionWithMarket[];
   resolved?: boolean;
 }) {
+  const rowCount = positions.reduce((sum, position) => sum + positionRowCount(position), 0);
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-[var(--foreground)]">{title}</h2>
-        <span className="text-xs text-[var(--muted)]">{positions.length} positions</span>
+        <span className="text-xs text-[var(--muted)]">{rowCount} positions</span>
       </div>
       <div className="min-w-[640px]">
         <div className="grid grid-cols-[minmax(180px,2fr)_110px_90px_90px_90px] gap-3 border-b border-[var(--border-subtle)] pb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
@@ -148,6 +242,7 @@ export default function AdminUserProfilePage() {
   const { data: positions = [], isLoading: isPortfolioLoading } = usePortfolioForAddress(walletAddress);
   const { data: summary } = usePortfolioSummaryForAddress(walletAddress);
   const { data: vaultBalances, isLoading: isVaultBalanceLoading } = useVaultUserBalances(vaultWalletAddresses);
+  const { transactions, isLoading: isTransactionsLoading } = useVaultTransactions(walletAddress);
   const vaultBalance = walletAddress
     ? vaultBalances?.balances[walletAddress.toLowerCase()]
     : undefined;
@@ -249,6 +344,12 @@ export default function AdminUserProfilePage() {
           ))}
         </div>
       </div>
+
+      {walletAddress && (
+        <div className="overflow-x-auto">
+          <TransactionTable transactions={transactions} isLoading={isTransactionsLoading} />
+        </div>
+      )}
 
       {!walletAddress ? (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 text-center text-xs text-[var(--muted)]">

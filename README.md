@@ -61,9 +61,11 @@ Copy `.env` at the repo root and fill in the values. Key variables:
 | `REDIS_URL` | Redis connection string |
 | `API_PORT` | Backend port (default `3001`) |
 | `ADMIN_ADDRESSES` | Comma-separated admin wallets |
-| `DEXSCREENER_PAIR_ADDRESS` | NAM/USDC pair on Base |
+| `NAM_TOKEN_ADDRESS` | NAM/POINT token on Base (defaults to `0xd7c767def449c0c7ce76af96ab4b5b3c518b80d4`) |
+| `DEXSCREENER_PAIR_ADDRESS` | Optional NAM/USDC pair on Base; if unset, the API finds the best USDC pair from `NAM_TOKEN_ADDRESS` |
 | `RESOLUTION_POLL_INTERVAL` | Resolution poll interval in ms (default `60000`) |
 | `PRIVY_APP_ID` / `PRIVY_APP_SECRET` | Privy server auth |
+| `NEXT_PUBLIC_NAM_TOKEN_ADDRESS` | Frontend NAM/POINT token address (same default as `NAM_TOKEN_ADDRESS`) |
 | `NEXT_PUBLIC_*` | Frontend-exposed public vars |
 
 Worker/runtime controls:

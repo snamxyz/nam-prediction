@@ -58,6 +58,7 @@ const app = new Elysia()
     data: {
       contracts: {
         vaultAddress: process.env.VAULT_ADDRESS || null,
+        rangeFactoryAddress: process.env.RANGE_FACTORY_ADDRESS || process.env.MARKET_FACTORY_ADDRESS || null,
       },
     },
   }))

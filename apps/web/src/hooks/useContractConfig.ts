@@ -4,6 +4,7 @@ import { fetchApi } from "@/lib/api";
 interface ContractConfig {
   contracts: {
     vaultAddress: `0x${string}` | null;
+    rangeFactoryAddress: `0x${string}` | null;
   };
 }
 
@@ -16,6 +17,7 @@ export function useContractConfig() {
 
   return {
     vaultAddress: data?.contracts.vaultAddress || undefined,
+    rangeFactoryAddress: data?.contracts.rangeFactoryAddress || undefined,
     isLoading,
     error,
   };
