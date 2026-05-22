@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import {
   AreaChart,
   Area,
@@ -7,6 +8,7 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from "recharts";
 import type { Trade } from "@nam-prediction/shared";
 
@@ -20,6 +22,7 @@ interface PriceChartProps {
 interface ChartPoint {
   time: string;
   yesProbability: number;
+  isLive?: boolean;
 }
 
 function formatChartTime(value: string) {
@@ -84,7 +87,29 @@ function getYAxisTicks([yMin, yMax]: [number, number]) {
   return ticks;
 }
 
-export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", currentYesProbabilityPct }: PriceChartProps) {
+/** Pulsing dot rendered on the last ("Now") chart point */
+function LiveDot(props: any) {
+  const { cx, cy, index, dataLength } = props;
+  if (index !== dataLength - 1) return null;
+  return (
+    <g>
+      {/* Outer pulse ring */}
+      <circle cx={cx} cy={cy} r={7} fill="none" stroke="#01d243" strokeOpacity={0.25}>
+        <animate attributeName="r" values="5;10;5" dur="2s" repeatCount="indefinite" />
+        <animate attributeName="stroke-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite" />
+      </circle>
+      {/* Solid dot */}
+      <circle cx={cx} cy={cy} r={3.5} fill="#01d243" stroke="#07080c" strokeWidth={2} />
+    </g>
+  );
+}
+
+export function PriceChart({
+  trades,
+  marketCreatedAt,
+  outcomeLabel = "YES",
+  currentYesProbabilityPct,
+}: PriceChartProps) {
   const liveYesProbability = roundProbability(currentYesProbabilityPct);
   const tradePoints: ChartPoint[] = trades
     .slice()
@@ -93,24 +118,35 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", curr
       time: formatChartTime(t.timestamp),
       yesProbability: roundProbability((t.yesPrice ?? 0.5) * 100),
     }));
-  // Use the first recorded trade as the opening anchor; otherwise mirror the live header value.
   const openingProbability = tradePoints[0]?.yesProbability ?? liveYesProbability;
   const data: ChartPoint[] = marketCreatedAt
-    ? [{ time: formatChartTime(marketCreatedAt), yesProbability: openingProbability }, ...tradePoints, { time: "Now", yesProbability: liveYesProbability }]
-    : [...tradePoints, { time: "Now", yesProbability: liveYesProbability }];
+    ? [
+        { time: formatChartTime(marketCreatedAt), yesProbability: openingProbability },
+        ...tradePoints,
+        { time: "Now", yesProbability: liveYesProbability, isLive: true },
+      ]
+    : [...tradePoints, { time: "Now", yesProbability: liveYesProbability, isLive: true }];
   const yDomain = getYAxisDomain(data);
   const yTicks = getYAxisTicks(yDomain);
+  const dataLength = data.length;
 
   return (
     <div className="card p-5">
-      <h3 className="mb-4 text-[10px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
-        Probabilities
-      </h3>
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-[10px] font-bold uppercase tracking-[0.09em] text-[var(--muted)]">
+          {outcomeLabel} Price History
+        </h3>
+        <div className="flex items-center gap-1.5">
+          <span className="live-dot" />
+          <span className="text-[10px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">Live</span>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={data} margin={{ top: 8, right: 14, bottom: 5, left: 4 }}>
+        <AreaChart data={data} margin={{ top: 10, right: 14, bottom: 5, left: 4 }}>
           <defs>
             <linearGradient id="yesFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#01d243" stopOpacity={0.18} />
+              <stop offset="0%" stopColor="#01d243" stopOpacity={0.22} />
+              <stop offset="85%" stopColor="#01d243" stopOpacity={0.03} />
               <stop offset="100%" stopColor="#01d243" stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -118,7 +154,7 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", curr
             dataKey="time"
             tick={{ fontSize: 10, fill: "#4c4e68" }}
             stroke="transparent"
-            minTickGap={32}
+            minTickGap={40}
           />
           <YAxis
             domain={yDomain}
@@ -130,13 +166,16 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", curr
             width={44}
           />
           <Tooltip
-            content={({ active, payload }) => {
+            cursor={{ stroke: "rgba(255,255,255,0.07)", strokeWidth: 1, strokeDasharray: "4 2" }}
+            content={({ active, payload, label }) => {
               const value = payload?.[0]?.value;
               if (!active || typeof value !== "number") return null;
-
               return (
-                <div className="mono rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[11px] text-[var(--foreground)]">
-                  {outcomeLabel}: {value.toFixed(1)}%
+                <div className="mono rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[11px] shadow-lg">
+                  <div className="text-[var(--muted)]">{label}</div>
+                  <div className="text-yes font-medium">
+                    {outcomeLabel}: {value.toFixed(1)}%
+                  </div>
                 </div>
               );
             }}
@@ -147,9 +186,14 @@ export function PriceChart({ trades, marketCreatedAt, outcomeLabel = "YES", curr
             stroke="#01d243"
             strokeWidth={1.5}
             fill="url(#yesFill)"
-            dot={false}
+            isAnimationActive={true}
+            animationDuration={600}
+            animationEasing="ease-out"
+            dot={(props: any) => (
+              <LiveDot key={props.index} {...props} dataLength={dataLength} />
+            )}
             activeDot={{
-              r: 3,
+              r: 4,
               fill: "#01d243",
               stroke: "#07080c",
               strokeWidth: 2,

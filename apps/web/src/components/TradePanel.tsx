@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAccount } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrivy } from "@privy-io/react-auth";
@@ -102,6 +102,8 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const [slippagePct, setSlippagePct] = useState<number>(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [justTraded, setJustTraded] = useState(false);
+  const justTradedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [estimate, setEstimate] = useState<
     | {
@@ -276,6 +278,11 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           ? `Bought ${side} \u00b7 $${amountLabel}`
           : `Sold ${side} \u00b7 ${amountLabel} shares`;
       toast.success(successMsg, { id: toastId });
+
+      // Trigger success animation
+      setJustTraded(true);
+      if (justTradedTimerRef.current) clearTimeout(justTradedTimerRef.current);
+      justTradedTimerRef.current = setTimeout(() => setJustTraded(false), 800);
 
       setAmount("");
       setEstimate(null);
@@ -716,7 +723,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         {!isAuthenticated ? (
           <button
             onClick={login}
-            className="w-full cursor-pointer rounded-[10px] border-0 bg-yes py-3 text-[13px] font-bold text-black"
+            className="w-full cursor-pointer rounded-[10px] border-0 bg-yes py-3 text-[13px] font-bold text-black active:scale-[0.98] transition-transform duration-75"
           >
             Connect to Trade
           </button>
@@ -724,14 +731,22 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
           <button
             onClick={handleTrade}
             disabled={!canSubmitTrade}
-            className={`w-full rounded-[10px] border-0 py-3 text-[13px] font-bold transition-all duration-150 ${
-              canSubmitTrade
-                ? `cursor-pointer ${sideButtonClass}`
-                : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]"
-            }`}
+            className={[
+              "w-full rounded-[10px] border-0 py-3 text-[13px] font-bold",
+              "transition-transform duration-75 active:scale-[0.98]",
+              canSubmitTrade && !isLoading
+                ? `cursor-pointer ${sideButtonClass} ${justTraded ? "trade-success-btn" : "trade-ring-btn"}`
+                : "cursor-not-allowed bg-[var(--surface-hover)] text-[var(--muted)]",
+            ].join(" ")}
           >
             {isLoading
-              ? "Processing…"
+              ? <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                  </svg>
+                  Processing…
+                </span>
               : num > 0
               ? `${mode === "BUY" ? "Buy" : "Sell"} ${sideLabel} · ${mode === "BUY" ? `$${num.toFixed(2)}` : `${num} shares`}`
               : "Enter an amount"}
