@@ -114,6 +114,50 @@ async function deployRangeStack(
   return { factory, pool, tokens, poolAddress, rangeTokenAddresses, usdcContract, marketId };
 }
 
+async function createRangeMarketFromFactory(
+  factory: any,
+  deployer: SignerWithAddress,
+  usdcContract: Awaited<ReturnType<typeof ethers.getContractAt>>,
+  numRanges = 4,
+  seedLiquidityUsdc = 100n * USDC_UNIT,
+  feeBps = 0n
+) {
+  await (usdcContract as any).mint(deployer.address, seedLiquidityUsdc * 20n);
+  await (usdcContract as any).approve(await factory.getAddress(), seedLiquidityUsdc);
+
+  const labels = Array.from({ length: numRanges }, (_, i) => `Range-${i}`);
+  const tx = await (factory as any).createRangeMarket(
+    "Test Range Market",
+    futureEndTime(),
+    seedLiquidityUsdc,
+    feeBps,
+    labels
+  );
+  const receipt = await tx.wait();
+
+  let poolAddress = "";
+  let rangeTokenAddresses: string[] = [];
+  for (const log of receipt!.logs) {
+    try {
+      const parsed = (factory as any).interface.parseLog(log as any);
+      if (parsed?.name === "RangeMarketCreated") {
+        poolAddress = parsed.args.cpmmPool;
+        rangeTokenAddresses = [...parsed.args.rangeTokens];
+        break;
+      }
+    } catch { /* ignore non-matching logs */ }
+  }
+  if (!poolAddress) throw new Error("RangeMarketCreated event not found");
+
+  const pool = await ethers.getContractAt("RangeLMSR", poolAddress);
+  const tokens = await Promise.all(
+    rangeTokenAddresses.map((addr) => ethers.getContractAt(OUTCOME_TOKEN_ABI, addr))
+  );
+  const marketId = (await (factory as any).rangeMarketCount()) - 1n;
+
+  return { pool, tokens, poolAddress, rangeTokenAddresses, marketId };
+}
+
 async function deployVault(
   deployer: SignerWithAddress,
   usdcAddr: string,
@@ -462,6 +506,77 @@ describe("RangeLMSR — full LMSR range market stack", function () {
     await (factory as any).redeemRange(marketId, 2n);
     const balAfter: bigint = await (usdcContract as any).balanceOf(deployer.address);
     expect(balAfter).to.be.gt(balBefore);
+  });
+
+  it("redeemRange pays winning tokens into an existing vault escrow", async function () {
+    const { factory } = await deployRangeStack(deployer, usdcAddr);
+    const { vault, rangeAdapter } = await deployVault(deployer, usdcAddr, await (factory as any).getAddress());
+    const vaultAddr = await (vault as any).getAddress();
+    await (factory as any).setVault(vaultAddr);
+
+    const { pool, tokens, poolAddress, marketId } = await createRangeMarketFromFactory(
+      factory,
+      deployer,
+      usdcContract
+    );
+    expect(await (pool as any).vault()).to.equal(vaultAddr);
+
+    const depositAmount = 100n * USDC_UNIT;
+    const buyAmount = 20n * USDC_UNIT;
+    await (usdcContract as any).connect(trader).approve(vaultAddr, depositAmount);
+    await (vault as any).connect(trader).deposit(depositAmount);
+
+    await executeRangeTrade(vault, rangeAdapter, poolAddress, trader.address, true, 2n, buyAmount);
+    await (factory as any).resolveRangeMarket(marketId, 2n);
+
+    const token = tokens[2] as any;
+    const winningShares: bigint = await token.balanceOf(trader.address);
+    const expectedUsdc = winningShares / 10n ** 12n;
+    const escrow = await (vault as any).escrowOf(trader.address);
+    expect(escrow).to.not.equal(ethers.ZeroAddress);
+
+    const walletBefore: bigint = await (usdcContract as any).balanceOf(trader.address);
+    const vaultBefore: bigint = await (vault as any).balanceOf(trader.address);
+    const totalVaultBefore: bigint = await (vault as any).totalVaultBalance();
+
+    await expect((factory as any).connect(trader).redeemRange(marketId, 2n))
+      .to.emit(pool, "Redemption")
+      .withArgs(marketId, trader.address, escrow, 2n, winningShares, expectedUsdc);
+
+    expect(await (usdcContract as any).balanceOf(trader.address)).to.equal(walletBefore);
+    expect(await (vault as any).balanceOf(trader.address)).to.equal(vaultBefore + expectedUsdc);
+    expect(await (vault as any).totalVaultBalance()).to.equal(totalVaultBefore + expectedUsdc);
+  });
+
+  it("redeemRange falls back to the user's wallet when no escrow exists", async function () {
+    const { factory } = await deployRangeStack(deployer, usdcAddr);
+    const { vault } = await deployVault(deployer, usdcAddr, await (factory as any).getAddress());
+    await (factory as any).setVault(await (vault as any).getAddress());
+
+    const { pool, tokens, poolAddress, marketId } = await createRangeMarketFromFactory(
+      factory,
+      deployer,
+      usdcContract
+    );
+
+    const buyAmount = 20n * USDC_UNIT;
+    await (usdcContract as any).connect(trader).approve(poolAddress, buyAmount);
+    await (pool as any).connect(trader).buy(1n, buyAmount);
+    await (factory as any).resolveRangeMarket(marketId, 1n);
+
+    const token = tokens[1] as any;
+    const winningShares: bigint = await token.balanceOf(trader.address);
+    const expectedUsdc = winningShares / 10n ** 12n;
+    expect(await (vault as any).escrowOf(trader.address)).to.equal(ethers.ZeroAddress);
+
+    const walletBefore: bigint = await (usdcContract as any).balanceOf(trader.address);
+
+    await expect((factory as any).connect(trader).redeemRange(marketId, 1n))
+      .to.emit(pool, "Redemption")
+      .withArgs(marketId, trader.address, trader.address, 1n, winningShares, expectedUsdc);
+
+    expect(await (usdcContract as any).balanceOf(trader.address)).to.equal(walletBefore + expectedUsdc);
+    expect(await (vault as any).balanceOf(trader.address)).to.equal(0n);
   });
 
   // ─── 10. Redemption – losing tokens revert ───────────────────────────────

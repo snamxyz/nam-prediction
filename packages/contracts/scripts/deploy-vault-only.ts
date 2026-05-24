@@ -58,6 +58,11 @@ async function main() {
   const factory = await ethers.getContractAt("MarketFactory", MARKET_FACTORY);
   tx = await factory.setVault(vaultAddr);
   await tx.wait();
+  if (RANGE_FACTORY) {
+    const rangeFactory = await ethers.getContractAt("RangeMarketFactory", RANGE_FACTORY);
+    tx = await rangeFactory.setVault(vaultAddr);
+    await tx.wait();
+  }
 
   console.log("\n=== New Vault Deployment ===");
   console.log("PoolRegistry:", poolRegistryAddr);

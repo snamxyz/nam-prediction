@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./RangeOutcomeToken.sol";
+import "./interfaces/IVaultRouter.sol";
 import { SD59x18, wrap, unwrap } from "@prb/math/src/SD59x18.sol";
 import { exp as prbExp, ln as prbLn } from "@prb/math/src/sd59x18/Math.sol";
 
@@ -46,6 +47,7 @@ contract RangeLMSR {
     uint256 public marketId;
     address public collateral; // USDC
     address public factoryContract;
+    address public vault; // Vault contract for delegated trading and redemption routing
 
     uint256 public numRanges;
     address[] public rangeTokens;
@@ -83,6 +85,7 @@ contract RangeLMSR {
     event Redemption(
         uint256 indexed marketId,
         address indexed user,
+        address indexed payoutTo,
         uint256 rangeIndex,
         uint256 sharesBurned,
         uint256 usdcOut
@@ -151,6 +154,15 @@ contract RangeLMSR {
         require(b > 0, "b underflow");
 
         emit LiquiditySeeded(provider, usdcAmount);
+    }
+
+    // ─── Vault Management ───
+
+    /// @notice Set the vault router address. Only callable by factory.
+    function setVault(address vault_) external {
+        require(msg.sender == factoryContract, "Only factory");
+        require(vault_ != address(0), "Zero vault");
+        vault = vault_;
     }
 
     // ─── LMSR cost function ───
@@ -537,7 +549,7 @@ contract RangeLMSR {
     // ─── Redemption (factory only) ───
 
     /// @notice Burn all of `user`'s winning range tokens and pay out 1 USDC per 1e18 tokens.
-    ///         Identical to RangeCPMM redemption logic.
+    /// @dev Payout is routed to the user's registered vault escrow when one exists.
     /// @param user       Address whose winning tokens are burned.
     /// @param rangeIndex Which range to redeem (must be winningRangeIndex).
     /// @return usdcOut   Amount of USDC paid out (6 decimals).
@@ -556,9 +568,21 @@ contract RangeLMSR {
         usdcOut = balance / DECIMAL_SCALE;
         require(usdcOut > 0, "Amount too small");
 
-        IERC20(collateral).safeTransfer(user, usdcOut);
+        address to = user;
+        address v = vault;
+        if (v != address(0)) {
+            address esc = IVaultRouter(v).escrowOf(user);
+            if (esc != address(0)) {
+                to = esc;
+            }
+        }
 
-        emit Redemption(marketId, user, rangeIndex, balance, usdcOut);
+        IERC20(collateral).safeTransfer(to, usdcOut);
+        if (to != user) {
+            IVaultRouter(vault).recordEscrowCredit(user, usdcOut);
+        }
+
+        emit Redemption(marketId, user, to, rangeIndex, balance, usdcOut);
     }
 
     // ─── Liquidity breaker ───

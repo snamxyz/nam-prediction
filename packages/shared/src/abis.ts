@@ -892,6 +892,20 @@ export const RangeMarketFactoryABI = [
   },
   {
     type: "function",
+    name: "setVault",
+    inputs: [{ name: "vault_", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "vault",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "getMarket",
     inputs: [{ name: "marketId", type: "uint256" }],
     outputs: [
@@ -936,6 +950,21 @@ export const RangeMarketFactoryABI = [
       { name: "marketId", type: "uint256", indexed: true },
       { name: "winningRangeIndex", type: "uint256", indexed: false },
     ],
+  },
+  {
+    type: "event",
+    name: "RangeRedeemed",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "rangeIndex", type: "uint256", indexed: false },
+      { name: "usdcOut", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "VaultUpdated",
+    inputs: [{ name: "newVault", type: "address", indexed: true }],
   },
 ] as const;
 
@@ -1069,6 +1098,20 @@ export const RangeLMSRABI = [
   },
   {
     type: "function",
+    name: "setVault",
+    inputs: [{ name: "vault_", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "vault",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "getRangeToken",
     inputs: [{ name: "rangeIndex", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
@@ -1126,6 +1169,18 @@ export const RangeLMSRABI = [
     name: "MarketResolutionNotified",
     inputs: [
       { name: "winningRangeIndex", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "Redemption",
+    inputs: [
+      { name: "marketId", type: "uint256", indexed: true },
+      { name: "user", type: "address", indexed: true },
+      { name: "payoutTo", type: "address", indexed: true },
+      { name: "rangeIndex", type: "uint256", indexed: false },
+      { name: "sharesBurned", type: "uint256", indexed: false },
+      { name: "usdcOut", type: "uint256", indexed: false },
     ],
   },
 ] as const;

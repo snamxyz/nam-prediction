@@ -19,9 +19,13 @@ async function main() {
   console.log("Configuring with account:", deployer.address);
   console.log("Vault:", VAULT_ADDRESS);
   console.log("MarketFactory:", MARKET_FACTORY);
+  if (RANGE_FACTORY) console.log("RangeMarketFactory:", RANGE_FACTORY);
 
   const vault = await ethers.getContractAt("Vault", VAULT_ADDRESS);
   const factory = await ethers.getContractAt("MarketFactory", MARKET_FACTORY);
+  const rangeFactory = RANGE_FACTORY
+    ? await ethers.getContractAt("RangeMarketFactory", RANGE_FACTORY)
+    : null;
   const registry = await ethers.getContractAt("PoolRegistry", POOL_REGISTRY);
 
   console.log("Setting PoolRegistry on Vault...");
@@ -55,6 +59,13 @@ async function main() {
   tx = await factory.setVault(VAULT_ADDRESS);
   await tx.wait();
   console.log("  Done:", tx.hash);
+
+  if (rangeFactory) {
+    console.log("Setting Vault on RangeMarketFactory...");
+    tx = await rangeFactory.setVault(VAULT_ADDRESS);
+    await tx.wait();
+    console.log("  Done:", tx.hash);
+  }
 
   console.log("\nVault configuration complete.");
 }

@@ -34,6 +34,7 @@ contract RangeMarketFactory {
 
     address public admin;
     address public collateral; // USDC
+    address public vault; // Vault contract for delegated trading and redemption routing
 
     // Implementation contracts for cloning
     address public rangeTokenImpl;
@@ -69,6 +70,7 @@ contract RangeMarketFactory {
     event RangeLiquidityDrained(uint256 indexed marketId, address indexed treasury, uint256 amount);
     event FeeWalletUpdated(address indexed newFeeWallet);
     event TreasuryUpdated(address indexed newTreasury);
+    event VaultUpdated(address indexed newVault);
 
     // ─── Modifiers ───
 
@@ -163,6 +165,11 @@ contract RangeMarketFactory {
         IERC20(collateral).safeTransferFrom(msg.sender, pool, liquidityUsdc);
         RangeLMSR(pool).seedLiquidity(liquidityUsdc, msg.sender);
 
+        // Set vault on pool if vault is configured.
+        if (vault != address(0)) {
+            RangeLMSR(pool).setVault(vault);
+        }
+
         // Register in whitelist
         isPool[pool] = true;
 
@@ -252,6 +259,11 @@ contract RangeMarketFactory {
     function setTreasury(address newTreasury) external onlyAdmin {
         treasury = newTreasury;
         emit TreasuryUpdated(newTreasury);
+    }
+
+    function setVault(address vault_) external onlyAdmin {
+        vault = vault_;
+        emit VaultUpdated(vault_);
     }
 
     function setProtocolFeeBps(uint256 newFeeBps) external onlyAdmin {

@@ -144,6 +144,12 @@ async function main() {
   console.log("Setting vault on MarketFactory...");
   tx = await factory.setVault(vaultAddr);
   await waitForWrite(tx);
+  if (process.env.RANGE_FACTORY_ADDRESS) {
+    console.log("Setting vault on RangeMarketFactory...");
+    const rangeFactory = await ethers.getContractAt("RangeMarketFactory", process.env.RANGE_FACTORY_ADDRESS);
+    tx = await rangeFactory.setVault(vaultAddr);
+    await waitForWrite(tx);
+  }
 
   const FEE_WALLET = process.env.FEE_WALLET || "";
   const TRADE_FEE_BPS = process.env.TRADE_FEE_BPS || "100";

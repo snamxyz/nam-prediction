@@ -40,7 +40,14 @@ async function main() {
   const factoryAddress = await factory.getAddress();
   console.log("[DeployRange] RangeMarketFactory:", factoryAddress);
 
-  // 4. Register the range factory once so all new range pools are accepted by Vault.
+  // 4. Configure the range factory so newly created range pools route redemptions into user escrows.
+  if (VAULT_ADDRESS) {
+    const tx = await factory.setVault(VAULT_ADDRESS);
+    await tx.wait();
+    console.log("[DeployRange] Set vault on range factory:", VAULT_ADDRESS);
+  }
+
+  // 5. Register the range factory once so all new range pools are accepted by Vault.
   if (POOL_REGISTRY_ADDRESS) {
     const registry = await ethers.getContractAt("PoolRegistry", POOL_REGISTRY_ADDRESS);
     const tx = await registry.setFactory(factoryAddress, true);
