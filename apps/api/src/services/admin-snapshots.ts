@@ -1,4 +1,7 @@
+import { CPMMABI } from "@nam-prediction/shared";
 import { and, count, desc, eq, gte, inArray, sql, sum } from "drizzle-orm";
+import { createPublicClient, formatUnits, http } from "viem";
+import { base } from "viem/chains";
 import { db } from "../db/client";
 import {
   markets,
@@ -29,6 +32,15 @@ const USER_SNAPSHOT_TTL_SECONDS = 120;
 const HEALTH_TTL_SECONDS = 900;
 const MAX_MARKET_SNAPSHOT_LIMIT = 200;
 const DUST = 1e-9;
+const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
+const adminSnapshotPublicClient = createPublicClient({
+  chain: base,
+  transport: http(RPC_URL, {
+    retryCount: 2,
+    retryDelay: 500,
+    timeout: 10_000,
+  }),
+});
 
 export interface SnapshotMetadata {
   snapshotAt: string;
@@ -197,6 +209,38 @@ export function computeMarketLiquidityAtRisk(input: {
 }): number {
   if (!input.resolved) return Math.max(0, input.liquidity);
   return Math.max(0, input.reservedClaims + input.outstandingWinningClaims);
+}
+
+async function getEffectiveLiquidityWithdrawn(input: {
+  marketId: number;
+  poolAddress?: string | null;
+  resolved: boolean;
+  liquidityDrained: boolean;
+  liquidityWithdrawn: number;
+}) {
+  if (
+    !input.resolved ||
+    !input.liquidityDrained ||
+    input.liquidityWithdrawn > DUST ||
+    !input.poolAddress?.startsWith("0x")
+  ) {
+    return input.liquidityWithdrawn;
+  }
+
+  try {
+    const withdrawnOnChain = (await adminSnapshotPublicClient.readContract({
+      address: input.poolAddress as `0x${string}`,
+      abi: CPMMABI,
+      functionName: "liquidityWithdrawn",
+    })) as bigint;
+    return Number(formatUnits(withdrawnOnChain, 6));
+  } catch (err) {
+    console.warn(
+      `[AdminSnapshots] Failed to read liquidityWithdrawn for market #${input.marketId}:`,
+      err
+    );
+    return input.liquidityWithdrawn;
+  }
 }
 
 export function summarizeBinaryPositionRows(
@@ -495,10 +539,16 @@ export async function buildAdminMarketsSnapshot(input: {
     }
   }
 
-  const binaryMarkets = rows.map((r) => {
+  const binaryMarkets = await Promise.all(rows.map(async (r) => {
     const liquidity = asNumber(r.market.liquidity);
     const seededLiquidity = asNumber(r.market.seededLiquidity) || (r.market.cadence === "24h" ? 1 : liquidity);
-    const liquidityWithdrawn = asNumber(r.market.liquidityWithdrawn);
+    const liquidityWithdrawn = await getEffectiveLiquidityWithdrawn({
+      marketId: r.market.id,
+      poolAddress: r.market.ammAddress,
+      resolved: r.market.resolved,
+      liquidityDrained: r.market.liquidityDrained,
+      liquidityWithdrawn: asNumber(r.market.liquidityWithdrawn),
+    });
     const reservedClaims = asNumber(r.market.reservedClaims);
     const outstandingWinningClaims = asNumber(r.market.outstandingWinningClaims);
     const traderPnl = binaryTraderPnlByMarket.get(r.market.id) ?? 0;
@@ -546,7 +596,7 @@ export async function buildAdminMarketsSnapshot(input: {
         })
       ),
     };
-  });
+  }));
 
   const rangeTraderPnlByMarket = new Map<number, number>();
   if (resolvedRangeIds.length > 0) {
@@ -572,9 +622,15 @@ export async function buildAdminMarketsSnapshot(input: {
     }
   }
 
-  const rangeAdminMarkets = rangeRows.map((r) => {
+  const rangeAdminMarkets = await Promise.all(rangeRows.map(async (r) => {
     const seededLiquidity = asNumber(r.market.totalLiquidity);
-    const liquidityWithdrawn = asNumber(r.market.liquidityWithdrawn);
+    const liquidityWithdrawn = await getEffectiveLiquidityWithdrawn({
+      marketId: r.market.id,
+      poolAddress: r.market.rangeCpmmAddress,
+      resolved: r.market.resolved,
+      liquidityDrained: r.market.liquidityDrained,
+      liquidityWithdrawn: asNumber(r.market.liquidityWithdrawn),
+    });
     const reservedClaims = asNumber(r.market.reservedClaims);
     const outstandingWinningClaims = asNumber(r.market.outstandingWinningClaims);
     const traderPnl = rangeTraderPnlByMarket.get(r.market.id) ?? 0;
@@ -628,7 +684,7 @@ export async function buildAdminMarketsSnapshot(input: {
         })
       ),
     };
-  });
+  }));
 
   const snapshotAt = new Date().toISOString();
   const allMarkets = [...binaryMarkets, ...rangeAdminMarkets]

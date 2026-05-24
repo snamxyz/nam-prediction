@@ -226,7 +226,7 @@ export function computeHousePnl(params: {
     return { pnl: null, source: "pending" };
   }
 
-  if (params.liquidityDrained) {
+  if (params.liquidityDrained && params.liquidityWithdrawn > DUST) {
     return {
       pnl: params.liquidityWithdrawn - params.seededLiquidity,
       source: "final",

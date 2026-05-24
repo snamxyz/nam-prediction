@@ -30,6 +30,31 @@ describe("computeHousePnl", () => {
     expect(pnl).toBeCloseTo(-0.47, 6);
   });
 
+  test("post-drain token market shows drained liquidity minus initial seed", () => {
+    const { pnl, source } = computeHousePnl({
+      resolved: true,
+      liquidityDrained: true,
+      seededLiquidity: 1,
+      liquidityWithdrawn: 1.91,
+      traderRealisedPnlSum: -0.92,
+    });
+    expect(source).toBe("final");
+    expect(pnl).toBeCloseTo(0.91, 6);
+  });
+
+  test("drained market with missing withdrawn amount uses trade-based estimate", () => {
+    const { pnl, source } = computeHousePnl({
+      resolved: true,
+      liquidityDrained: true,
+      seededLiquidity: 1,
+      liquidityWithdrawn: 0,
+      traderRealisedPnlSum: -0.92,
+    });
+    expect(source).toBe("estimated");
+    expect(pnl).toBeCloseTo(0.92, 6);
+    expect(pnl).not.toBe(-1);
+  });
+
   test("old bug: pre-drain treasury formula would show -$1", () => {
     const legacyPnl = 0 - 1;
     expect(legacyPnl).toBe(-1);
