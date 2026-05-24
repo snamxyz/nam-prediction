@@ -334,6 +334,10 @@ export async function processTradeFill(input: TradeFillInput): Promise<void> {
       lastTradeIsBuy: isBuy,
       volume: newVolume,
       pricesStale: !pricesFetched,
+      status: "confirmed",
+      provisional: false,
+      txHash,
+      publishedAt: new Date().toISOString(),
     };
 
     await publishEvent("market:price", marketStatsPayload);

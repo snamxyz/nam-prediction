@@ -14,6 +14,9 @@ interface MarketPriceUpdate {
   lastTradeIsBuy?: boolean;
   volume?: number;
   liquidity?: number;
+  status?: "provisional" | "confirmed" | "corrected" | "reverted";
+  provisional?: boolean;
+  txHash?: string;
   type?: string;
 }
 
@@ -43,6 +46,9 @@ export interface LiveMarketStats {
   lastTradeIsBuy?: boolean;
   volume?: number;
   liquidity?: number;
+  status?: "provisional" | "confirmed" | "corrected" | "reverted";
+  provisional?: boolean;
+  txHash?: string;
 }
 
 export function useMarketSocket(marketId: number | undefined) {
@@ -71,6 +77,9 @@ export function useMarketSocket(marketId: number | undefined) {
         lastTradeIsBuy: data.lastTradeIsBuy,
         volume: data.volume,
         liquidity: data.liquidity,
+        status: data.status,
+        provisional: data.provisional,
+        txHash: data.txHash,
       });
     };
 

@@ -10,6 +10,7 @@ import { useAccount } from "wagmi";
 import { Toaster } from "sonner";
 import { NavigationProgress } from "@/components/NavigationProgress";
 import { ThemeProvider, useTheme } from "@/components/ThemeProvider";
+import { useLiveMarketPrices } from "@/hooks/useLiveMarketPrices";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -61,6 +62,7 @@ function ThemedProviders({
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>
           <WalletActivator />
+          <LiveMarketPriceUpdater />
           <NavigationProgress />
           {children}
           <Toaster
@@ -103,5 +105,10 @@ function WalletActivator() {
     });
   }, [address, authenticated, setActiveWallet, user, wallets]);
 
+  return null;
+}
+
+function LiveMarketPriceUpdater() {
+  useLiveMarketPrices();
   return null;
 }

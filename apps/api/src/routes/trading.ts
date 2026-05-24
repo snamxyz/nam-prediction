@@ -24,7 +24,7 @@ import {
 } from "@nam-prediction/shared";
 import { verifyPrivyToken, privyClient } from "../middleware/auth";
 import { getCache, cacheKeys, redis } from "../lib/redis";
-import { getNonceManager } from "../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../lib/nonce-manager.instance";
 import {
   processTradeFill,
   watchTradesForPool,
@@ -32,7 +32,8 @@ import {
 } from "../services/indexer";
 import { reconcilePositionsForWallet } from "../services/position-reconciler";
 import { formatMarketQuestion } from "../lib/market-display";
-import { estimateBuy, estimateSell } from "../lib/amm-estimates";
+import { estimateBuy, estimateSell, pricesFromReserves, projectBuyAfterFees } from "../lib/amm-estimates";
+import { formatReserve, publishBinaryLivePrice } from "../services/live-market-events";
 
 // Writes can optionally be broadcast through a separate endpoint (e.g. the
 // free public RPC, since writes are cheap and infrequent) while reads go
@@ -598,6 +599,48 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
     }
   )
 
+  // ─── Current share balance for sell-max flows ───
+  .get(
+    "/share-balance",
+    async ({ query, set }) => {
+      const { marketId, side, wallet } = query;
+      const market = await db
+        .select()
+        .from(markets)
+        .where(eq(markets.id, Number(marketId)))
+        .limit(1);
+
+      if (market.length === 0) {
+        set.status = 404;
+        return { success: false, error: "Market not found" };
+      }
+
+      const m = market[0];
+      const tokenAddress = (side.toLowerCase() === "yes" ? m.yesToken : m.noToken) as `0x${string}`;
+      const raw = await publicClient.readContract({
+        address: tokenAddress,
+        abi: OutcomeTokenABI,
+        functionName: "balanceOf",
+        args: [wallet as `0x${string}`],
+      }) as bigint;
+
+      return {
+        success: true,
+        data: {
+          balance: formatUnits(raw, 18),
+          balanceRaw: raw.toString(),
+        },
+      };
+    },
+    {
+      query: t.Object({
+        marketId: t.String(),
+        side: t.String(),
+        wallet: t.String(),
+      }),
+    }
+  )
+
   // ─── Issue a fresh one-time nonce for a trade intent ───
   //
   // Stateless + unique: `(epochMs << 16) | random16`. Uniqueness is enforced
@@ -705,8 +748,11 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         return { success: false, error: "Nonce already used" };
       }
 
+      let provisionalPublished = false;
+
       // Best-effort slippage check before dispatching the tx.
       try {
+        const acceptedAt = Date.now();
         if (!VAULT_ADDRESS) throw new Error("Vault not configured");
 
         // One multicall: vault balance + both reserves + both fee tiers.
@@ -729,7 +775,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           throw new Error("Insufficient deposited balance");
         }
 
-        const { sharesOut: expectedShares } = estimateBuy(
+        const projected = projectBuyAfterFees(
           usdcParsed,
           lpFeeBps,
           protocolFeeBps,
@@ -737,9 +783,34 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           noReserve,
           isYes
         );
+        const expectedShares = projected.sharesOut;
         if (expectedShares < minOutputParsed) {
           throw new Error("Slippage too high: expected output below minimum");
         }
+
+        const projectedPrices = pricesFromReserves(projected.newYesReserve, projected.newNoReserve);
+        const expectedSharesNum = Number(expectedShares) / 1e18;
+        const collateralNum = Number(usdcParsed) / 1e6;
+        await publishBinaryLivePrice({
+          marketId,
+          yesPrice: projectedPrices.yesPrice,
+          noPrice: projectedPrices.noPrice,
+          yesReserve: formatReserve(projected.newYesReserve),
+          noReserve: formatReserve(projected.newNoReserve),
+          lastTradePrice: expectedSharesNum > 0 ? collateralNum / expectedSharesNum : 0,
+          lastTradeSide: side,
+          lastTradeIsBuy: true,
+          volume: Number(m.volume) + collateralNum,
+          status: "provisional",
+          provisional: true,
+          nonce,
+        });
+        provisionalPublished = true;
+        console.log("[Trading] Provisional buy price published", {
+          marketId,
+          side,
+          elapsedMs: Date.now() - acceptedAt,
+        });
 
         // Make sure the indexer is watching this pool, in case the market was
         // added after startup and no factory event ever fired.
@@ -748,7 +819,8 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         if (!BINARY_CPMM_ADAPTER_ADDRESS) throw new Error("BINARY_CPMM_ADAPTER_ADDRESS not configured");
         const walletClient = getWalletClient();
         const tradeData = encodeBinaryTrade(isYes ? 0 : 1, usdcParsed, minOutputParsed);
-        const txHash = await getNonceManager().withNonce((nonce) =>
+        const nonceManager = await getInitializedNonceManager();
+        const txHash = await nonceManager.withNonce((nonce) =>
           walletClient.writeContract({
             address: VAULT_ADDRESS,
             abi: VaultABI,
@@ -783,7 +855,7 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         });
 
         console.log(
-          `[Trading] Buy filled: ${formatUnits(filled.shares, 18)} ${side} for ${formatUnits(filled.collateral, 6)} USDC`
+          `[Trading] Buy filled: ${formatUnits(filled.shares, 18)} ${side} for ${formatUnits(filled.collateral, 6)} USDC (${Date.now() - acceptedAt}ms)`
         );
 
         return {
@@ -795,6 +867,19 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
           },
         };
       } catch (err: any) {
+        if (provisionalPublished) {
+          await publishBinaryLivePrice({
+            marketId,
+            yesPrice: m.yesPrice ?? 0.5,
+            noPrice: m.noPrice ?? 0.5,
+            lastTradeSide: side,
+            lastTradeIsBuy: true,
+            volume: Number(m.volume),
+            status: "reverted",
+            provisional: false,
+            nonce,
+          });
+        }
         // Tx failed — release the nonce so the user can retry with the same signature.
         await releaseNonce(walletAddress, nonce);
         console.error("[Trading] Buy failed:", err);
@@ -930,7 +1015,8 @@ export const tradingRoutes = new Elysia({ prefix: "/trading" })
         if (!BINARY_CPMM_ADAPTER_ADDRESS) throw new Error("BINARY_CPMM_ADAPTER_ADDRESS not configured");
         const walletClient = getWalletClient();
         const tradeData = encodeBinaryTrade(isYes ? 2 : 3, sharesParsed, minOutputParsed);
-        const txHash = await getNonceManager().withNonce((nonce) =>
+        const nonceManager = await getInitializedNonceManager();
+        const txHash = await nonceManager.withNonce((nonce) =>
           walletClient.writeContract({
             address: VAULT_ADDRESS,
             abi: VaultABI,

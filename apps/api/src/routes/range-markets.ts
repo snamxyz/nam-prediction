@@ -21,6 +21,7 @@ import {
   RangeLMSRABI,
   VaultABI,
   ERC20ABI,
+  OutcomeTokenABI,
   TRADING_DOMAIN,
   RANGE_TRADE_INTENT_TYPES,
   RANGE_TRADE_INTENT_PRIMARY_TYPE,
@@ -29,7 +30,7 @@ import {
 // Unified pool ABI: RangeLMSRABI is a superset of RangeCPMMABI for identical functions.
 const RangePoolABI = RangeLMSRABI;
 import { publishEvent, getCache, setCache, cacheKeys, redis } from "../lib/redis";
-import { getNonceManager } from "../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../lib/nonce-manager.instance";
 import { verifyPrivyToken, privyClient } from "../middleware/auth";
 import { fetchRangeActivity } from "../services/range-activity";
 import { queueAdminSnapshotRefresh } from "../services/admin-snapshots";
@@ -160,6 +161,67 @@ async function fetchOnChainPrices(cpmmAddress: string): Promise<number[]> {
   } catch {
     return [];
   }
+}
+
+async function fetchProjectedRangeBuyPrices(
+  client: ReturnType<typeof getPublicClient>,
+  cpmmAddress: `0x${string}`,
+  rangeCount: number,
+  rangeIndex: number,
+  usdcAmountRaw: bigint
+): Promise<{ prices: number[]; quotedShares: bigint } | null> {
+  if (rangeCount <= 0 || rangeIndex < 0 || rangeIndex >= rangeCount) return null;
+
+  const poolResults = await client.multicall({
+    allowFailure: false,
+    contracts: [
+      {
+        address: cpmmAddress,
+        abi: RangePoolABI,
+        functionName: "quoteBuy",
+        args: [BigInt(rangeIndex), usdcAmountRaw],
+      },
+      {
+        address: cpmmAddress,
+        abi: RangePoolABI,
+        functionName: "b",
+      },
+      ...Array.from({ length: rangeCount }, (_, i) => ({
+        address: cpmmAddress,
+        abi: RangePoolABI,
+        functionName: "getRangeToken",
+        args: [BigInt(i)],
+      })),
+    ],
+  });
+
+  const quotedShares = poolResults[0] as bigint;
+  const liquidityB = poolResults[1] as bigint;
+  const tokenAddresses = poolResults.slice(2) as `0x${string}`[];
+  if (liquidityB <= 0n || tokenAddresses.length !== rangeCount) return null;
+
+  const supplies = await client.multicall({
+    allowFailure: false,
+    contracts: tokenAddresses.map((address) => ({
+      address,
+      abi: OutcomeTokenABI,
+      functionName: "totalSupply",
+    })),
+  }) as bigint[];
+
+  const ratios = supplies.map((supply, i) => {
+    const projectedSupply = i === rangeIndex ? supply + quotedShares : supply;
+    return Number(projectedSupply) / Number(liquidityB);
+  });
+  const maxRatio = Math.max(...ratios);
+  const weights = ratios.map((ratio) => Math.exp(ratio - maxRatio));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  if (!Number.isFinite(totalWeight) || totalWeight <= 0) return null;
+
+  return {
+    quotedShares,
+    prices: weights.map((weight) => weight / totalWeight),
+  };
 }
 
 const SHARES_DECIMALS = 18n;
@@ -316,6 +378,10 @@ async function publishRangePriceEvents(args: {
   ranges: unknown;
   marketType: string;
   status: string;
+  priceStatus?: "provisional" | "confirmed" | "corrected" | "reverted";
+  provisional?: boolean;
+  nonce?: string;
+  txHash?: string;
 }) {
   const payload = {
     marketId: args.marketId,
@@ -323,6 +389,11 @@ async function publishRangePriceEvents(args: {
     ranges: args.ranges,
     marketType: args.marketType,
     status: args.status,
+    priceStatus: args.priceStatus ?? "confirmed",
+    provisional: args.provisional ?? false,
+    nonce: args.nonce,
+    txHash: args.txHash,
+    publishedAt: new Date().toISOString(),
     type: "range",
   };
   await publishEvent("market:price", payload);
@@ -754,6 +825,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       const usdcAmountRaw = parseUnits(String(usdcAmount), 6);
       const cpmmAddress = market.rangeCpmmAddress as `0x${string}`;
       const minOutputRaw = minOutput ? BigInt(minOutput) : BigInt(0);
+      let provisionalPublished = false;
 
       try {
         await verifyRangeTradeSignature({
@@ -782,9 +854,10 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       }
 
       try {
+        const acceptedAt = Date.now();
         const walletClient = getWalletClient();
         const publicClient = getPublicClient();
-        const nm = getNonceManager();
+        const nm = await getInitializedNonceManager();
 
         // Vault pre-flight: check escrow existence and balance using fresh on-chain reads
         if (VAULT_ADDRESS) {
@@ -808,18 +881,52 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
         let buyHash: `0x${string}`;
         let sharesOutRaw = BigInt(0);
 
+        let projectedBuy: { prices: number[]; quotedShares: bigint } | null = null;
+        try {
+          projectedBuy = await fetchProjectedRangeBuyPrices(
+            publicClient,
+            cpmmAddress,
+            ranges.length,
+            rangeIndex,
+            usdcAmountRaw
+          );
+        } catch (projectErr) {
+          console.warn("[RangeMarkets] Failed to project provisional buy prices:", getErrorMessage(projectErr));
+        }
+
         if (minOutputRaw > 0n) {
-          const quotedShares = await publicClient.readContract({
-            address: cpmmAddress,
-            abi: RangePoolABI,
-            functionName: "quoteBuy",
-            args: [BigInt(rangeIndex), usdcAmountRaw],
-          }) as bigint;
+          const quotedShares =
+            projectedBuy?.quotedShares ??
+            ((await publicClient.readContract({
+              address: cpmmAddress,
+              abi: RangePoolABI,
+              functionName: "quoteBuy",
+              args: [BigInt(rangeIndex), usdcAmountRaw],
+            })) as bigint);
           if (quotedShares < minOutputRaw) {
             await releaseRangeNonce(userAddress, nonce);
             set.status = 400;
             return { error: "Slippage: current quote below signed minimum", success: false };
           }
+        }
+
+        if (projectedBuy?.prices.length === ranges.length) {
+          await publishRangePriceEvents({
+            marketId: id,
+            rangePrices: projectedBuy.prices,
+            ranges: market.ranges,
+            marketType: market.marketType,
+            status: market.status,
+            priceStatus: "provisional",
+            provisional: true,
+            nonce,
+          });
+          provisionalPublished = true;
+          console.log("[RangeMarkets] Provisional buy price published", {
+            marketId: id,
+            rangeIndex,
+            elapsedMs: Date.now() - acceptedAt,
+          });
         }
 
         if (VAULT_ADDRESS) {
@@ -897,6 +1004,9 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
             ranges: market.ranges,
             marketType: market.marketType,
             status: market.status,
+            priceStatus: "confirmed",
+            provisional: false,
+            txHash: buyHash,
           });
           console.log("[RangeMarkets] Buy price update published", {
             marketId: id,
@@ -1004,6 +1114,23 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
           },
         };
       } catch (err: unknown) {
+        if (provisionalPublished) {
+          const rollbackPrices = Array.isArray(market.rangePrices)
+            ? (market.rangePrices as number[])
+            : [];
+          if (rollbackPrices.length > 0) {
+            await publishRangePriceEvents({
+              marketId: id,
+              rangePrices: rollbackPrices,
+              ranges: market.ranges,
+              marketType: market.marketType,
+              status: market.status,
+              priceStatus: "reverted",
+              provisional: false,
+              nonce,
+            });
+          }
+        }
         // Tx never landed — release the nonce so the user can retry with the same signature.
         await releaseRangeNonce(userAddress, nonce);
         console.error("[RangeMarkets] Buy error:", err);
@@ -1107,7 +1234,7 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
       try {
         const walletClient = getWalletClient();
         const publicClient = getPublicClient();
-        const nm = getNonceManager();
+        const nm = await getInitializedNonceManager();
 
         let safeSharesRaw: bigint;
         let sellHash: `0x${string}`;

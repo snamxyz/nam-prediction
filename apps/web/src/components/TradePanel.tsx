@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useAccount } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePrivy } from "@privy-io/react-auth";
-import { createWalletClient, custom, parseUnits } from "viem";
+import { createWalletClient, custom, formatUnits, parseUnits } from "viem";
 import { base } from "viem/chains";
 import {
   TRADING_DOMAIN,
@@ -78,6 +78,11 @@ interface NonceResponse {
   suggestedDeadline: string;
 }
 
+interface ShareBalanceResponse {
+  balance: string;
+  balanceRaw: string;
+}
+
 export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, noPrice, outcomeLabels, defaultSide = "YES" }: TradePanelProps) {
   const { address, isConnected } = useAccount();
   const { isAuthenticated, login } = useAuth();
@@ -103,6 +108,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justTraded, setJustTraded] = useState(false);
+  const [sellMaxSelected, setSellMaxSelected] = useState(false);
   const justTradedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [estimate, setEstimate] = useState<
@@ -209,19 +215,65 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
         transport: custom(provider),
       });
 
-      // Parse amount in the correct units
-      const amountRaw =
-        mode === "BUY" ? parseUnits(amount, 6) : parseUnits(amount, 18);
+      let tradeAmount = amount;
+      let tradeEstimate = estimate;
+      let amountRaw =
+        mode === "BUY" ? parseUnits(tradeAmount, 6) : parseUnits(tradeAmount, 18);
+
+      if (mode === "SELL") {
+        const balance = await fetchApi<ShareBalanceResponse>(
+          `/trading/share-balance?marketId=${marketId}&side=${side.toLowerCase()}&wallet=${signerAddress}`
+        );
+        const liveBalanceRaw = BigInt(balance.balanceRaw);
+
+        if (sellMaxSelected) {
+          // Leave one wei behind so MAX cannot overshoot because of DB/indexer
+          // drift, decimal formatting, or a just-confirmed prior sell.
+          const zero = BigInt(0);
+          const oneWei = BigInt(1);
+          const safeRaw = liveBalanceRaw > zero ? liveBalanceRaw - oneWei : zero;
+          if (safeRaw <= zero) throw new Error("Insufficient share balance");
+          amountRaw = safeRaw;
+          tradeAmount = formatUnits(safeRaw, 18);
+        } else if (amountRaw > liveBalanceRaw) {
+          throw new Error("Insufficient share balance");
+        }
+
+        if (
+          !tradeEstimate ||
+          tradeEstimate.quoteMode !== "SELL" ||
+          tradeEstimate.quoteSide !== side ||
+          tradeEstimate.quoteAmount !== tradeAmount
+        ) {
+          const quoted = await fetchApi<EstimateSellResponse>(
+            `/trading/estimate-sell?marketId=${marketId}&side=${side.toLowerCase()}&sharesAmount=${tradeAmount}`
+          );
+          tradeEstimate = {
+            usdc: quoted.usdcOut,
+            usdcRaw: quoted.usdcOutRaw,
+            avgPrice: quoted.avgPrice,
+            grossAmount: quoted.grossAmount,
+            netAmount: quoted.netAmount,
+            protocolFee: quoted.protocolFee,
+            protocolFeeBps: quoted.protocolFeeBps,
+            quoteAmount: tradeAmount,
+            quoteSide: side,
+            quoteMode: "SELL",
+          };
+          setEstimate(tradeEstimate);
+          setAmount(tradeAmount);
+        }
+      }
 
       // Derive slippage floor from the last quoted estimate
       const slippageBps = BigInt(Math.round(slippagePct * 100));
       const BPS_DENOM = BigInt(10000);
       let minOutput = BigInt(0);
-      if (mode === "BUY" && estimate?.sharesRaw) {
-        const expected = BigInt(estimate.sharesRaw);
+      if (mode === "BUY" && tradeEstimate?.sharesRaw) {
+        const expected = BigInt(tradeEstimate.sharesRaw);
         minOutput = (expected * (BPS_DENOM - slippageBps)) / BPS_DENOM;
-      } else if (mode === "SELL" && estimate?.usdcRaw) {
-        const expected = BigInt(estimate.usdcRaw);
+      } else if (mode === "SELL" && tradeEstimate?.usdcRaw) {
+        const expected = BigInt(tradeEstimate.usdcRaw);
         minOutput = (expected * (BPS_DENOM - slippageBps)) / BPS_DENOM;
       }
 
@@ -276,7 +328,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
       const successMsg =
         mode === "BUY"
           ? `Bought ${side} \u00b7 $${amountLabel}`
-          : `Sold ${side} \u00b7 ${amountLabel} shares`;
+          : `Sold ${side} \u00b7 ${tradeAmount} shares`;
       toast.success(successMsg, { id: toastId });
 
       // Trigger success animation
@@ -286,6 +338,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
 
       setAmount("");
       setEstimate(null);
+      setSellMaxSelected(false);
     } catch (err: any) {
       console.error("Trade failed:", err);
       const msg = err.shortMessage || err.message || "Trade failed";
@@ -414,10 +467,12 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
     if (ownedShares <= 0) return;
     if (pct >= 100) {
       setAmount(ownedSharesStr);
+      setSellMaxSelected(true);
       return;
     }
     const v = ownedShares * (pct / 100);
     setAmount(v.toFixed(6));
+    setSellMaxSelected(false);
   };
 
   return (
@@ -442,7 +497,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             return (
               <button
                 key={m}
-                onClick={() => { setMode(m); setAmount(""); setEstimate(null); setError(null); }}
+                onClick={() => { setMode(m); setAmount(""); setEstimate(null); setError(null); setSellMaxSelected(false); }}
                 className={`cursor-pointer rounded-lg border py-2 text-[11px] font-bold transition-all duration-150 ${
                   active
                     ? m === "BUY"
@@ -465,7 +520,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             return (
               <button
                 key={s}
-                onClick={() => setSide(s)}
+                onClick={() => { setSide(s); setSellMaxSelected(false); }}
                 className={`cursor-pointer rounded-lg border py-2.5 text-[13px] font-semibold transition-all duration-150 ${
                   active
                     ? s === "YES"
@@ -503,7 +558,7 @@ export function TradePanel({ marketId, onChainMarketId, ammAddress, yesPrice, no
             min="0"
             placeholder="0"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => { setAmount(e.target.value); setSellMaxSelected(false); }}
             className={`mono w-full rounded-lg border border-white/[0.04] bg-[var(--surface-hover)] py-2.5 pr-3.5 text-right text-[13px] text-[var(--foreground)] outline-none ${
               mode === "BUY" ? "pl-7" : "pl-3.5"
             }`}

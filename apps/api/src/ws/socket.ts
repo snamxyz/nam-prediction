@@ -83,6 +83,10 @@ function subscribeToRedis() {
 
       switch (channel) {
         case CHANNELS.MARKET_PRICE:
+          // Price updates are lightweight and drive list-page caches, so fan
+          // them out globally; clients filter by marketId.
+          io.emit(channel, data);
+          break;
         case CHANNELS.MARKET_UPDATE:
         case CHANNELS.MARKET_LOCKED:
         case CHANNELS.MARKET_RESOLVED:

@@ -44,6 +44,57 @@ export function estimateBuy(
   return { sharesOut, protocolFee, netIn };
 }
 
+export function projectBuyAfterFees(
+  usdcIn: bigint,
+  lpFeeBps: bigint,
+  protocolFeeBps: bigint,
+  yesReserve: bigint,
+  noReserve: bigint,
+  isYes: boolean
+): {
+  sharesOut: bigint;
+  protocolFee: bigint;
+  netIn: bigint;
+  newYesReserve: bigint;
+  newNoReserve: bigint;
+} {
+  const protocolFee = (usdcIn * protocolFeeBps) / BPS_DENOM;
+  const netIn = usdcIn - protocolFee;
+  const lpFee = (netIn * lpFeeBps) / BPS_DENOM;
+  const usdcAfterFee = netIn - lpFee;
+  const scaledIn = usdcAfterFee * DECIMAL_SCALE;
+  const k = yesReserve * noReserve;
+
+  let sharesOut: bigint;
+  let newYesReserve: bigint;
+  let newNoReserve: bigint;
+
+  if (isYes) {
+    newNoReserve = noReserve + scaledIn;
+    newYesReserve = k / newNoReserve;
+    sharesOut = scaledIn + (yesReserve - newYesReserve);
+  } else {
+    newYesReserve = yesReserve + scaledIn;
+    newNoReserve = k / newYesReserve;
+    sharesOut = scaledIn + (noReserve - newNoReserve);
+  }
+
+  return { sharesOut, protocolFee, netIn, newYesReserve, newNoReserve };
+}
+
+export function pricesFromReserves(yesReserve: bigint, noReserve: bigint): {
+  yesPrice: number;
+  noPrice: number;
+} {
+  const total = yesReserve + noReserve;
+  if (total === 0n) return { yesPrice: 0.5, noPrice: 0.5 };
+
+  return {
+    yesPrice: Number(noReserve) / Number(total),
+    noPrice: Number(yesReserve) / Number(total),
+  };
+}
+
 function estimateSellGrossScaled(
   sharesIn: bigint,
   yesReserve: bigint,

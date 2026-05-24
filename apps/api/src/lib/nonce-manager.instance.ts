@@ -55,6 +55,7 @@ function createInstance(): NonceManager {
 
 /** Singleton instance — created lazily on first access. */
 let _instance: NonceManager | null = null;
+let _initPromise: Promise<void> | null = null;
 
 export function getNonceManager(): NonceManager {
   if (!_instance) {
@@ -68,6 +69,22 @@ export function getNonceManager(): NonceManager {
  * Loads state from Redis or syncs from on-chain.
  */
 export async function initNonceManager(): Promise<void> {
-  const nm = getNonceManager();
-  await nm.init();
+  if (!_initPromise) {
+    const nm = getNonceManager();
+    _initPromise = nm.init().catch((err) => {
+      _initPromise = null;
+      throw err;
+    });
+  }
+  await _initPromise;
+}
+
+/**
+ * Lazily initialize the nonce manager before request-path transactions.
+ * This covers dev/worker profiles where startup init may be disabled or still
+ * in progress when the first trade arrives.
+ */
+export async function getInitializedNonceManager(): Promise<NonceManager> {
+  await initNonceManager();
+  return getNonceManager();
 }
