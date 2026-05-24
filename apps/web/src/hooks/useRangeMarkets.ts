@@ -91,6 +91,15 @@ interface RangePriceUpdate {
   type?: string;
 }
 
+interface RangeTradeUpdate extends RangePriceUpdate {
+  trader?: string;
+  rangeIndex?: number;
+  isBuy?: boolean;
+  shares?: string;
+  collateral?: string;
+  txHash?: string;
+}
+
 interface RangeResolvedUpdate {
   marketId: number;
   winningRangeIndex?: number;
@@ -120,9 +129,15 @@ export function useRangeMarketSocket(marketId: number | undefined) {
 
     socket.emit("join:market", marketId);
 
+    const normalizeRangePrices = (data: RangePriceUpdate) => {
+      if (data.type && data.type !== "range") return undefined;
+      if (!Array.isArray(data.rangePrices)) return undefined;
+      const prices = data.rangePrices.filter((price) => Number.isFinite(price));
+      return prices.length === data.rangePrices.length && prices.length > 0 ? prices : undefined;
+    };
+
     const patchRangeMarket = (data: RangePriceUpdate | RangeResolvedUpdate) => {
-      const hasPrices = "rangePrices" in data && Array.isArray(data.rangePrices);
-      const prices = hasPrices ? data.rangePrices : undefined;
+      const prices = "rangePrices" in data ? normalizeRangePrices(data) : undefined;
 
       if (prices) setLivePrices(prices);
 
@@ -169,8 +184,7 @@ export function useRangeMarketSocket(marketId: number | undefined) {
     };
 
     const handlePrice = (data: RangePriceUpdate) => {
-      if (data.marketId !== marketId || !data.rangePrices) return;
-      if (data.type && data.type !== "range") return;
+      if (data.marketId !== marketId || !normalizeRangePrices(data)) return;
       patchRangeMarket(data);
     };
 
@@ -183,18 +197,30 @@ export function useRangeMarketSocket(marketId: number | undefined) {
 
     const handleUpdate = (data: RangePriceUpdate) => {
       if (data.marketId !== marketId) return;
+      if (data.type && data.type !== "range") return;
+      if (!normalizeRangePrices(data) && !data.status) return;
       patchRangeMarket(data);
       queryClient.invalidateQueries({ queryKey: ["range-market", marketId] });
     };
 
+    const handleTrade = (data: RangeTradeUpdate) => {
+      if (data.marketId !== marketId) return;
+      if (data.type && data.type !== "range") return;
+      const prices = normalizeRangePrices(data);
+      if (prices) patchRangeMarket({ ...data, rangePrices: prices });
+      queryClient.invalidateQueries({ queryKey: ["range-trades", marketId] });
+    };
+
     socket.on("market:price", handlePrice);
     socket.on("market:update", handleUpdate);
+    socket.on("trade:new", handleTrade);
     socket.on("market:resolved", handleResolved);
 
     return () => {
       socket.emit("leave:market", marketId);
       socket.off("market:price", handlePrice);
       socket.off("market:update", handleUpdate);
+      socket.off("trade:new", handleTrade);
       socket.off("market:resolved", handleResolved);
     };
   }, [socket, marketId, connected, queryClient]);

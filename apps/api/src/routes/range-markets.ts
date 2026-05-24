@@ -310,6 +310,54 @@ async function refreshAndEmitVaultBalance(userAddress: string): Promise<void> {
   }
 }
 
+async function publishRangePriceEvents(args: {
+  marketId: number;
+  rangePrices: number[];
+  ranges: unknown;
+  marketType: string;
+  status: string;
+}) {
+  const payload = {
+    marketId: args.marketId,
+    rangePrices: args.rangePrices,
+    ranges: args.ranges,
+    marketType: args.marketType,
+    status: args.status,
+    type: "range",
+  };
+  await publishEvent("market:price", payload);
+  await publishEvent("market:update", payload);
+}
+
+async function publishRangeTradeEvent(args: {
+  marketId: number;
+  trader: string;
+  rangeIndex: number;
+  isBuy: boolean;
+  shares: string;
+  collateral: string;
+  txHash: string;
+  rangePrices: number[];
+  ranges: unknown;
+  marketType: string;
+  status: string;
+}) {
+  await publishEvent("trade:new", {
+    marketId: args.marketId,
+    trader: args.trader,
+    rangeIndex: args.rangeIndex,
+    isBuy: args.isBuy,
+    shares: args.shares,
+    collateral: args.collateral,
+    txHash: args.txHash,
+    rangePrices: args.rangePrices,
+    ranges: args.ranges,
+    marketType: args.marketType,
+    status: args.status,
+    type: "range",
+  });
+}
+
 /**
  * Verify an EIP-712 range trade intent signature.
  * Returns the recovered signer address (lowercased) or throws.
@@ -838,17 +886,17 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
 
         const newPrices = await fetchOnChainPrices(cpmmAddress);
 
-        // Fire WebSocket price update FIRST — before any DB writes.
-        // This ensures the UI always sees price changes even if DB writes fail.
+        // Publish both range price events consumed by live clients.
         if (newPrices.length > 0) {
           await db.update(rangeMarkets)
             .set({ rangePrices: newPrices })
             .where(eq(rangeMarkets.id, id));
-          await publishEvent("market:price", {
+          await publishRangePriceEvents({
             marketId: id,
             rangePrices: newPrices,
             ranges: market.ranges,
-            type: "range",
+            marketType: market.marketType,
+            status: market.status,
           });
           console.log("[RangeMarkets] Buy price update published", {
             marketId: id,
@@ -880,6 +928,19 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
             pricesSnapshot: newPrices,
             txHash: buyHash,
           }).onConflictDoNothing();
+          await publishRangeTradeEvent({
+            marketId: id,
+            trader: userAddress.toLowerCase(),
+            rangeIndex,
+            isBuy: true,
+            shares: sharesStr,
+            collateral: usdcAmount.toFixed(6),
+            txHash: buyHash,
+            rangePrices: newPrices,
+            ranges: market.ranges,
+            marketType: market.marketType,
+            status: market.status,
+          });
         } catch (dbErr) {
           console.error("[RangeMarkets] Buy: trade insert failed (non-fatal):", dbErr);
         }
@@ -1163,16 +1224,17 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
 
         const newPrices = await fetchOnChainPrices(cpmmAddress);
 
-        // Fire WebSocket price update FIRST — before any DB writes.
+        // Publish both range price events consumed by live clients.
         if (newPrices.length > 0) {
           await db.update(rangeMarkets)
             .set({ rangePrices: newPrices })
             .where(eq(rangeMarkets.id, id));
-          await publishEvent("market:price", {
+          await publishRangePriceEvents({
             marketId: id,
             rangePrices: newPrices,
             ranges: market.ranges,
-            type: "range",
+            marketType: market.marketType,
+            status: market.status,
           });
           console.log("[RangeMarkets] Sell price update published", {
             marketId: id,
@@ -1198,6 +1260,19 @@ export const rangeMarketRoutes = new Elysia({ prefix: "/range-markets" })
             pricesSnapshot: newPrices,
             txHash: sellHash,
           }).onConflictDoNothing();
+          await publishRangeTradeEvent({
+            marketId: id,
+            trader: userAddress.toLowerCase(),
+            rangeIndex,
+            isBuy: false,
+            shares: actualSharesSoldStr,
+            collateral: "0.000000",
+            txHash: sellHash,
+            rangePrices: newPrices,
+            ranges: market.ranges,
+            marketType: market.marketType,
+            status: market.status,
+          });
         } catch (dbErr) {
           console.error("[RangeMarkets] Sell: trade insert failed (non-fatal):", dbErr);
         }

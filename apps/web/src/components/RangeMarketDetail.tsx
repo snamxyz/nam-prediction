@@ -90,6 +90,10 @@ function getMarketDayTime(market: Pick<RangeMarket, "date" | "endTime" | "create
   return Date.parse(market.createdAt);
 }
 
+function arePriceArraysEqual(left: number[], right: number[]) {
+  return left.length === right.length && left.every((price, index) => Math.abs(price - right[index]) < 1e-12);
+}
+
 function useCountdown(iso?: string) {
   const [value, setValue] = useState({ h: "00", m: "00", s: "00", ended: false });
   useEffect(() => {
@@ -904,6 +908,7 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
   const [mobileTradeOpen, setMobileTradeOpen] = useState(false);
   const [rangeChartTab, setRangeChartTab] = useState<"activity" | "prob">("prob");
   const [tab, setTab] = useState<"activity" | "rules">("activity");
+  const lastMarketPricesRef = useRef<number[] | null>(null);
   const countdown = useCountdown(market?.endTime);
   const refreshAfterTrade = () => {
     void refetchPositions();
@@ -931,6 +936,17 @@ export function RangeMarketDetail({ marketType, title, description }: RangeMarke
       current?.map((item) => item.id === market.id ? { ...item, rangePrices: nextPrices } : item)
     );
   };
+
+  useEffect(() => {
+    const marketPrices = market?.rangePrices as number[] | undefined;
+    if (!marketPrices?.length) return;
+    const previousMarketPrices = lastMarketPricesRef.current;
+    lastMarketPricesRef.current = marketPrices;
+    if (!previousMarketPrices || arePriceArraysEqual(previousMarketPrices, marketPrices)) return;
+    setLivePrices((current) =>
+      current && !arePriceArraysEqual(current, marketPrices) ? marketPrices : current
+    );
+  }, [market?.rangePrices, setLivePrices]);
 
   const prices: number[] = livePrices ?? (market?.rangePrices as number[]) ?? [];
   const ranges: RangeOutcome[] = (market?.ranges as RangeOutcome[]) ?? [];

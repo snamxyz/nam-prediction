@@ -14,6 +14,7 @@ interface MarketPriceUpdate {
   lastTradeIsBuy?: boolean;
   volume?: number;
   liquidity?: number;
+  type?: string;
 }
 
 interface TradeUpdate {
@@ -24,6 +25,7 @@ interface TradeUpdate {
   shares: string;
   collateral: string;
   txHash: string;
+  type?: string;
 }
 
 interface MarketResolvedUpdate {
@@ -57,6 +59,8 @@ export function useMarketSocket(marketId: number | undefined) {
 
     const handleMarketStats = (data: MarketPriceUpdate) => {
       if (data.marketId !== marketId) return;
+      if (data.type === "range") return;
+      if (!Number.isFinite(data.yesPrice) || !Number.isFinite(data.noPrice)) return;
       setStats({
         yesPrice: data.yesPrice,
         noPrice: data.noPrice,
@@ -71,6 +75,7 @@ export function useMarketSocket(marketId: number | undefined) {
     };
 
     const handleTrade = (data: TradeUpdate) => {
+      if (data.type === "range") return;
       if (data.marketId === marketId) {
         setLastTrade(data);
       }
