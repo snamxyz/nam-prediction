@@ -2,22 +2,21 @@
  * Singleton NonceManager instance for the admin/operator EOA.
  *
  * Uses the PRIVATE_KEY env var to derive the address, and connects to
- * the shared publicClient (from indexer) and a write-optimized walletClient.
+ * a non-batched public client plus a write-optimized walletClient.
  *
  * Call `initNonceManager()` once at server startup before any transactions.
  */
 
-import { createWalletClient, http } from "viem";
+import { createPublicClient, createWalletClient, http } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { NonceManager } from "./nonce-manager";
 import { redis } from "./redis";
-import { publicClient } from "../services/indexer";
 
+const READ_RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const WRITE_RPC_URL =
   process.env.WRITE_RPC_URL ||
-  process.env.RPC_URL ||
-  "https://mainnet.base.org";
+  READ_RPC_URL;
 
 function createInstance(): NonceManager {
   const privateKey = process.env.PRIVATE_KEY;
@@ -28,6 +27,15 @@ function createInstance(): NonceManager {
     : (`0x${privateKey}` as `0x${string}`);
 
   const account = privateKeyToAccount(normalizedKey);
+
+  const noncePublicClient = createPublicClient({
+    chain: base,
+    transport: http(READ_RPC_URL, {
+      retryCount: 4,
+      retryDelay: 500,
+      timeout: 30_000,
+    }),
+  });
 
   const walletClient = createWalletClient({
     account,
@@ -41,7 +49,7 @@ function createInstance(): NonceManager {
 
   return new NonceManager({
     address: account.address,
-    publicClient,
+    publicClient: noncePublicClient,
     walletClient,
     redis,
     maxPendingTxs: 1,
