@@ -20,6 +20,7 @@ import { startNamPricePoller } from "./services/nam-price-poller";
 import { createServer } from "http";
 import { setupRangeMarketSchedule, startRangeMarketWorker, bootstrapVaultWhitelist } from "./services/queue/range-market-queue";
 import { setupAdminSnapshotSchedule, startAdminSnapshotWorker } from "./services/queue/admin-snapshot-queue";
+import { setupResolutionFallbackSchedule, startResolutionFallbackWorker } from "./services/queue/resolution-fallback-queue";
 import { enabledWorkerNames, runtimeConfig } from "./config/runtime";
 
 const PORT = Number(process.env.API_PORT) || 3001;
@@ -204,6 +205,17 @@ if (runtimeConfig.workers.rangeMarkets) {
   startRangeMarketWorker();
 } else {
   console.log("[RangeMarket] Range markets disabled by runtime config");
+}
+
+// Fallback reconciler: re-resolves on-chain any market that is resolved in the
+// DB but whose contract state still shows unresolved.
+if (runtimeConfig.workers.resolutionFallback) {
+  setupResolutionFallbackSchedule().catch((err) =>
+    console.error("[ResolutionFallback] Schedule setup error:", err)
+  );
+  startResolutionFallbackWorker();
+} else {
+  console.log("[ResolutionFallback] Worker disabled by runtime config");
 }
 
 // Keep Redis admin read models warm for dashboard liquidity and holdings views.

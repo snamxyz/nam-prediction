@@ -74,6 +74,7 @@ export const runtimeConfig = {
       "ENABLE_ADMIN_SNAPSHOT_SCHEDULE",
       canRunBackgroundWork && workerProfile === "prod"
     ),
+    resolutionFallback: workerFlag("ENABLE_RESOLUTION_FALLBACK_WORKER", canRunBackgroundWork),
   },
   intervals: {
     adminSnapshotMs: intervalFor("ADMIN_SNAPSHOT_INTERVAL_MS", {
@@ -115,6 +116,11 @@ export const runtimeConfig = {
       dev: 10 * 60_000,
       staging: 5 * 60_000,
       prod: 2 * 60_000,
+    }),
+    resolutionFallbackMs: intervalFor("RESOLUTION_FALLBACK_INTERVAL_MS", {
+      dev: 30 * 60_000,
+      staging: 15 * 60_000,
+      prod: 15 * 60_000,
     }),
   },
 } as const;
