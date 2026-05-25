@@ -12,7 +12,7 @@
  */
 import { Queue, Worker } from "bullmq";
 import { createRedisConnection } from "../../lib/redis";
-import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../../lib/nonce-manager.instance";
 import { runtimeConfig } from "../../config/runtime";
 
 const QUEUE_NAME = "nonce-reconciliation";
@@ -85,7 +85,7 @@ export function startNonceReconciliationWorker() {
 // ─── Core reconciliation logic ───
 
 async function processNonceReconciliation() {
-  const nm = getNonceManager();
+  const nm = await getInitializedNonceManager();
 
   // Step 1: Reconcile state against on-chain (also clears stale active_tx)
   const result = await nm.resyncNonce();
