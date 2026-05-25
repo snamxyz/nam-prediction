@@ -210,6 +210,24 @@ async function drainMarket(market: typeof markets.$inferSelect) {
       return;
     }
 
+    // Guard: verify on-chain resolved flag before sending the drain tx.
+    // The DB can be ahead of the chain if a resolution tx is still pending or
+    // was rolled back, which would cause drainMarketLiquidity to revert with
+    // "Not resolved".
+    const onChainMarket = (await publicClient.readContract({
+      address: BINARY_FACTORY_ADDRESS!,
+      abi: MarketFactoryABI,
+      functionName: "getMarket",
+      args: [BigInt(market.onChainId)],
+    })) as { resolved: boolean };
+
+    if (!onChainMarket.resolved) {
+      console.warn(
+        `[LiquidityDrain] Market #${market.onChainId} marked resolved in DB but NOT resolved on-chain — skipping drain until chain state catches up`
+      );
+      return;
+    }
+
     console.log(
       `[LiquidityDrain] Draining market #${market.onChainId}: ` +
         `withdrawable=${formatUnits(withdrawable, 6)} USDC, ` +
