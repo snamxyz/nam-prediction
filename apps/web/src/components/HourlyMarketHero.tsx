@@ -6,6 +6,7 @@ import { useLatestHourlyMarket } from "@/hooks/useMarkets";
 import { ProbBar } from "@/components/ProbBar";
 import { useNamPrice } from "@/hooks/useNamPrice";
 import { formatMarketQuestion, getOutcomeLabels } from "@/lib/marketDisplay";
+import { NamPriceDisplay } from "@/components/NamPriceDisplay";
 
 function useCountdown(targetDate: string | null | undefined) {
   const [timeLeft, setTimeLeft] = useState("");
@@ -146,7 +147,7 @@ export function HourlyMarketHero() {
       <div className="mt-3.5 flex items-center justify-between border-t border-white/[0.04] pt-3">
         <span className="text-[11px] text-[var(--muted)]">
           {formatVolume(volume)} volume · NAM{" "}
-          {namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—"}
+          <NamPriceDisplay price={namPrice} />
         </span>
         <span className="text-[11px] font-semibold text-yes">
           Trade →

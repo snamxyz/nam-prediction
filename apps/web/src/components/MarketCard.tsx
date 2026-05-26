@@ -7,6 +7,7 @@ import { fetchApi } from "@/lib/api";
 import { ProbBar } from "@/components/ProbBar";
 import { useNamPrice } from "@/hooks/useNamPrice";
 import { formatMarketQuestion, getOutcomeLabels } from "@/lib/marketDisplay";
+import { NamPriceDisplay } from "@/components/NamPriceDisplay";
 
 function formatTimeRemaining(endTime: string): string {
   const now = Date.now();
@@ -91,7 +92,7 @@ export function MarketCard({ market }: { market: Market }) {
               {formatVolume(market.volume)} vol
             </span>
             <span className="mono text-[11px] text-[var(--muted)]">
-              NAM {namPrice !== null ? `$${namPrice.toFixed(5)}` : "—"}
+              NAM <NamPriceDisplay price={namPrice} />
             </span>
           </div>
           {market.resolved ? (

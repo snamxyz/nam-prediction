@@ -9,6 +9,7 @@ import { useAdminMarkets, type AdminMarket } from "@/hooks/useAdmin";
 import { useLatestHourlyMarket } from "@/hooks/useMarkets";
 import { formatMarketQuestion } from "@/lib/marketDisplay";
 import { useNamPrice } from "@/hooks/useNamPrice";
+import { NamPriceDisplay } from "@/components/NamPriceDisplay";
 import {
   ADMIN_MARKET_FAMILIES,
   findCurrentMarket,
@@ -181,7 +182,7 @@ export default function AdminMarketsPage() {
                 {tokenMeta.label}
               </CardTitle>
               <span className="text-[11px] text-[var(--muted)]">
-                NAM {namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—"}
+                NAM <NamPriceDisplay price={namPrice} />
               </span>
             </div>
             <CardDescription className="mb-4 min-h-10 text-xs leading-5">

@@ -1,9 +1,11 @@
 "use client";
 
+import React from "react";
 import { useMarkets } from "@/hooks/useMarkets";
 import { useNamPrice } from "@/hooks/useNamPrice";
 import { useRangeMarkets } from "@/hooks/useRangeMarkets";
 import { BarChart2, Clock, Layers, TrendingUp } from "lucide-react";
+import { NamPriceDisplay } from "@/components/NamPriceDisplay";
 
 export function StatsBar() {
   const { data: markets, isLoading: isMarketsLoading } = useMarkets();
@@ -26,10 +28,10 @@ export function StatsBar() {
     return `$${n.toFixed(0)}`;
   };
 
-  const stats = [
+  const stats: { label: string; value: React.ReactNode; accent?: boolean; Icon: React.ElementType }[] = [
     { label: "Total Volume", value: formatVolume(totalVolume), Icon: BarChart2 },
     { label: "Open Markets", value: String(openMarkets), Icon: Layers },
-    { label: "NAM Price", value: namPrice !== null ? `$${namPrice.toFixed(5)}` : "$—", accent: true, Icon: TrendingUp },
+    { label: "NAM Price", value: <NamPriceDisplay price={namPrice} />, accent: true, Icon: TrendingUp },
   ];
 
   if (isMarketsLoading || isRangeMarketsLoading) {

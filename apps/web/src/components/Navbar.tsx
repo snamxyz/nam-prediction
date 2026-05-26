@@ -6,6 +6,7 @@ import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNamPrice } from "@/hooks/useNamPrice";
 import { useVaultBalance } from "@/hooks/useVaultBalance";
+import { NamPriceDisplay } from "@/components/NamPriceDisplay";
 import {
   BarChart2,
   Briefcase,
@@ -119,13 +120,12 @@ export function Navbar() {
             <span className="mono text-[11px] text-[var(--muted)]">
               NAM/USDC
             </span>
-            <span
+            <NamPriceDisplay
+              price={price}
               className={`mono text-xs font-medium ${
                 up ? "text-[var(--yes)]" : "text-[var(--no)]"
               } ${priceFlashing ? "price-flash" : ""}`}
-            >
-              {price !== null ? `$${price.toFixed(5)}` : "$—"}
-            </span>
+            />
           </div>
 
           {/* Vault balance chip */}
@@ -257,13 +257,12 @@ export function Navbar() {
               <span className="mono text-[11px] text-[var(--muted)]">
                 NAM
               </span>
-              <span
+              <NamPriceDisplay
+                price={price}
                 className={`mono text-xs font-medium ${
                   up ? "text-[var(--yes)]" : "text-[var(--no)]"
                 } ${priceFlashing ? "price-flash" : ""}`}
-              >
-                {price !== null ? `$${price.toFixed(5)}` : "$—"}
-              </span>
+              />
             </div>
 
             <Link

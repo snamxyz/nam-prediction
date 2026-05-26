@@ -10,6 +10,7 @@ import { TradePanel } from "@/components/TradePanel";
 import { PriceChart } from "@/components/PriceChart";
 import { NamPriceChart } from "@/components/NamPriceChart";
 import { ProbBar } from "@/components/ProbBar";
+import { NamPriceDisplay } from "@/components/NamPriceDisplay";
 import {
   Drawer,
   DrawerClose,
@@ -185,19 +186,19 @@ export default function MarketPage() {
                 <div className="grid grid-cols-2 gap-3 md:mr-[18px] md:flex md:gap-7">
                   <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0">
                     <div className="mb-[5px] text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">Price to Beat</div>
-                    <div className="font-mono text-lg">${priceToBeat.toFixed(5)}</div>
+                    <div className="font-mono text-lg"><NamPriceDisplay price={priceToBeat} /></div>
                   </div>
                   <div className="min-w-0 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-2.5 md:border-0 md:bg-transparent md:p-0">
                     <div className="mb-[5px] flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
                       Current Price
                       {priceDelta != null && (
                         <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-px font-mono text-[9px] font-bold ${priceDelta >= 0 ? "bg-yes/10 text-yes" : "bg-no/10 text-no"}`}>
-                          {priceDelta >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />} ${Math.abs(priceDelta).toFixed(5)}
+                          {priceDelta >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />} <NamPriceDisplay price={Math.abs(priceDelta)} />
                         </span>
                       )}
                     </div>
                     <div className={`font-mono text-lg ${namPrice != null && priceDelta != null && priceDelta < 0 ? "text-no" : "text-yes"}`}>
-                      {namPrice == null ? "—" : `$${namPrice.toFixed(5)}`}
+                      <NamPriceDisplay price={namPrice} />
                     </div>
                   </div>
                 </div>

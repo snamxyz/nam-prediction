@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatNamPriceString } from "@/lib/format";
 import type {
   AreaData,
   AutoscaleInfo,
@@ -126,8 +127,8 @@ function areaColors(color: string) {
   };
 }
 
-function formatPrice(price: number, decimals: number) {
-  return `$${price.toFixed(decimals)}`;
+function formatPrice(price: number, _decimals: number) {
+  return formatNamPriceString(price);
 }
 
 function setTightTimeRange(chart: IChartApi, data: ChartPoint[]) {
