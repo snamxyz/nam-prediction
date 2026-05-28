@@ -23,7 +23,15 @@ export function NavigationProgress() {
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const el = (e.target as HTMLElement | null)?.closest("a[href]");
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.closest(
+          "button, input, select, textarea, [role='button'], [data-no-nav-progress]",
+        )
+      ) {
+        return;
+      }
+      const el = target?.closest("a[href]");
       if (!el || !(el instanceof HTMLAnchorElement)) return;
       if (el.target === "_blank" || el.download) return;
       const href = el.getAttribute("href");
