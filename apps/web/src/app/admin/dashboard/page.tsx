@@ -8,7 +8,7 @@ import { VaultABI } from "@nam-prediction/shared";
 import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { createPublicClient, createWalletClient, custom, http } from "viem";
 import { base } from "viem/chains";
-import { AlertTriangle, DollarSign, Users, Activity, BarChart3, TrendingUp, ArrowDownLeft, ArrowUpRight, Layers } from "lucide-react";
+import { AlertTriangle, DollarSign, Users, Activity, TrendingUp, ArrowUpRight, Layers } from "lucide-react";
 import { toast } from "sonner";
 
 const publicClient = createPublicClient({
@@ -166,17 +166,14 @@ export default function AdminDashboardPage() {
           : "On-chain USDC in vault escrows";
 
   const stats = [
-    { icon: <Users className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Users", value: String(data.totalUsers), sub: `+${data.users24h} today · +${data.users7d} this week` },
-    { icon: <Activity className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Trades", value: String(data.totalTrades), sub: `+${data.trades24h} today` },
-    { icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Volume", value: fmt(data.totalVolume), sub: `${fmt(data.volume24h)} today` },
-    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "TVL (Vault)", value: tvlVaultValue, sub: tvlVaultSub },
-    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Book TVL", value: fmt(data.tvl), sub: `${fmt(data.totalDeposits)} deposits · ${fmt(data.totalWithdrawals)} withdrawn` },
-    { icon: <ArrowDownLeft className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Deposits", value: fmt(data.totalDeposits), sub: "Indexed vault deposits" },
-    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Total Withdrawals", value: fmt(data.totalWithdrawals), sub: "Indexed vault withdrawals" },
-    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Active Liquidity", value: fmt(data.activeLiquidity ?? 0), sub: "Binary + range pools" },
-    { icon: <AlertTriangle className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Liquidity At Risk", value: fmt(data.liquidityAtRisk ?? 0), sub: `${fmt(data.reservedClaims ?? 0)} reserved · ${fmt(data.outstandingWinningClaims ?? 0)} claims` },
-    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Liquidity Withdrawn", value: fmt(data.liquidityWithdrawn ?? 0), sub: "Post-resolution drains" },
-    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Win Rate (avg)", value: "—" },
+    { icon: <Users className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Users", value: String(data.totalUsers), sub: `Indexed users · +${data.users24h} today · +${data.users7d} this week` },
+    { icon: <Activity className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Trades", value: String(data.totalTrades), sub: `Executed indexed trades · +${data.trades24h} today` },
+    { icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Volume", value: fmt(data.totalVolume), sub: `All-time collateral volume · ${fmt(data.volume24h)} in last 24h` },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "TVL (Vault)", value: tvlVaultValue, sub: tvlVaultSub ?? "Current on-chain USDC held in vault escrows" },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Book TVL", value: fmt(data.tvl), sub: `Indexed net vault position · ${fmt(data.totalDeposits)} deposits · ${fmt(data.totalWithdrawals)} withdrawn` },
+    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Active Liquidity", value: fmt(data.activeLiquidity ?? 0), sub: "Liquidity currently supporting open markets" },
+    { icon: <AlertTriangle className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Liquidity At Risk", value: fmt(data.liquidityAtRisk ?? 0), sub: `${fmt(data.reservedClaims ?? 0)} reserved + ${fmt(data.outstandingWinningClaims ?? 0)} pending claims` },
+    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Liquidity Withdrawn", value: fmt(data.liquidityWithdrawn ?? 0), sub: "Liquidity removed after market resolution" },
   ];
 
   return (

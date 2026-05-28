@@ -304,15 +304,16 @@ export default function AdminUserProfilePage() {
 
       <div className="grid gap-3 md:grid-cols-5">
         {[
-          ["Vault Holdings", isVaultBalanceLoading ? "..." : fmtUsd(vaultBalance)],
-          ["Active Value", fmtUsd(activeValue)],
-          ["Unrealised P&L", `${unrealisedPnl >= 0 ? "+" : ""}${fmtUsd(unrealisedPnl)}`],
-          ["Realised P&L", `${Number(summary?.realisedPnl ?? 0) >= 0 ? "+" : ""}${fmtUsd(summary?.realisedPnl)}`],
-          ["Win Rate", summary?.resolvedCount ? `${Math.round(Number(summary.winRate))}%` : "-"],
-        ].map(([label, value]) => (
+          ["Vault Holdings", isVaultBalanceLoading ? "..." : fmtUsd(vaultBalance), "Current on-chain vault USDC balance"],
+          ["Active Value", fmtUsd(activeValue), "Estimated mark-to-market value of open positions"],
+          ["Unrealised P&L", `${unrealisedPnl >= 0 ? "+" : ""}${fmtUsd(unrealisedPnl)}`, "Open-position profit and loss not yet settled"],
+          ["Realised P&L", `${Number(summary?.realisedPnl ?? 0) >= 0 ? "+" : ""}${fmtUsd(summary?.realisedPnl)}`, "Closed-position profit and loss already settled"],
+          ["Win Rate", summary?.resolvedCount ? `${Math.round(Number(summary.winRate))}%` : "-", "Share of resolved positions that finished profitable"],
+        ].map(([label, value, subtext]) => (
           <div key={label} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] p-4">
             <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</p>
             <p className="font-mono text-lg text-[var(--foreground)]">{value}</p>
+            <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">{subtext}</p>
           </div>
         ))}
       </div>
@@ -331,15 +332,16 @@ export default function AdminUserProfilePage() {
         </div>
         <div className="grid gap-3 md:grid-cols-5">
           {[
-            ["Deposits", fmtUsd(vaultFlow?.totalDeposits)],
-            ["Withdrawals", fmtUsd(vaultFlow?.totalWithdrawals)],
-            ["Redemptions", fmtUsd(vaultFlow?.totalRedemptions)],
-            ["Net Deposits", fmtUsd(vaultFlow?.netDeposits)],
-            ["Vault Txs", String(vaultFlow?.transactionCount ?? 0)],
-          ].map(([label, value]) => (
+            ["Deposits", fmtUsd(vaultFlow?.totalDeposits), "Total user inflows into the vault"],
+            ["Withdrawals", fmtUsd(vaultFlow?.totalWithdrawals), "Total user outflows from the vault"],
+            ["Redemptions", fmtUsd(vaultFlow?.totalRedemptions), "Settled claim payouts returned to wallet"],
+            ["Net Deposits", fmtUsd(vaultFlow?.netDeposits), "Deposits minus withdrawals and redemptions"],
+            ["Vault Txs", String(vaultFlow?.transactionCount ?? 0), "Indexed vault transactions for this user"],
+          ].map(([label, value, subtext]) => (
             <div key={label} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-3 py-2">
               <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">{label}</p>
               <p className="font-mono text-sm text-[var(--foreground)]">{value}</p>
+              <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">{subtext}</p>
             </div>
           ))}
         </div>

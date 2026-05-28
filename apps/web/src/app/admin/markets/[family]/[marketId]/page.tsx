@@ -55,13 +55,24 @@ function timeAgo(ts: string) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
+function StatCard({
+  label,
+  value,
+  subtext,
+}: {
+  label: string;
+  value: string | number;
+  subtext: string;
+}) {
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-3">
       <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
         {label}
       </p>
       <p className="mono text-sm text-[var(--foreground)]">{value}</p>
+      <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
+        {subtext}
+      </p>
     </div>
   );
 }
@@ -285,16 +296,19 @@ export default function AdminMarketDetailPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-4">
-          <StatCard label="Trades" value={market.tradeCount} />
-          <StatCard label="Unique Traders" value={market.distinctTraderCount} />
-          <StatCard label="Volume" value={formatMoney(market.totalVolume)} />
-          <StatCard label="Holders" value={market.holderCount ?? 0} />
-          <StatCard label="Open Interest" value={formatShares(market.openInterestShares)} />
-          <StatCard label="Liquidity" value={formatMoney(market.liquidity)} />
-          <StatCard label="At Risk" value={formatMoney(market.liquidityAtRisk)} />
-          <StatCard label="Withdrawn" value={formatMoney(market.liquidityWithdrawn)} />
+          <StatCard label="Trades" value={market.tradeCount} subtext="Executed orders" />
+          <StatCard label="Unique Traders" value={market.distinctTraderCount} subtext="Distinct wallets that traded" />
+          <StatCard label="Volume" value={formatMoney(market.totalVolume)} subtext="Total collateral volume" />
+          <StatCard label="Holders" value={market.holderCount ?? 0} subtext="Wallets with currently open holdings" />
+          <StatCard label="Open Interest" value={formatShares(market.openInterestShares)} subtext="Outstanding unresolved shares" />
+          <StatCard label="Liquidity" value={formatMoney(market.liquidity)} subtext="Current pool liquidity tracked" />
+          <StatCard label="At Risk" value={formatMoney(market.liquidityAtRisk)} subtext="Liquidity reserved for potential payouts" />
+          <StatCard label="Withdrawn" value={formatMoney(market.liquidityWithdrawn)} subtext="Liquidity drained after resolution actions" />
         </CardContent>
       </Card>
+      <p className="-mt-2 text-[10px] text-[var(--muted)]">
+        Legend: all metric cards above are scoped to this individual market.
+      </p>
 
       <Tabs defaultValue="holders" className="flex flex-col gap-4">
         <TabsList className="bg-[var(--surface-hover)]">

@@ -63,19 +63,36 @@ function MarketStats({
   market: AdminMarket | null | undefined;
   volumeLabel?: string;
 }) {
+  const stats = [
+    {
+      label: "Trades",
+      value: market ? String(market.tradeCount) : "—",
+      subtext: "Executed orders on this day's market",
+    },
+    {
+      label: "Unique Traders",
+      value: market ? String(market.distinctTraderCount) : "—",
+      subtext: "Distinct wallets that traded this day",
+    },
+    {
+      label: volumeLabel,
+      value: market ? formatCompactMoney(market.totalVolume) : "—",
+      subtext: "Total collateral volume for this day",
+    },
+  ];
+
   return (
     <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-border">
-      {[
-        ["Trades", market ? String(market.tradeCount) : "—"],
-        ["Unique Traders", market ? String(market.distinctTraderCount) : "—"],
-        [volumeLabel, market ? formatCompactMoney(market.totalVolume) : "—"],
-      ].map(([label, value]) => (
+      {stats.map(({ label, value, subtext }) => (
         <div key={label} className="border-r border-border px-3 py-4 last:border-r-0">
           <div className="mono text-lg font-medium leading-none tracking-[-0.03em] text-[var(--foreground)]">
             {value}
           </div>
           <div className="mt-2 text-[9px] font-bold uppercase tracking-[0.07em] text-[var(--muted)]">
             {label}
+          </div>
+          <div className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
+            {subtext}
           </div>
         </div>
       ))}
@@ -217,6 +234,9 @@ export default function AdminMarketsPage() {
               </span>
               <span>{tokenMarket?.distinctTraderCount ?? 0} unique traders</span>
             </div>
+            <p className="mt-2 text-[10px] leading-4 text-[var(--muted)]">
+              Values reflect only the current token market day.
+            </p>
           </CardShell>
         )}
 
@@ -230,25 +250,6 @@ export default function AdminMarketsPage() {
           isLoading={isReceiptsLoading}
           market={receiptsMarket}
         />
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-        {[
-          ["Token days", tokenMarkets.length],
-          ["Participant days", participantsData?.markets.length ?? 0],
-          ["Receipt days", receiptsData?.markets.length ?? 0],
-        ].map(([label, value]) => (
-          <Card key={label} className="bg-card">
-            <CardContent className="px-4 py-3">
-            <div className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
-              {label}
-            </div>
-            <div className="mono mt-1 text-sm text-[var(--foreground)]">
-              {value}
-            </div>
-            </CardContent>
-          </Card>
-        ))}
       </div>
 
       <p className="mt-5 max-w-3xl text-xs leading-5 text-[var(--muted)]">

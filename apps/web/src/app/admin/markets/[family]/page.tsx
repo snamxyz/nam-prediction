@@ -36,10 +36,12 @@ const STATUS_FILTERS: Array<{ key: AdminMarketStatus; label: string }> = [
 function MetricPill({
   label,
   value,
+  subtext,
   tone,
 }: {
   label: string;
   value: string;
+  subtext: string;
   tone?: "negative" | "positive";
 }) {
   return (
@@ -59,6 +61,9 @@ function MetricPill({
         }}
       >
         {value}
+      </div>
+      <div className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
+        {subtext}
       </div>
     </div>
   );
@@ -143,14 +148,14 @@ function DayMarketRow({ market, family }: { market: AdminMarket; family: AdminMa
 
       <CardContent className="p-5 pt-0">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-          <MetricPill label="Liquidity State" value={market.liquidityState ?? "—"} tone={isAwaitingDrain ? "negative" : undefined} />
-          <MetricPill label="Volume" value={formatMoney(market.totalVolume)} />
-          <MetricPill label="Trades" value={`${market.tradeCount} / ${market.distinctTraderCount} users`} />
-          <MetricPill label="Holders" value={String(market.holderCount ?? 0)} />
-          <MetricPill label="Open Interest" value={formatShares(market.openInterestShares)} />
-          <MetricPill label="At Risk" value={formatMoney(market.liquidityAtRisk)} />
-          <MetricPill label="Claims" value={formatMoney(market.outstandingWinningClaims)} />
-          <MetricPill label="House P&L" value={formatHousePnlDisplay(market)} tone={housePnlTone} />
+          <MetricPill label="Liquidity State" value={market.liquidityState ?? "—"} subtext="Current post-resolution liquidity stage" tone={isAwaitingDrain ? "negative" : undefined} />
+          <MetricPill label="Volume" value={formatMoney(market.totalVolume)} subtext="Total collateral traded" />
+          <MetricPill label="Trades" value={`${market.tradeCount} / ${market.distinctTraderCount} users`} subtext="Trade count and distinct trading wallets" />
+          <MetricPill label="Holders" value={String(market.holderCount ?? 0)} subtext="Wallets currently holding open positions" />
+          <MetricPill label="Open Interest" value={formatShares(market.openInterestShares)} subtext="Outstanding unresolved shares across positions" />
+          <MetricPill label="At Risk" value={formatMoney(market.liquidityAtRisk)} subtext="Liquidity reserved against potential payouts" />
+          <MetricPill label="Claims" value={formatMoney(market.outstandingWinningClaims)} subtext="Unsettled winning claims waiting payout" />
+          <MetricPill label="House P&L" value={formatHousePnlDisplay(market)} subtext="Market-level realized and estimated house result" tone={housePnlTone} />
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-3 text-[11px] text-[var(--muted)]">
           <span>
@@ -241,6 +246,9 @@ export default function AdminMarketFamilyPage() {
               Trades and unique traders are activity on that day&apos;s market, not ecosystem-wide totals.
             </p>
           )}
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--muted)]">
+            Legend: all metric pills in each row are scoped to that specific market day.
+          </p>
         </div>
 
         <div className="flex gap-2">
