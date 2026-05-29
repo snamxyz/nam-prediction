@@ -10,6 +10,16 @@ import { createPublicClient, createWalletClient, custom, http } from "viem";
 import { base } from "viem/chains";
 import { AlertTriangle, DollarSign, Users, Activity, TrendingUp, ArrowUpRight, Layers } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/UI/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/UI/dialog";
 
 const publicClient = createPublicClient({
   chain: base,
@@ -188,20 +198,43 @@ export default function AdminDashboardPage() {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={handleEmergencyRefund}
-          disabled={isRefunding || !vaultAddress}
-          className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
-          style={{
-            color: "#fff",
-            background: "#ff4757",
-            border: "1px solid rgba(255,255,255,0.12)",
-          }}
-        >
-          <AlertTriangle className="w-3.5 h-3.5" />
-          {isRefunding ? "Refunding…" : "Emergency Refund"}
-        </button>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <button
+            type="button"
+            onClick={handleEmergencyRefund}
+            disabled={isRefunding || !vaultAddress}
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-medium transition-all disabled:opacity-50"
+            style={{
+              color: "#fff",
+              background: "#ff4757",
+              
+            }}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {isRefunding ? "Refunding…" : "Emergency Refund"}
+          </button>
+          <Dialog>
+            <DialogTrigger render={<Button variant="outline" size="sm" />}>
+              What does this do?
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg backdrop-blur-md">
+              <DialogHeader>
+                <DialogTitle>Emergency Refund</DialogTitle>
+                <DialogDescription>
+                  Turns on vault emergency mode, blocks normal vault activity, then refunds current vault escrows
+                  in batches of 50 depositors. Each batch needs a wallet confirmation.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2 text-sm leading-6 text-[var(--muted)]">
+                <p><span className="font-medium text-[var(--foreground)]">Active market:</span> vault funds are refunded; market positions are not resolved.</p>
+                <p><span className="font-medium text-[var(--foreground)]">Closed market:</span> vault escrows refund; winner redemption remains separate.</p>
+                <p><span className="font-medium text-[var(--foreground)]">No vault funds:</span> emergency mode enables, then no refund batches run.</p>
+                <p><span className="font-medium text-[var(--foreground)]">Mid-way failure:</span> completed batches stay refunded; retry the remaining batches.</p>
+              </div>
+              <DialogFooter showCloseButton />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
         {stats.map((s) => (

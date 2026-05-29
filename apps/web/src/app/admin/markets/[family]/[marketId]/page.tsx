@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, ExternalLink } from "lucide-react";
@@ -7,6 +8,7 @@ import {
   useAdminMarketDetail,
   useAdminMarketHolders,
   useAdminMarketTrades,
+  type AdminMarket,
   type AdminMarketFamily,
   type AdminMarketHolder,
   type AdminTrade,
@@ -47,6 +49,11 @@ function formatShares(value: string | number | undefined) {
   return n.toFixed(2);
 }
 
+function asNumber(value: string | number | undefined | null) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function timeAgo(ts: string) {
   const diff = Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 1000));
   if (diff < 60) return `${diff}s ago`;
@@ -59,17 +66,19 @@ function StatCard({
   label,
   value,
   subtext,
+  valueClassName,
 }: {
   label: string;
   value: string | number;
   subtext: string;
+  valueClassName?: string;
 }) {
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-hover)] p-3">
       <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">
         {label}
       </p>
-      <p className="mono text-sm text-[var(--foreground)]">{value}</p>
+      <p className={`mono text-sm ${valueClassName ?? "text-[var(--foreground)]"}`}>{value}</p>
       <p className="mt-1 text-[10px] leading-4 text-[var(--muted)]">
         {subtext}
       </p>
@@ -77,12 +86,154 @@ function StatCard({
   );
 }
 
-function HoldersTable({ holders, isLoading }: { holders: AdminMarketHolder[]; isLoading: boolean }) {
+type HolderDisplayRow = AdminMarketHolder & {
+  rowKey: string;
+  displaySide: string;
+};
+
+type MarketSideTab = {
+  key: string;
+  label: string;
+  binarySide?: "YES" | "NO";
+  rangeIndex?: number;
+};
+
+function getMarketSideTabs(
+  family: AdminMarketFamily,
+  market: AdminMarket,
+  holders: AdminMarketHolder[],
+  trades: AdminTrade[],
+): MarketSideTab[] {
+  if (family === "token") {
+    return [
+      { key: "yes", label: "YES", binarySide: "YES" },
+      { key: "no", label: "NO", binarySide: "NO" },
+    ];
+  }
+
+  const rangeMap = new Map<number, string>();
+
+  for (const range of market.ranges ?? []) {
+    rangeMap.set(range.index, range.label);
+  }
+
+  for (const holder of holders) {
+    if (holder.rangeIndex !== undefined) {
+      rangeMap.set(holder.rangeIndex, holder.rangeLabel ?? holder.side ?? `Range ${holder.rangeIndex + 1}`);
+    }
+  }
+
+  for (const trade of trades) {
+    if (trade.rangeIndex !== undefined) {
+      rangeMap.set(trade.rangeIndex, trade.side);
+    }
+  }
+
+  return [...rangeMap.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, label]) => ({
+      key: `range-${index}`,
+      label,
+      rangeIndex: index,
+    }));
+}
+
+function matchesSideTab(
+  family: AdminMarketFamily,
+  sideTab: MarketSideTab,
+  item: { displaySide?: string; side?: string; rangeIndex?: number },
+) {
+  if (family === "token") {
+    return item.displaySide === sideTab.binarySide || item.side === sideTab.binarySide;
+  }
+  return item.rangeIndex === sideTab.rangeIndex;
+}
+
+function expandHolderRows(holders: AdminMarketHolder[]): HolderDisplayRow[] {
+  return holders.flatMap((holder) => {
+    const yesShares = asNumber(holder.yesBalance);
+    const noShares = asNumber(holder.noBalance);
+    const hasBinaryBalances = holder.yesBalance !== undefined || holder.noBalance !== undefined;
+
+    if (hasBinaryBalances) {
+      const rows: HolderDisplayRow[] = [];
+
+      if (yesShares > 0) {
+        rows.push({
+          ...holder,
+          rowKey: `${holder.userAddress}-YES`,
+          side: "YES",
+          displaySide: "YES",
+          openInterestShares: holder.yesBalance ?? "0",
+          costBasis: holder.yesCostBasis ?? "0.00",
+          avgEntryPrice: holder.yesAvgPrice ?? null,
+        });
+      }
+
+      if (noShares > 0) {
+        rows.push({
+          ...holder,
+          rowKey: `${holder.userAddress}-NO`,
+          side: "NO",
+          displaySide: "NO",
+          openInterestShares: holder.noBalance ?? "0",
+          costBasis: holder.noCostBasis ?? "0.00",
+          avgEntryPrice: holder.noAvgPrice ?? null,
+        });
+      }
+
+      return rows;
+    }
+
+    return [{
+      ...holder,
+      rowKey: `${holder.userAddress}-${holder.side}-${holder.rangeIndex ?? "range"}`,
+      displaySide: holder.rangeLabel ?? holder.side,
+    }];
+  });
+}
+
+function getHolderAction(holder: HolderDisplayRow, market: AdminMarket) {
+  if (!market.resolved) return "Awaiting Redemption";
+
+  const isWinner =
+    holder.rangeIndex !== undefined
+      ? holder.rangeIndex === market.result - 1
+      : (holder.side === "YES" && market.result === 1) || (holder.side === "NO" && market.result === 2);
+
+  if (!isWinner) return "Lost";
+  return asNumber(holder.openInterestShares) > 0 ? "Awaiting Redemption" : "Redeemed";
+}
+
+function pnlClassName(value: string | undefined) {
+  const pnl = asNumber(value);
+  if (pnl > 0) return "text-yes";
+  if (pnl < 0) return "text-no";
+  return "text-[var(--muted)]";
+}
+
+function HoldersTable({
+  holders,
+  rows: providedRows,
+  isLoading,
+  market,
+  hideSideColumn = false,
+}: {
+  holders?: AdminMarketHolder[];
+  rows?: HolderDisplayRow[];
+  isLoading: boolean;
+  market: AdminMarket;
+  hideSideColumn?: boolean;
+}) {
+  const rows = providedRows ?? expandHolderRows(holders ?? []);
+
   return (
     <Card className=" bg-card">
       <CardHeader>
         <CardTitle className="text-base">Holders</CardTitle>
-        <CardDescription>Open positions indexed for this market.</CardDescription>
+        <CardDescription>
+          Positions indexed for this market. Action tracks Lost, Redeemed, or Awaiting Redemption.
+        </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto px-0 pb-0">
         {isLoading ? (
@@ -90,37 +241,47 @@ function HoldersTable({ holders, isLoading }: { holders: AdminMarketHolder[]; is
             {[0, 1, 2, 3].map((row) => <Skeleton key={row} className="h-10 w-full" />)}
           </div>
         ) : (
-          <Table className="min-w-[760px]">
+          <Table className="min-w-[920px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Holder</TableHead>
-                <TableHead>Side</TableHead>
+                {!hideSideColumn && <TableHead>Side</TableHead>}
                 <TableHead>Shares</TableHead>
                 <TableHead>Cost Basis</TableHead>
                 <TableHead>Avg Entry</TableHead>
+                <TableHead>P&amp;L</TableHead>
+                <TableHead>Action</TableHead>
                 <TableHead className="text-right">Address</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {holders.length === 0 ? (
+              {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-xs text-[var(--muted)]">
+                  <TableCell colSpan={hideSideColumn ? 7 : 8} className="py-8 text-center text-xs text-[var(--muted)]">
                     No holders found.
                   </TableCell>
                 </TableRow>
               ) : (
-                holders.map((holder) => (
-                  <TableRow key={`${holder.userAddress}-${holder.side}-${holder.rangeIndex ?? "binary"}`}>
+                rows.map((holder) => (
+                  <TableRow key={holder.rowKey}>
                     <TableCell className="font-medium">
                       {holder.displayName || holder.loginMethod || holder.shortAddress || shortAddress(holder.userAddress)}
                     </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{holder.rangeLabel ?? holder.side}</Badge>
-                    </TableCell>
+                    {!hideSideColumn && (
+                      <TableCell>
+                        <Badge variant="secondary">{holder.displaySide}</Badge>
+                      </TableCell>
+                    )}
                     <TableCell className="mono text-xs">{formatShares(holder.openInterestShares)}</TableCell>
                     <TableCell className="mono text-xs">{formatMoney(holder.costBasis)}</TableCell>
                     <TableCell className="mono text-xs">
                       {typeof holder.avgEntryPrice === "number" ? `${(holder.avgEntryPrice * 100).toFixed(1)}%` : "—"}
+                    </TableCell>
+                    <TableCell className={`mono text-xs ${pnlClassName(holder.pnl)}`}>
+                      {formatMoney(holder.pnl)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{getHolderAction(holder, market)}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       <a
@@ -144,7 +305,15 @@ function HoldersTable({ holders, isLoading }: { holders: AdminMarketHolder[]; is
   );
 }
 
-function TradesTable({ trades, isLoading }: { trades: AdminTrade[]; isLoading: boolean }) {
+function TradesTable({
+  trades,
+  isLoading,
+  hideSideColumn = false,
+}: {
+  trades: AdminTrade[];
+  isLoading: boolean;
+  hideSideColumn?: boolean;
+}) {
   return (
     <Card className=" bg-card">
       <CardHeader>
@@ -161,7 +330,7 @@ function TradesTable({ trades, isLoading }: { trades: AdminTrade[]; isLoading: b
             <TableHeader>
               <TableRow>
                 <TableHead>Trader</TableHead>
-                <TableHead>Side</TableHead>
+                {!hideSideColumn && <TableHead>Side</TableHead>}
                 <TableHead>Type</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Shares</TableHead>
@@ -172,7 +341,7 @@ function TradesTable({ trades, isLoading }: { trades: AdminTrade[]; isLoading: b
             <TableBody>
               {trades.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-xs text-[var(--muted)]">
+                  <TableCell colSpan={hideSideColumn ? 6 : 7} className="py-8 text-center text-xs text-[var(--muted)]">
                     No trades found.
                   </TableCell>
                 </TableRow>
@@ -180,9 +349,11 @@ function TradesTable({ trades, isLoading }: { trades: AdminTrade[]; isLoading: b
                 trades.map((trade) => (
                   <TableRow key={`${trade.source ?? "binary"}-${trade.id}`}>
                     <TableCell className="mono text-xs">{shortAddress(trade.traderAddress)}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{trade.side}</Badge>
-                    </TableCell>
+                    {!hideSideColumn && (
+                      <TableCell>
+                        <Badge variant="secondary">{trade.side}</Badge>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Badge className={trade.isBuy ? "bg-yes/15 text-yes hover:bg-yes/20" : "bg-no/15 text-no hover:bg-no/20"}>
                         {trade.isBuy ? "BUY" : "SELL"}
@@ -212,6 +383,49 @@ function TradesTable({ trades, isLoading }: { trades: AdminTrade[]; isLoading: b
   );
 }
 
+function SideFilterTabs({
+  sideTabs,
+  children,
+}: {
+  sideTabs: MarketSideTab[];
+  children: (sideTab: MarketSideTab) => ReactNode;
+}) {
+  if (sideTabs.length === 0) {
+    return (
+      <Card className="bg-card">
+        <CardContent className="py-8 text-center text-xs text-[var(--muted)]">
+          No outcome sides available for this market.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (sideTabs.length === 1) {
+    return <>{children(sideTabs[0])}</>;
+  }
+
+  return (
+    <Tabs defaultValue={sideTabs[0].key} className="flex flex-col gap-3">
+      <TabsList className="h-auto flex-wrap bg-[var(--surface-hover)]">
+        {sideTabs.map((sideTab) => (
+          <TabsTrigger
+            key={sideTab.key}
+            value={sideTab.key}
+            className="text-xs aria-selected:border-yes/30 aria-selected:bg-yes/15 aria-selected:text-yes"
+          >
+            {sideTab.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {sideTabs.map((sideTab) => (
+        <TabsContent key={sideTab.key} value={sideTab.key}>
+          {children(sideTab)}
+        </TabsContent>
+      ))}
+    </Tabs>
+  );
+}
+
 export default function AdminMarketDetailPage() {
   const params = useParams<{ family: string; marketId: string }>();
   const rawFamily = Array.isArray(params.family) ? params.family[0] : params.family;
@@ -220,9 +434,16 @@ export default function AdminMarketDetailPage() {
   const meta = family ? getFamilyMeta(family) : undefined;
 
   const { data: detail, isLoading: isMarketLoading } = useAdminMarketDetail(family, marketId);
-  const { data: holdersData, isLoading: isHoldersLoading } = useAdminMarketHolders(family, marketId);
-  const { data: tradesData, isLoading: isTradesLoading } = useAdminMarketTrades(family, marketId);
   const market = detail?.market;
+  const resolvedQueryOptions = market?.resolved
+    ? { staleTime: Infinity, refetchInterval: false as const }
+    : undefined;
+  const { data: holdersData, isLoading: isHoldersLoading } = useAdminMarketHolders(family, marketId, resolvedQueryOptions);
+  const { data: tradesData, isLoading: isTradesLoading } = useAdminMarketTrades(family, marketId, resolvedQueryOptions);
+  const holders = holdersData?.holders ?? [];
+  const trades = tradesData?.trades ?? [];
+  const sideTabs = market ? getMarketSideTabs(family ?? "token", market, holders, trades) : [];
+  const expandedHolders = expandHolderRows(holders);
 
   if (!family || !meta) {
     return (
@@ -295,15 +516,37 @@ export default function AdminMarketDetailPage() {
             <span>On-chain {market.onChainId ? `#${market.onChainId}` : "—"}</span>
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-4">
+        <CardContent className="grid gap-3 md:grid-cols-4 xl:grid-cols-5">
           <StatCard label="Trades" value={market.tradeCount} subtext="Executed orders" />
           <StatCard label="Unique Traders" value={market.distinctTraderCount} subtext="Distinct wallets that traded" />
           <StatCard label="Volume" value={formatMoney(market.totalVolume)} subtext="Total collateral volume" />
           <StatCard label="Holders" value={market.holderCount ?? 0} subtext="Wallets with currently open holdings" />
-          <StatCard label="Open Interest" value={formatShares(market.openInterestShares)} subtext="Outstanding unresolved shares" />
-          <StatCard label="Liquidity" value={formatMoney(market.liquidity)} subtext="Current pool liquidity tracked" />
-          <StatCard label="At Risk" value={formatMoney(market.liquidityAtRisk)} subtext="Liquidity reserved for potential payouts" />
-          <StatCard label="Withdrawn" value={formatMoney(market.liquidityWithdrawn)} subtext="Liquidity drained after resolution actions" />
+          <StatCard
+            label="House P&L"
+            value={formatMoney(market.housePnl ?? 0)}
+            subtext={`${market.housePnlSource ?? "pending"} house result from liquidity provision`}
+            valueClassName={pnlClassName(market.housePnl ?? "0")}
+          />
+          <StatCard
+            label="Open Interest"
+            value={formatShares(market.openInterestShares)}
+            subtext="Unresolved shares outstanding, including losing-side shares until settlement"
+          />
+          <StatCard
+            label="Liquidity"
+            value={formatMoney(market.liquidity)}
+            subtext="Current USDC in the AMM pool supporting this market"
+          />
+          <StatCard
+            label="At Risk"
+            value={formatMoney(market.liquidityAtRisk)}
+            subtext="Max payout owed to current winning-side holders at $1 per share"
+          />
+          <StatCard
+            label="Withdrawn"
+            value={formatMoney(market.liquidityWithdrawn)}
+            subtext="USDC drained from pool after resolution by admin actions"
+          />
         </CardContent>
       </Card>
       <p className="-mt-2 text-[10px] text-[var(--muted)]">
@@ -326,10 +569,27 @@ export default function AdminMarketDetailPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="holders">
-          <HoldersTable holders={holdersData?.holders ?? []} isLoading={isHoldersLoading} />
+          <SideFilterTabs sideTabs={sideTabs}>
+            {(sideTab) => (
+              <HoldersTable
+                rows={expandedHolders.filter((holder) => matchesSideTab(family!, sideTab, holder))}
+                isLoading={isHoldersLoading}
+                market={market}
+                hideSideColumn
+              />
+            )}
+          </SideFilterTabs>
         </TabsContent>
         <TabsContent value="trades">
-          <TradesTable trades={tradesData?.trades ?? []} isLoading={isTradesLoading} />
+          <SideFilterTabs sideTabs={sideTabs}>
+            {(sideTab) => (
+              <TradesTable
+                trades={trades.filter((trade) => matchesSideTab(family!, sideTab, trade))}
+                isLoading={isTradesLoading}
+                hideSideColumn
+              />
+            )}
+          </SideFilterTabs>
         </TabsContent>
       </Tabs>
     </div>

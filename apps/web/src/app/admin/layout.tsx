@@ -6,6 +6,7 @@ import { useState } from "react";
 import {
   Activity,
   BarChart3,
+  DollarSign,
   LayoutDashboard,
   Lock,
   Menu,
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/markets", label: "Markets", icon: BarChart3 },
   { href: "/admin/trades", label: "Trades", icon: Activity },
+  { href: "/admin/revenue", label: "Revenue", icon: DollarSign },
 ];
 
 function AdminNav({ pathname, onLinkClick }: { pathname: string; onLinkClick?: () => void }) {

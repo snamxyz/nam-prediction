@@ -85,6 +85,7 @@ export interface AdminMarket {
   totalYesShares?: string;
   totalNoShares?: string;
   totalRangeShares?: string;
+  ranges?: Array<{ index: number; label: string }>;
 }
 
 export type AdminMarketStatus = "active" | "resolved" | "all";
@@ -96,6 +97,11 @@ interface UseAdminMarketsOptions {
   limit?: number;
 }
 
+interface AdminQueryOptions {
+  staleTime?: number;
+  refetchInterval?: number | false;
+}
+
 export interface AdminTrade {
   id: number;
   /** Distinguishes id namespaces between `trades` and `range_trades` for list keys. */
@@ -104,6 +110,7 @@ export interface AdminTrade {
   marketId: number;
   question: string;
   side: string;
+  rangeIndex?: number;
   isBuy: boolean;
   collateral: string;
   shares: string;
@@ -124,6 +131,11 @@ export interface AdminMarketHolder {
   balance?: string;
   openInterestShares: string;
   costBasis: string;
+  yesCostBasis?: string;
+  noCostBasis?: string;
+  yesAvgPrice?: number | null;
+  noAvgPrice?: number | null;
+  pnl?: string;
   avgEntryPrice?: number | null;
 }
 
@@ -258,7 +270,11 @@ export function useAdminMarketDetail(family: AdminMarketFamily | undefined, mark
   });
 }
 
-export function useAdminMarketHolders(family: AdminMarketFamily | undefined, marketId: string | number | undefined) {
+export function useAdminMarketHolders(
+  family: AdminMarketFamily | undefined,
+  marketId: string | number | undefined,
+  options: AdminQueryOptions = {}
+) {
   const getAccessToken = useToken();
   return useQuery({
     queryKey: ["admin-market-holders", family, marketId],
@@ -268,11 +284,16 @@ export function useAdminMarketHolders(family: AdminMarketFamily | undefined, mar
       return authedGetApi<{ holders: AdminMarketHolder[] }>(`/admin/markets/${family}/${marketId}/holders`, token);
     },
     enabled: !!family && !!marketId,
-    staleTime: 30_000,
+    staleTime: options.staleTime ?? 30_000,
+    refetchInterval: options.refetchInterval,
   });
 }
 
-export function useAdminMarketTrades(family: AdminMarketFamily | undefined, marketId: string | number | undefined) {
+export function useAdminMarketTrades(
+  family: AdminMarketFamily | undefined,
+  marketId: string | number | undefined,
+  options: AdminQueryOptions = {}
+) {
   const getAccessToken = useToken();
   return useQuery({
     queryKey: ["admin-market-trades", family, marketId],
@@ -282,8 +303,8 @@ export function useAdminMarketTrades(family: AdminMarketFamily | undefined, mark
       return authedGetApi<{ trades: AdminTrade[] }>(`/admin/markets/${family}/${marketId}/trades?limit=100`, token);
     },
     enabled: !!family && !!marketId,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: options.staleTime ?? 30_000,
+    refetchInterval: options.refetchInterval ?? 60_000,
   });
 }
 

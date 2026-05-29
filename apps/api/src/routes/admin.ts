@@ -339,7 +339,27 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         return { success: false, error: "Market not found" };
       }
 
-      return { success: true, data: { market } };
+      if (family === "token") {
+        return { success: true, data: { market } };
+      }
+
+      const [rangeMarket] = await db
+        .select({ ranges: rangeMarkets.ranges })
+        .from(rangeMarkets)
+        .where(and(eq(rangeMarkets.id, marketId), eq(rangeMarkets.marketType, family)))
+        .limit(1);
+
+      const ranges = Array.isArray(rangeMarket?.ranges)
+        ? rangeMarket.ranges.map((range, index) => {
+            const item = range as { index?: unknown; label?: unknown };
+            return {
+              index: typeof item.index === "number" ? item.index : index,
+              label: typeof item.label === "string" ? item.label : `Range ${index + 1}`,
+            };
+          })
+        : [];
+
+      return { success: true, data: { market: { ...market, ranges } } };
     },
     {
       params: t.Object({
@@ -402,6 +422,11 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
               noBalance: row.position.noBalance,
               openInterestShares: openInterestShares.toFixed(6),
               costBasis: (asNumber(row.position.yesCostBasis) + asNumber(row.position.noCostBasis)).toFixed(2),
+              yesCostBasis: asNumber(row.position.yesCostBasis).toFixed(2),
+              noCostBasis: asNumber(row.position.noCostBasis).toFixed(2),
+              yesAvgPrice: row.position.yesAvgPrice,
+              noAvgPrice: row.position.noAvgPrice,
+              pnl: asNumber(row.position.pnl).toFixed(2),
               avgEntryPrice:
                 side === "NO"
                   ? row.position.noAvgPrice
@@ -446,6 +471,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
             balance: row.position.balance,
             openInterestShares: balance.toFixed(6),
             costBasis: asNumber(row.position.costBasis).toFixed(2),
+            pnl: asNumber(row.position.pnl).toFixed(2),
             avgEntryPrice: row.position.avgEntryPrice,
           };
         })
