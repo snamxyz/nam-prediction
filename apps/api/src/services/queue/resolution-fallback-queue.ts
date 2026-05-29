@@ -23,7 +23,7 @@ import { db } from "../../db/client";
 import { markets, rangeMarkets } from "../../db/schema";
 import { MarketFactoryABI, RangeMarketFactoryABI } from "@nam-prediction/shared";
 import { resolveMarketOnChain } from "../resolution";
-import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../../lib/nonce-manager.instance";
 import { runtimeConfig } from "../../config/runtime";
 
 const QUEUE_NAME = "resolution-fallback";
@@ -289,7 +289,7 @@ async function reconcileRangeMarkets(): Promise<void> {
         transport: http(RPC_URL),
       });
 
-      const txHash = await getNonceManager().withNonce((nonce) =>
+      const txHash = await (await getInitializedNonceManager()).withNonce((nonce) =>
         walletClient.writeContract({
           address: RANGE_FACTORY_ADDRESS as `0x${string}`,
           abi: RangeMarketFactoryABI,

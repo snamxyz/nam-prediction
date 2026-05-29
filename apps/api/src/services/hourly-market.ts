@@ -21,7 +21,7 @@ import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
 import { db } from "../db/client";
 import { markets } from "../db/schema";
 import { fetchNamPrice } from "./daily-market";
-import { getNonceManager } from "../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../lib/nonce-manager.instance";
 import { formatEasternMarketDay } from "../lib/market-display";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
@@ -174,7 +174,7 @@ export async function createNextHourlyMarket(
   // Approve + Create as two sequential transactions, each going through the
   // serialized nonce manager queue. Only one in-flight tx at a time is allowed
   // because Alchemy treats this EOA as a delegated account.
-  const nm = getNonceManager();
+  const nm = await getInitializedNonceManager();
 
   // Step 1: USDC Approval — bounded to this market's seed liquidity.
   const approveHash = await nm.withNonce((nonce) =>

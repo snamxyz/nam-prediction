@@ -19,7 +19,7 @@ import { createRedisConnection, publishEvent } from "../../lib/redis";
 import { db } from "../../db/client";
 import { rangeMarkets } from "../../db/schema";
 import { RangeMarketFactoryABI, VaultABI, PoolRegistryABI, ERC20ABI } from "@nam-prediction/shared";
-import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../../lib/nonce-manager.instance";
 import { queueAdminSnapshotRefresh } from "../admin-snapshots";
 import { runtimeConfig } from "../../config/runtime";
 
@@ -234,7 +234,7 @@ async function createRangeMarketOnChain(
   try {
     const walletClient = getWalletClient();
     const publicClient = getPublicClient();
-    const nm = getNonceManager();
+    const nm = await getInitializedNonceManager();
     const liquidityUsdc = parseUnits(String(RANGE_MARKET_LIQUIDITY), 6);
     const endTimeUnix = BigInt(Math.floor(endTime.getTime() / 1000));
     const rangeLabels = ranges.map((r) => r.label);
@@ -376,7 +376,7 @@ async function resolveExpiredMarkets(): Promise<void> {
       if (RANGE_MARKET_ONCHAIN && market.onChainMarketId != null && FACTORY_ADDRESS) {
         const walletClient = getWalletClient();
         const publicClient = getPublicClient();
-        const nm = getNonceManager();
+        const nm = await getInitializedNonceManager();
 
         const resolveHash = await nm.withNonce((nonce) =>
           walletClient.writeContract({

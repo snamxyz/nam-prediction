@@ -207,7 +207,7 @@ export default function AdminDashboardPage() {
             style={{
               color: "#fff",
               background: "#ff4757",
-              
+            
             }}
           >
             <AlertTriangle className="w-3.5 h-3.5" />

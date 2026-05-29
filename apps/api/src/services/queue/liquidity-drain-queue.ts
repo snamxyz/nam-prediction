@@ -25,7 +25,7 @@ import { createRedisConnection, acquireLock, releaseLock } from "../../lib/redis
 import { db } from "../../db/client";
 import { markets, rangeMarkets } from "../../db/schema";
 import { publicClient } from "../indexer";
-import { getNonceManager } from "../../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../../lib/nonce-manager.instance";
 import { queueAdminSnapshotRefresh } from "../admin-snapshots";
 import { runtimeConfig } from "../../config/runtime";
 
@@ -247,7 +247,7 @@ async function drainMarket(market: typeof markets.$inferSelect) {
       }),
     });
 
-    const txHash = await getNonceManager().withNonce((nonce) =>
+    const txHash = await (await getInitializedNonceManager()).withNonce((nonce) =>
       walletClient.writeContract({
         address: BINARY_FACTORY_ADDRESS!,
         abi: MarketFactoryABI,
@@ -357,7 +357,7 @@ async function drainRangeMarket(market: typeof rangeMarkets.$inferSelect) {
       }),
     });
 
-    const txHash = await getNonceManager().withNonce((nonce) =>
+    const txHash = await (await getInitializedNonceManager()).withNonce((nonce) =>
       walletClient.writeContract({
         address: RANGE_FACTORY_ADDRESS!,
         abi: RangeMarketFactoryABI,

@@ -6,7 +6,7 @@ import { markets } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { MarketFactoryABI } from "@nam-prediction/shared";
 import { acquireLock, releaseLock, publishEvent } from "../lib/redis";
-import { getNonceManager } from "../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../lib/nonce-manager.instance";
 import { runtimeConfig } from "../config/runtime";
 
 // NOTE: hourly markets are owned by the dedicated BullMQ worker in ./queue/hourly-queue.ts.
@@ -45,7 +45,7 @@ export async function resolveMarketOnChain(
       transport: http(RPC_URL),
     });
 
-    const txHash = await getNonceManager().withNonce((nonce) =>
+    const txHash = await (await getInitializedNonceManager()).withNonce((nonce) =>
       walletClient.writeContract({
         address: FACTORY_ADDRESS,
         abi: MarketFactoryABI,

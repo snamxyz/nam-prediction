@@ -5,7 +5,7 @@ import { db } from "../db/client";
 import { dailyMarkets, markets } from "../db/schema";
 import { eq, desc } from "drizzle-orm";
 import { MarketFactoryABI, ERC20ABI } from "@nam-prediction/shared";
-import { getNonceManager } from "../lib/nonce-manager.instance";
+import { getInitializedNonceManager } from "../lib/nonce-manager.instance";
 
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const FACTORY_ADDRESS = process.env.MARKET_FACTORY_ADDRESS as `0x${string}`;
@@ -194,7 +194,7 @@ export async function createDailyMarket(threshold: number): Promise<void> {
     // Approve + Create as two sequential transactions, each going through the
     // serialized nonce manager queue. Only one in-flight tx at a time is allowed
     // because Alchemy treats this EOA as a delegated account.
-    const nm = getNonceManager();
+    const nm = await getInitializedNonceManager();
 
     // Step 1: USDC Approval
     const approveHash = await nm.withNonce((nonce) =>
