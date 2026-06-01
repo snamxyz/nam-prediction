@@ -29,6 +29,13 @@
       "when": 1777600000000,
       "tag": "0004_seeded_liquidity",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780323544722,
+      "tag": "0005_spotty_phil_sheldon",
+      "breakpoints": true
     }
   ]
 }
