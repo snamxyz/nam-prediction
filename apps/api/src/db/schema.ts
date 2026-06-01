@@ -44,6 +44,7 @@ export const markets = pgTable(
     liquidityWithdrawn: numeric("liquidity_withdrawn", { precision: 30, scale: 6 }).notNull().default("0"),
     reservedClaims: numeric("reserved_claims", { precision: 30, scale: 6 }).notNull().default("0"),
     outstandingWinningClaims: numeric("outstanding_winning_claims", { precision: 30, scale: 6 }).notNull().default("0"),
+    endingLiquidity: numeric("ending_liquidity", { precision: 30, scale: 6 }),
     drainedAt: timestamp("drained_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -243,6 +244,31 @@ export const orderFills = pgTable(
   ]
 );
 
+// ─── Market Fee Events ───
+export const marketFeeEvents = pgTable(
+  "market_fee_events",
+  {
+    id: serial("id").primaryKey(),
+    marketFamily: text("market_family").notNull(), // binary | range | clob
+    marketId: integer("market_id").notNull(),
+    poolAddress: text("pool_address"),
+    trader: text("trader").notNull(),
+    amount: numeric("amount", { precision: 30, scale: 6 }).notNull(),
+    isBuy: boolean("is_buy"),
+    isYes: boolean("is_yes"),
+    rangeIndex: integer("range_index"),
+    txHash: text("tx_hash").notNull(),
+    logIndex: integer("log_index").notNull().default(0),
+    blockNumber: numeric("block_number", { precision: 30, scale: 0 }),
+    timestamp: timestamp("timestamp", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("market_fee_events_tx_log_idx").on(table.txHash, table.logIndex),
+    index("market_fee_events_family_market_idx").on(table.marketFamily, table.marketId),
+    index("market_fee_events_timestamp_idx").on(table.timestamp),
+  ]
+);
+
 // ─── Internal Metrics ───
 export const internalMetrics = pgTable("internal_metrics", {
   id: serial("id").primaryKey(),
@@ -414,6 +440,7 @@ export const rangeMarkets = pgTable(
     liquidityWithdrawn: numeric("liquidity_withdrawn", { precision: 30, scale: 6 }).notNull().default("0"),
     reservedClaims: numeric("reserved_claims", { precision: 30, scale: 6 }).notNull().default("0"),
     outstandingWinningClaims: numeric("outstanding_winning_claims", { precision: 30, scale: 6 }).notNull().default("0"),
+    endingLiquidity: numeric("ending_liquidity", { precision: 30, scale: 6 }),
     drainedAt: timestamp("drained_at", { withTimezone: true }),
     endTime: timestamp("end_time", { withTimezone: true }).notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -488,6 +515,7 @@ export type HoldingRow = typeof holdings.$inferSelect;
 export type OrderRow = typeof orders.$inferSelect;
 export type OrderFillRow = typeof orderFills.$inferSelect;
 export type SettlementRow = typeof settlements.$inferSelect;
+export type MarketFeeEventRow = typeof marketFeeEvents.$inferSelect;
 export type TokenPairRow = typeof tokenPairs.$inferSelect;
 export type PriceSnapshotRow = typeof priceSnapshots.$inferSelect;
 export type LiquiditySnapshotRow = typeof liquiditySnapshots.$inferSelect;

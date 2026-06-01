@@ -1,10 +1,12 @@
-import { CPMMABI } from "@nam-prediction/shared";
+import { CPMMABI, ERC20ABI } from "@nam-prediction/shared";
 import { and, count, desc, eq, gte, inArray, sql, sum } from "drizzle-orm";
 import { createPublicClient, formatUnits, http } from "viem";
 import { base } from "viem/chains";
 import { db } from "../db/client";
 import {
+  marketFeeEvents,
   markets,
+  orderFills,
   rangeMarkets,
   rangePositions,
   rangeTrades,
@@ -33,6 +35,7 @@ const HEALTH_TTL_SECONDS = 900;
 const MAX_MARKET_SNAPSHOT_LIMIT = 200;
 const DUST = 1e-9;
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
+const USDC_ADDRESS = (process.env.USDC_ADDRESS || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913") as `0x${string}`;
 const adminSnapshotPublicClient = createPublicClient({
   chain: base,
   transport: http(RPC_URL, {
@@ -62,10 +65,20 @@ export interface AdminOverviewSnapshot extends SnapshotMetadata {
   totalWithdrawals: string;
   tvl: string;
   activeLiquidity: string;
+  startingLiquidity: string;
+  endingLiquidity: string;
+  currentLiquidity: string;
+  currentLiquiditySource: "chain" | "mixed" | "db";
+  currentLiquidityFailedPools: number;
   liquidityWithdrawn: string;
   reservedClaims: string;
   outstandingWinningClaims: string;
   liquidityAtRisk: string;
+  housePnl: string;
+  housePnlFinalCount: number;
+  housePnlEstimatedCount: number;
+  totalFees: string;
+  totalRedemptions: string;
 }
 
 export interface AdminMarketSnapshot extends SnapshotMetadata {
@@ -191,6 +204,144 @@ function parseJson<T>(raw: string | null): T | null {
   } catch {
     return null;
   }
+}
+
+type LiveLiquidityPool = {
+  address: string | null;
+  fallback: number;
+};
+
+async function readLiveCurrentLiquidity(pools: LiveLiquidityPool[]) {
+  const candidates = pools.filter((pool) => pool.address?.startsWith("0x"));
+  const fallbackTotal = pools.reduce((acc, pool) => acc + Math.max(0, pool.fallback), 0);
+  if (candidates.length === 0) {
+    return { value: fallbackTotal, source: "db" as const, failedPools: 0 };
+  }
+
+  try {
+    const results = await adminSnapshotPublicClient.multicall({
+      allowFailure: true,
+      contracts: candidates.map((pool) => ({
+        address: USDC_ADDRESS,
+        abi: ERC20ABI,
+        functionName: "balanceOf",
+        args: [pool.address as `0x${string}`],
+      })),
+    });
+
+    let total = 0;
+    let failedPools = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const result = results[i] as { status: "success" | "failure"; result?: bigint };
+      if (result?.status === "success" && result.result !== undefined) {
+        total += Number(formatUnits(result.result, 6));
+      } else {
+        failedPools += 1;
+        total += Math.max(0, candidates[i].fallback);
+      }
+    }
+
+    return {
+      value: total,
+      source: failedPools === 0 ? "chain" as const : "mixed" as const,
+      failedPools,
+    };
+  } catch (err) {
+    console.warn("[AdminSnapshots] Failed to read live pool liquidity:", err);
+    return { value: fallbackTotal, source: "db" as const, failedPools: candidates.length };
+  }
+}
+
+async function computeOverviewHousePnl() {
+  const [binaryRows, rangeRows] = await Promise.all([
+    db.select().from(markets).where(eq(markets.resolved, true)),
+    db.select().from(rangeMarkets).where(eq(rangeMarkets.resolved, true)),
+  ]);
+
+  const binaryIds = binaryRows.map((market) => market.id);
+  const rangeIds = rangeRows.map((market) => market.id);
+
+  const [binaryTradeRows, rangeTradeRows] = await Promise.all([
+    binaryIds.length
+      ? db
+          .select({
+            trader: trades.trader,
+            marketId: trades.marketId,
+            isYes: trades.isYes,
+            isBuy: trades.isBuy,
+            shares: trades.shares,
+            collateral: trades.collateral,
+            result: markets.result,
+          })
+          .from(trades)
+          .innerJoin(markets, eq(trades.marketId, markets.id))
+          .where(and(inArray(trades.marketId, binaryIds), eq(markets.resolved, true)))
+      : Promise.resolve([]),
+    rangeIds.length
+      ? db
+          .select({
+            trader: rangeTrades.trader,
+            marketId: rangeTrades.rangeMarketId,
+            rangeIndex: rangeTrades.rangeIndex,
+            isBuy: rangeTrades.isBuy,
+            shares: rangeTrades.shares,
+            collateral: rangeTrades.collateral,
+            winningRangeIndex: rangeMarkets.winningRangeIndex,
+          })
+          .from(rangeTrades)
+          .innerJoin(rangeMarkets, eq(rangeTrades.rangeMarketId, rangeMarkets.id))
+          .where(and(inArray(rangeTrades.rangeMarketId, rangeIds), eq(rangeMarkets.resolved, true)))
+      : Promise.resolve([]),
+  ]);
+
+  const binaryTradesByMarket = new Map<number, typeof binaryTradeRows>();
+  for (const trade of binaryTradeRows) {
+    const list = binaryTradesByMarket.get(trade.marketId) ?? [];
+    list.push(trade);
+    binaryTradesByMarket.set(trade.marketId, list);
+  }
+
+  const rangeTradesByMarket = new Map<number, typeof rangeTradeRows>();
+  for (const trade of rangeTradeRows) {
+    const list = rangeTradesByMarket.get(trade.marketId) ?? [];
+    list.push(trade);
+    rangeTradesByMarket.set(trade.marketId, list);
+  }
+
+  let pnl = 0;
+  let finalCount = 0;
+  let estimatedCount = 0;
+
+  for (const market of binaryRows) {
+    const seededLiquidity = asNumber(market.seededLiquidity) || (market.cadence === "24h" ? 1 : asNumber(market.liquidity));
+    const traderPnl = sumBinaryTraderRealisedPnl(binaryTradesByMarket.get(market.id) ?? []);
+    const result = computeHousePnl({
+      resolved: market.resolved,
+      liquidityDrained: market.liquidityDrained,
+      seededLiquidity,
+      liquidityWithdrawn: asNumber(market.liquidityWithdrawn),
+      traderRealisedPnlSum: traderPnl,
+    });
+    if (result.pnl !== null) pnl += result.pnl;
+    if (result.source === "final") finalCount += 1;
+    if (result.source === "estimated") estimatedCount += 1;
+  }
+
+  for (const market of rangeRows) {
+    const traderPnl = sumRangeTraderRealisedPnl(rangeTradesByMarket.get(market.id) ?? []);
+    const result = computeHousePnl({
+      resolved: market.resolved,
+      liquidityDrained: market.liquidityDrained,
+      seededLiquidity: asNumber(market.totalLiquidity),
+      liquidityWithdrawn: asNumber(market.liquidityWithdrawn),
+      traderRealisedPnlSum: traderPnl,
+    });
+    if (result.pnl !== null) pnl += result.pnl;
+    if (result.source === "final") finalCount += 1;
+    if (result.source === "estimated") estimatedCount += 1;
+  }
+
+  return { pnl, finalCount, estimatedCount };
 }
 
 async function readJsonSnapshot<T extends SnapshotMetadata>(key: string): Promise<T | null> {
@@ -354,14 +505,24 @@ export async function buildAdminOverviewSnapshot(): Promise<AdminOverviewSnapsho
     [resolvedRangeMarketsRow],
     [totalDepositsRow],
     [totalWithdrawalsRow],
+    [totalRedemptionsRow],
     [activeBinaryLiquidityRow],
     [activeRangeLiquidityRow],
+    [binaryStartingLiquidityRow],
+    [rangeStartingLiquidityRow],
+    [binaryEndingLiquidityRow],
+    [rangeEndingLiquidityRow],
     [binaryLiquidityWithdrawnRow],
     [rangeLiquidityWithdrawnRow],
     [binaryReservedClaimsRow],
     [rangeReservedClaimsRow],
     [binaryOutstandingClaimsRow],
     [rangeOutstandingClaimsRow],
+    [ammFeesRow],
+    [clobFeesRow],
+    binaryLiquidityPools,
+    rangeLiquidityPools,
+    housePnlSummary,
   ] = await Promise.all([
     db.select({ c: count() }).from(users),
     db.select({ c: count() }).from(users).where(gte(users.createdAt, ago24h)),
@@ -380,24 +541,81 @@ export async function buildAdminOverviewSnapshot(): Promise<AdminOverviewSnapsho
     db.select({ c: count() }).from(rangeMarkets).where(eq(rangeMarkets.resolved, true)),
     db.select({ s: sum(vaultTransactions.amount) }).from(vaultTransactions).where(eq(vaultTransactions.type, "deposit")),
     db.select({ s: sum(vaultTransactions.amount) }).from(vaultTransactions).where(eq(vaultTransactions.type, "withdraw")),
+    db.select({ s: sum(vaultTransactions.amount) }).from(vaultTransactions).where(eq(vaultTransactions.type, "redemption")),
     db.select({ s: sum(markets.liquidity) }).from(markets).where(eq(markets.resolved, false)),
     db.select({ s: sum(rangeMarkets.totalLiquidity) }).from(rangeMarkets).where(eq(rangeMarkets.resolved, false)),
+    db.select({ s: sum(markets.seededLiquidity) }).from(markets),
+    db.select({ s: sum(rangeMarkets.totalLiquidity) }).from(rangeMarkets),
+    db
+      .select({
+        s: sql<string>`sum(coalesce(${markets.endingLiquidity}, ${markets.liquidityWithdrawn} + ${markets.outstandingWinningClaims}))`,
+      })
+      .from(markets)
+      .where(eq(markets.resolved, true)),
+    db
+      .select({
+        s: sql<string>`sum(coalesce(${rangeMarkets.endingLiquidity}, ${rangeMarkets.liquidityWithdrawn} + ${rangeMarkets.outstandingWinningClaims}))`,
+      })
+      .from(rangeMarkets)
+      .where(eq(rangeMarkets.resolved, true)),
     db.select({ s: sum(markets.liquidityWithdrawn) }).from(markets),
     db.select({ s: sum(rangeMarkets.liquidityWithdrawn) }).from(rangeMarkets),
     db.select({ s: sum(markets.reservedClaims) }).from(markets),
     db.select({ s: sum(rangeMarkets.reservedClaims) }).from(rangeMarkets),
     db.select({ s: sum(markets.outstandingWinningClaims) }).from(markets),
     db.select({ s: sum(rangeMarkets.outstandingWinningClaims) }).from(rangeMarkets),
+    db
+      .select({ s: sum(marketFeeEvents.amount) })
+      .from(marketFeeEvents)
+      .where(inArray(marketFeeEvents.marketFamily, ["binary", "range"])),
+    db.select({ s: sql<string>`sum(${orderFills.makerFee} + ${orderFills.takerFee})` }).from(orderFills),
+    db
+      .select({
+        address: markets.ammAddress,
+        resolved: markets.resolved,
+        liquidity: markets.liquidity,
+        reservedClaims: markets.reservedClaims,
+        outstandingWinningClaims: markets.outstandingWinningClaims,
+      })
+      .from(markets),
+    db
+      .select({
+        address: rangeMarkets.rangeCpmmAddress,
+        resolved: rangeMarkets.resolved,
+        liquidity: rangeMarkets.totalLiquidity,
+        reservedClaims: rangeMarkets.reservedClaims,
+        outstandingWinningClaims: rangeMarkets.outstandingWinningClaims,
+      })
+      .from(rangeMarkets),
+    computeOverviewHousePnl(),
   ]);
 
   const totalDeposits = asNumber(totalDepositsRow?.s);
   const totalWithdrawals = asNumber(totalWithdrawalsRow?.s);
+  const totalRedemptions = asNumber(totalRedemptionsRow?.s);
   const activeLiquidity = asNumber(activeBinaryLiquidityRow?.s) + asNumber(activeRangeLiquidityRow?.s);
+  const startingLiquidity = asNumber(binaryStartingLiquidityRow?.s) + asNumber(rangeStartingLiquidityRow?.s);
+  const endingLiquidity = asNumber(binaryEndingLiquidityRow?.s) + asNumber(rangeEndingLiquidityRow?.s);
   const liquidityWithdrawn =
     asNumber(binaryLiquidityWithdrawnRow?.s) + asNumber(rangeLiquidityWithdrawnRow?.s);
   const reservedClaims = asNumber(binaryReservedClaimsRow?.s) + asNumber(rangeReservedClaimsRow?.s);
   const outstandingWinningClaims =
     asNumber(binaryOutstandingClaimsRow?.s) + asNumber(rangeOutstandingClaimsRow?.s);
+  const currentLiquidity = await readLiveCurrentLiquidity([
+    ...binaryLiquidityPools.map((pool) => ({
+      address: pool.address,
+      fallback: pool.resolved
+        ? asNumber(pool.reservedClaims) + asNumber(pool.outstandingWinningClaims)
+        : asNumber(pool.liquidity),
+    })),
+    ...rangeLiquidityPools.map((pool) => ({
+      address: pool.address,
+      fallback: pool.resolved
+        ? asNumber(pool.reservedClaims) + asNumber(pool.outstandingWinningClaims)
+        : asNumber(pool.liquidity),
+    })),
+  ]);
+  const totalFees = asNumber(ammFeesRow?.s) + asNumber(clobFeesRow?.s);
 
   return {
     snapshotAt: now.toISOString(),
@@ -415,10 +633,20 @@ export async function buildAdminOverviewSnapshot(): Promise<AdminOverviewSnapsho
     totalWithdrawals: money(totalWithdrawals),
     tvl: money(totalDeposits - totalWithdrawals),
     activeLiquidity: money(activeLiquidity),
+    startingLiquidity: money(startingLiquidity),
+    endingLiquidity: money(endingLiquidity),
+    currentLiquidity: money(currentLiquidity.value),
+    currentLiquiditySource: currentLiquidity.source,
+    currentLiquidityFailedPools: currentLiquidity.failedPools,
     liquidityWithdrawn: money(liquidityWithdrawn),
     reservedClaims: money(reservedClaims),
     outstandingWinningClaims: money(outstandingWinningClaims),
     liquidityAtRisk: money(activeLiquidity + reservedClaims + outstandingWinningClaims),
+    housePnl: money(housePnlSummary.pnl),
+    housePnlFinalCount: housePnlSummary.finalCount,
+    housePnlEstimatedCount: housePnlSummary.estimatedCount,
+    totalFees: money(totalFees),
+    totalRedemptions: money(totalRedemptions),
   };
 }
 

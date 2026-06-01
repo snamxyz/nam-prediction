@@ -21,10 +21,20 @@ export interface AdminOverview {
   totalWithdrawals: string;
   tvl: string;
   activeLiquidity?: string;
+  startingLiquidity?: string;
+  endingLiquidity?: string;
+  currentLiquidity?: string;
+  currentLiquiditySource?: "chain" | "mixed" | "db";
+  currentLiquidityFailedPools?: number;
   liquidityWithdrawn?: string;
   reservedClaims?: string;
   outstandingWinningClaims?: string;
   liquidityAtRisk?: string;
+  housePnl?: string;
+  housePnlFinalCount?: number;
+  housePnlEstimatedCount?: number;
+  totalFees?: string;
+  totalRedemptions?: string;
 }
 
 export interface AdminUser {

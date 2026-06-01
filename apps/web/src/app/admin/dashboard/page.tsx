@@ -8,7 +8,7 @@ import { VaultABI } from "@nam-prediction/shared";
 import { usePreferredWallet } from "@/hooks/usePreferredWallet";
 import { createPublicClient, createWalletClient, custom, http } from "viem";
 import { base } from "viem/chains";
-import { AlertTriangle, DollarSign, Users, Activity, TrendingUp, ArrowUpRight, Layers } from "lucide-react";
+import { AlertTriangle, DollarSign, Users, Activity, TrendingUp, ArrowUpRight, Layers, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/UI/button";
 import {
@@ -28,11 +28,23 @@ const publicClient = createPublicClient({
 
 const EMERGENCY_REFUND_BATCH_SIZE = BigInt(50);
 
-function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {
+function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+  valueClassName,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  valueClassName?: string;
+}) {
   return (
     <div className="glass-card p-5">
       <div className="flex items-center gap-2 mb-3">{icon}<span className="text-xs" style={{ color: "var(--muted)" }}>{label}</span></div>
-      <div className="text-2xl font-semibold mb-1" style={{ color: "var(--foreground)" }}>{value}</div>
+      <div className={`text-2xl font-semibold mb-1 ${valueClassName ?? ""}`} style={valueClassName ? undefined : { color: "var(--foreground)" }}>{value}</div>
       {sub && <div className="text-xs" style={{ color: "var(--muted)" }}>{sub}</div>}
     </div>
   );
@@ -44,6 +56,14 @@ function fmt(n: string | number) {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
   if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
   return `$${v.toFixed(2)}`;
+}
+
+function fmtSigned(n: string | number) {
+  const v = parseFloat(String(n));
+  if (!Number.isFinite(v)) return "$0.00";
+  const abs = fmt(Math.abs(v));
+  if (v < 0) return `-${abs}`;
+  return abs;
 }
 
 function snapshotLabel(snapshotAt?: string, source?: string) {
@@ -149,7 +169,7 @@ export default function AdminDashboardPage() {
   if (isLoading) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-        {[...Array(8)].map((_, i) => (
+        {[...Array(13)].map((_, i) => (
           <div key={i} className="glass-card p-5 h-28 animate-pulse" />
         ))}
       </div>
@@ -174,6 +194,15 @@ export default function AdminDashboardPage() {
         : chainTvlPending
           ? "Loading on-chain TVL…"
           : "On-chain USDC in vault escrows";
+  const housePnl = parseFloat(data.housePnl ?? "0");
+  const housePnlClassName =
+    housePnl > 0 ? "text-yes" : housePnl < 0 ? "text-no" : "text-[var(--foreground)]";
+  const currentLiquiditySource =
+    data.currentLiquiditySource === "chain"
+      ? "Live on-chain pool balances"
+      : data.currentLiquiditySource === "mixed"
+        ? `Live on-chain with ${data.currentLiquidityFailedPools ?? 0} DB fallback(s)`
+        : "DB fallback pool liquidity";
 
   const stats = [
     { icon: <Users className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Users", value: String(data.totalUsers), sub: `Indexed users · +${data.users24h} today · +${data.users7d} this week` },
@@ -181,6 +210,11 @@ export default function AdminDashboardPage() {
     { icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Volume", value: fmt(data.totalVolume), sub: `All-time collateral volume · ${fmt(data.volume24h)} in last 24h` },
     { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "TVL (Vault)", value: tvlVaultValue, sub: tvlVaultSub ?? "Current on-chain USDC held in vault escrows" },
     { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Book TVL", value: fmt(data.tvl), sub: `Indexed net vault position · ${fmt(data.totalDeposits)} deposits · ${fmt(data.totalWithdrawals)} withdrawn` },
+    { icon: <Landmark className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Starting Liquidity", value: fmt(data.startingLiquidity ?? 0), sub: "Total house liquidity seeded into markets" },
+    { icon: <Landmark className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Ending Liquidity", value: fmt(data.endingLiquidity ?? 0), sub: "Resolution-time pool liquidity for ended markets" },
+    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Current Liquidity", value: fmt(data.currentLiquidity ?? 0), sub: `${currentLiquiditySource} · ${fmt(data.totalRedemptions ?? 0)} redeemed` },
+    { icon: <TrendingUp className="w-4 h-4" style={{ color: housePnl >= 0 ? "var(--yes)" : "var(--no)" }} />, label: "House P&L", value: fmtSigned(data.housePnl ?? 0), sub: `${data.housePnlFinalCount ?? 0} final · ${data.housePnlEstimatedCount ?? 0} estimated`, valueClassName: housePnlClassName },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Fees", value: fmt(data.totalFees ?? 0), sub: "Indexed protocol fees from AMM and CLOB fills" },
     { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Active Liquidity", value: fmt(data.activeLiquidity ?? 0), sub: "Liquidity currently supporting open markets" },
     { icon: <AlertTriangle className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Liquidity At Risk", value: fmt(data.liquidityAtRisk ?? 0), sub: `${fmt(data.reservedClaims ?? 0)} reserved + ${fmt(data.outstandingWinningClaims ?? 0)} pending claims` },
     { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Liquidity Withdrawn", value: fmt(data.liquidityWithdrawn ?? 0), sub: "Liquidity removed after market resolution" },

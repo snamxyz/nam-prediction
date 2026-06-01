@@ -1154,6 +1154,16 @@ export const RangeLMSRABI = [
   },
   {
     type: "event",
+    name: "FeeCollected",
+    inputs: [
+      { name: "trader", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "isBuy", type: "bool", indexed: false },
+      { name: "rangeIndex", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
     name: "RangeTrade",
     inputs: [
       { name: "marketId", type: "uint256", indexed: true },

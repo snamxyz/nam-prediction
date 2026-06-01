@@ -1,9 +1,9 @@
 import { createPublicClient, http, formatUnits, parseUnits, parseEventLogs } from "viem";
 import { base } from "viem/chains";
 import { db } from "../db/client";
-import { markets, trades, userPositions, vaultTransactions } from "../db/schema";
-import { eq, and } from "drizzle-orm";
-import { MarketFactoryABI, CPMMABI, VaultABI } from "@nam-prediction/shared";
+import { marketFeeEvents, markets, rangeMarkets, trades, userPositions, vaultTransactions } from "../db/schema";
+import { eq, and, sql } from "drizzle-orm";
+import { MarketFactoryABI, CPMMABI, RangeLMSRABI, VaultABI } from "@nam-prediction/shared";
 import { publishEvent, setCache, cacheKeys } from "../lib/redis";
 import { queueAdminSnapshotRefresh } from "./admin-snapshots";
 import { runtimeConfig } from "../config/runtime";
@@ -53,7 +53,10 @@ export const publicClient = createPublicClient({
 // covers ALL pools — restarted whenever the set changes. This cuts
 // eth_getFilterChanges calls from O(N pools) down to O(1).
 const watchedPools = new Set<string>();
+const watchedRangeFeePools = new Set<string>();
 let globalTradeUnwatch: (() => void) | null = null;
+let globalFeeUnwatch: (() => void) | null = null;
+let globalRangeFeeUnwatch: (() => void) | null = null;
 
 function restartGlobalTradeWatcher(): void {
   const addresses = [...watchedPools] as `0x${string}`[];
@@ -70,14 +73,45 @@ function restartGlobalTradeWatcher(): void {
           eventName: "Trade",
           onLogs: (logs) => logs.forEach(handleTrade),
         });
+  const newFeeUnwatch =
+    addresses.length === 0
+      ? null
+      : publicClient.watchContractEvent({
+          address: addresses,
+          abi: CPMMABI,
+          eventName: "FeeCollected",
+          onLogs: (logs) => logs.forEach(handleBinaryFeeCollected),
+        });
 
   if (globalTradeUnwatch) globalTradeUnwatch();
+  if (globalFeeUnwatch) globalFeeUnwatch();
   globalTradeUnwatch = newUnwatch;
+  globalFeeUnwatch = newFeeUnwatch;
 
   if (addresses.length > 0) {
     console.log(
-      `[Indexer] Global Trade watcher active for ${addresses.length} pool(s)`
+      `[Indexer] Global Trade/Fee watcher active for ${addresses.length} pool(s)`
     );
+  }
+}
+
+function restartGlobalRangeFeeWatcher(): void {
+  const addresses = [...watchedRangeFeePools] as `0x${string}`[];
+  const newUnwatch =
+    addresses.length === 0
+      ? null
+      : publicClient.watchContractEvent({
+          address: addresses,
+          abi: RangeLMSRABI,
+          eventName: "FeeCollected",
+          onLogs: (logs) => logs.forEach(handleRangeFeeCollected),
+        });
+
+  if (globalRangeFeeUnwatch) globalRangeFeeUnwatch();
+  globalRangeFeeUnwatch = newUnwatch;
+
+  if (addresses.length > 0) {
+    console.log(`[Indexer] Global range Fee watcher active for ${addresses.length} pool(s)`);
   }
 }
 
@@ -107,6 +141,91 @@ function subBigIntStrings(a: string, b: string): string {
 }
 
 // ─── Event handlers ───
+
+async function readPoolCollateral(poolAddress: `0x${string}`, blockNumber?: bigint): Promise<string | null> {
+  try {
+    const balance = (await publicClient.readContract({
+      address: poolAddress,
+      abi: CPMMABI,
+      functionName: "getCollateralBalance",
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    })) as bigint;
+    return formatUnits(balance, 6);
+  } catch (err) {
+    console.warn(`[Indexer] Failed to read pool collateral for ${poolAddress}:`, err);
+    return null;
+  }
+}
+
+async function handleBinaryFeeCollected(log: any) {
+  const poolAddress = (log.address as string | undefined)?.toLowerCase();
+  const txHash = log.transactionHash as string | undefined;
+  if (!poolAddress || !txHash) return;
+
+  const market = await db
+    .select()
+    .from(markets)
+    .where(sql`lower(${markets.ammAddress}) = ${poolAddress}`)
+    .limit(1);
+  if (market.length === 0) return;
+
+  const { trader, amount, isBuy, isYes } = log.args;
+  const inserted = await db
+    .insert(marketFeeEvents)
+    .values({
+      marketFamily: "binary",
+      marketId: market[0].id,
+      poolAddress,
+      trader: (trader as string).toLowerCase(),
+      amount: formatUnits(amount as bigint, 6),
+      isBuy: isBuy as boolean,
+      isYes: isYes as boolean,
+      txHash,
+      logIndex: Number(log.logIndex ?? 0),
+      blockNumber: log.blockNumber !== undefined ? log.blockNumber.toString() : null,
+    })
+    .onConflictDoNothing({ target: [marketFeeEvents.txHash, marketFeeEvents.logIndex] })
+    .returning({ id: marketFeeEvents.id });
+
+  if (inserted.length > 0) {
+    queueAdminSnapshotRefresh("binary-fee");
+  }
+}
+
+async function handleRangeFeeCollected(log: any) {
+  const poolAddress = (log.address as string | undefined)?.toLowerCase();
+  const txHash = log.transactionHash as string | undefined;
+  if (!poolAddress || !txHash) return;
+
+  const market = await db
+    .select()
+    .from(rangeMarkets)
+    .where(sql`lower(${rangeMarkets.rangeCpmmAddress}) = ${poolAddress}`)
+    .limit(1);
+  if (market.length === 0) return;
+
+  const { trader, amount, isBuy, rangeIndex } = log.args;
+  const inserted = await db
+    .insert(marketFeeEvents)
+    .values({
+      marketFamily: "range",
+      marketId: market[0].id,
+      poolAddress,
+      trader: (trader as string).toLowerCase(),
+      amount: formatUnits(amount as bigint, 6),
+      isBuy: isBuy as boolean,
+      rangeIndex: Number(rangeIndex),
+      txHash,
+      logIndex: Number(log.logIndex ?? 0),
+      blockNumber: log.blockNumber !== undefined ? log.blockNumber.toString() : null,
+    })
+    .onConflictDoNothing({ target: [marketFeeEvents.txHash, marketFeeEvents.logIndex] })
+    .returning({ id: marketFeeEvents.id });
+
+  if (inserted.length > 0) {
+    queueAdminSnapshotRefresh("range-fee");
+  }
+}
 
 async function handleMarketCreated(log: any) {
   const { marketId, yesToken, noToken, liquidityPool, question, endTime, resolutionSource, resolutionData } = log.args;
@@ -518,6 +637,16 @@ async function handleMarketResolved(log: any) {
     .limit(1);
 
   if (market.length > 0) {
+    const endingLiquidity = market[0].ammAddress
+      ? await readPoolCollateral(market[0].ammAddress as `0x${string}`, log.blockNumber as bigint | undefined)
+      : null;
+    if (endingLiquidity !== null) {
+      await db
+        .update(markets)
+        .set({ endingLiquidity })
+        .where(eq(markets.id, market[0].id));
+    }
+
     // Stop polling this pool — resolved markets receive no new trades
     if (market[0].ammAddress) {
       unwatchPool(market[0].ammAddress);
@@ -607,6 +736,19 @@ export async function startIndexer(options: { startPriceReconciler?: boolean } =
     console.log(`[Indexer] Watching trades for ${existingMarkets.length} active pool(s)`);
   } catch (err) {
     console.error("[Indexer] Failed to load existing markets for trade watching:", err);
+  }
+
+  try {
+    const activeRangeMarkets = await db
+      .select()
+      .from(rangeMarkets)
+      .where(eq(rangeMarkets.resolved, false));
+    for (const m of activeRangeMarkets) {
+      if (m.rangeCpmmAddress) watchRangeFeesForPool(m.rangeCpmmAddress as `0x${string}`);
+    }
+    console.log(`[Indexer] Watching fees for ${activeRangeMarkets.length} active range market(s)`);
+  } catch (err) {
+    console.error("[Indexer] Failed to load existing range markets for fee watching:", err);
   }
 
   if (FACTORY_ADDRESS) {
@@ -797,6 +939,18 @@ export function watchTradesForPool(ammAddress: `0x${string}`): () => void {
   return () => unwatchPool(ammAddress);
 }
 
+export function watchRangeFeesForPool(poolAddress: `0x${string}`): () => void {
+  const key = poolAddress.toLowerCase();
+  if (watchedRangeFeePools.has(key)) {
+    return () => unwatchRangeFeePool(poolAddress);
+  }
+
+  console.log(`[Indexer] Adding range pool to global Fee watcher: ${poolAddress}`);
+  watchedRangeFeePools.add(key);
+  restartGlobalRangeFeeWatcher();
+  return () => unwatchRangeFeePool(poolAddress);
+}
+
 /// Remove a pool from the global Trade watcher (called when its market resolves).
 function unwatchPool(ammAddress: string): void {
   const key = ammAddress.toLowerCase();
@@ -804,6 +958,14 @@ function unwatchPool(ammAddress: string): void {
   watchedPools.delete(key);
   restartGlobalTradeWatcher();
   console.log(`[Indexer] Removed resolved pool from Trade watcher: ${ammAddress}`);
+}
+
+export function unwatchRangeFeePool(poolAddress: string): void {
+  const key = poolAddress.toLowerCase();
+  if (!watchedRangeFeePools.has(key)) return;
+  watchedRangeFeePools.delete(key);
+  restartGlobalRangeFeeWatcher();
+  console.log(`[Indexer] Removed resolved range pool from Fee watcher: ${poolAddress}`);
 }
 
 // ─── Price reconciler ───

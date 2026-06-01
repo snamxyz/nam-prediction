@@ -12,7 +12,7 @@
  */
 import { Queue, Worker } from "bullmq";
 import { eq, and, lt } from "drizzle-orm";
-import { createWalletClient, createPublicClient, http, parseUnits, parseEventLogs } from "viem";
+import { createWalletClient, createPublicClient, http, parseUnits, parseEventLogs, formatUnits } from "viem";
 import { base } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { createRedisConnection, publishEvent } from "../../lib/redis";
@@ -21,6 +21,7 @@ import { rangeMarkets } from "../../db/schema";
 import { RangeMarketFactoryABI, VaultABI, PoolRegistryABI, ERC20ABI } from "@nam-prediction/shared";
 import { getInitializedNonceManager } from "../../lib/nonce-manager.instance";
 import { queueAdminSnapshotRefresh } from "../admin-snapshots";
+import { unwatchRangeFeePool, watchRangeFeesForPool } from "../indexer";
 import { runtimeConfig } from "../../config/runtime";
 
 const VAULT_ADDRESS = process.env.VAULT_ADDRESS as `0x${string}` | undefined;
@@ -78,6 +79,27 @@ function getWalletClient() {
 
 function getPublicClient() {
   return createPublicClient({ chain: base, transport: http(RPC_URL) });
+}
+
+async function readRangePoolUsdcBalance(
+  client: ReturnType<typeof getPublicClient>,
+  poolAddress: string | null,
+  blockNumber?: bigint
+) {
+  if (!poolAddress) return null;
+  try {
+    const balance = await client.readContract({
+      address: USDC_ADDRESS,
+      abi: ERC20ABI,
+      functionName: "balanceOf",
+      args: [poolAddress as `0x${string}`],
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    }) as bigint;
+    return formatUnits(balance, 6);
+  } catch (err) {
+    console.warn(`[RangeMarketQueue] Failed to read ending liquidity for pool ${poolAddress}:`, err);
+    return null;
+  }
 }
 
 /**
@@ -328,6 +350,7 @@ async function createRangeMarketOnChain(
     }
 
     console.log(`[RangeMarketQueue] ${marketType} market created. onChainId=${onChainMarketId} pool=${cpmmPool}`);
+    watchRangeFeesForPool(cpmmPool as `0x${string}`);
 
     await publishEvent("market:update", {
       marketId: dbId,
@@ -387,8 +410,19 @@ async function resolveExpiredMarkets(): Promise<void> {
             nonce,
           })
         );
-        await publicClient.waitForTransactionReceipt({ hash: resolveHash });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: resolveHash });
         console.log(`[RangeMarketQueue] On-chain resolve tx: ${resolveHash}`);
+        const endingLiquidity = await readRangePoolUsdcBalance(
+          publicClient,
+          market.rangeCpmmAddress,
+          receipt.blockNumber
+        );
+        if (endingLiquidity !== null) {
+          await db
+            .update(rangeMarkets)
+            .set({ endingLiquidity })
+            .where(eq(rangeMarkets.id, market.id));
+        }
       } else {
         console.log(`[RangeMarketQueue] Market id=${market.id} — resolving DB only (off-chain mode or no on-chain id)`);
       }
@@ -402,6 +436,10 @@ async function resolveExpiredMarkets(): Promise<void> {
         rangePrices: resolvedPrices as unknown as typeof rangeMarkets.$inferInsert["rangePrices"],
         resolvedAt: now,
       }).where(eq(rangeMarkets.id, market.id));
+
+      if (market.rangeCpmmAddress) {
+        unwatchRangeFeePool(market.rangeCpmmAddress);
+      }
 
       await publishEvent("market:resolved", {
         marketId: market.id,

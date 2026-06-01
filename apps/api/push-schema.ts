@@ -40,9 +40,17 @@ ALTER TABLE markets ADD COLUMN IF NOT EXISTS execution_mode TEXT NOT NULL DEFAUL
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS cadence TEXT NOT NULL DEFAULT 'daily';
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'open';
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS lock_time TIMESTAMPTZ;
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS seeded_liquidity NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS liquidity_drained BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS liquidity_withdrawn NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS reserved_claims NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS outstanding_winning_claims NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS ending_liquidity NUMERIC(30,6);
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS drained_at TIMESTAMPTZ;
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS markets_status_end_time_idx ON markets(status, end_time);
 CREATE INDEX IF NOT EXISTS markets_execution_status_idx ON markets(execution_mode, status);
+CREATE INDEX IF NOT EXISTS markets_resolved_drained_idx ON markets(resolved, liquidity_drained, resolved_at);
 
 -- Trades (idempotent create; NEVER drop — would blow away price history)
 CREATE TABLE IF NOT EXISTS trades (
@@ -205,6 +213,26 @@ CREATE INDEX IF NOT EXISTS order_fills_market_created_idx ON order_fills(market_
 CREATE INDEX IF NOT EXISTS order_fills_settlement_idx ON order_fills(settlement_id);
 CREATE INDEX IF NOT EXISTS order_fills_maker_taker_idx ON order_fills(maker_address, taker_address);
 
+-- Market Fee Events
+CREATE TABLE IF NOT EXISTS market_fee_events (
+  id SERIAL PRIMARY KEY,
+  market_family TEXT NOT NULL,
+  market_id INTEGER NOT NULL,
+  pool_address TEXT,
+  trader TEXT NOT NULL,
+  amount NUMERIC(30,6) NOT NULL,
+  is_buy BOOLEAN,
+  is_yes BOOLEAN,
+  range_index INTEGER,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL DEFAULT 0,
+  block_number NUMERIC(30,0),
+  "timestamp" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS market_fee_events_tx_log_idx ON market_fee_events(tx_hash, log_index);
+CREATE INDEX IF NOT EXISTS market_fee_events_family_market_idx ON market_fee_events(market_family, market_id);
+CREATE INDEX IF NOT EXISTS market_fee_events_timestamp_idx ON market_fee_events("timestamp");
+
 -- Internal Metrics
 CREATE TABLE IF NOT EXISTS internal_metrics (
   id SERIAL PRIMARY KEY,
@@ -323,6 +351,42 @@ CREATE TABLE IF NOT EXISTS risk_events (
 CREATE INDEX IF NOT EXISTS risk_events_market_created_idx ON risk_events(market_id, created_at);
 CREATE INDEX IF NOT EXISTS risk_events_type_severity_idx ON risk_events(event_type, severity);
 CREATE INDEX IF NOT EXISTS risk_events_user_created_idx ON risk_events(user_address, created_at);
+
+-- Range Markets
+CREATE TABLE IF NOT EXISTS range_markets (
+  id SERIAL PRIMARY KEY,
+  market_type TEXT NOT NULL,
+  date TEXT NOT NULL,
+  question TEXT NOT NULL,
+  ranges JSONB NOT NULL,
+  range_token_addresses JSONB NOT NULL,
+  range_prices JSONB NOT NULL,
+  range_cpmm_address TEXT,
+  on_chain_market_id INTEGER,
+  total_liquidity NUMERIC(30,6) NOT NULL DEFAULT '0',
+  status TEXT NOT NULL DEFAULT 'creating',
+  resolved BOOLEAN NOT NULL DEFAULT false,
+  winning_range_index INTEGER,
+  liquidity_drained BOOLEAN NOT NULL DEFAULT false,
+  liquidity_withdrawn NUMERIC(30,6) NOT NULL DEFAULT '0',
+  reserved_claims NUMERIC(30,6) NOT NULL DEFAULT '0',
+  outstanding_winning_claims NUMERIC(30,6) NOT NULL DEFAULT '0',
+  ending_liquidity NUMERIC(30,6),
+  drained_at TIMESTAMPTZ,
+  end_time TIMESTAMPTZ NOT NULL,
+  resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE range_markets ADD COLUMN IF NOT EXISTS liquidity_drained BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE range_markets ADD COLUMN IF NOT EXISTS liquidity_withdrawn NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE range_markets ADD COLUMN IF NOT EXISTS reserved_claims NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE range_markets ADD COLUMN IF NOT EXISTS outstanding_winning_claims NUMERIC(30,6) NOT NULL DEFAULT '0';
+ALTER TABLE range_markets ADD COLUMN IF NOT EXISTS ending_liquidity NUMERIC(30,6);
+ALTER TABLE range_markets ADD COLUMN IF NOT EXISTS drained_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS range_markets_type_status_idx ON range_markets(market_type, status);
+CREATE INDEX IF NOT EXISTS range_markets_end_time_idx ON range_markets(end_time);
+CREATE INDEX IF NOT EXISTS range_markets_type_date_idx ON range_markets(market_type, date);
+CREATE INDEX IF NOT EXISTS range_markets_resolved_drained_idx ON range_markets(resolved, liquidity_drained, resolved_at);
 `;
 
 try {
