@@ -69,7 +69,7 @@ function fmtSigned(n: string | number) {
 function snapshotLabel(snapshotAt?: string, source?: string) {
   if (!snapshotAt) return undefined;
   const time = new Date(snapshotAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return `${source === "redis" ? "Redis" : "DB"} snapshot ${time}`;
+  return `Last updated ${time}${source === "redis" ? "" : " from saved data"}`;
 }
 
 export default function AdminDashboardPage() {
@@ -190,34 +190,34 @@ export default function AdminDashboardPage() {
     !vaultAddress
       ? undefined
       : chainTvlError
-        ? "Could not load on-chain TVL"
+        ? "Could not load the live vault balance."
         : chainTvlPending
-          ? "Loading on-chain TVL…"
-          : "On-chain USDC in vault escrows";
+          ? "Loading the live vault balance..."
+          : "Money currently held in the vault for markets.";
   const housePnl = parseFloat(data.housePnl ?? "0");
   const housePnlClassName =
     housePnl > 0 ? "text-yes" : housePnl < 0 ? "text-no" : "text-[var(--foreground)]";
   const currentLiquiditySource =
     data.currentLiquiditySource === "chain"
-      ? "Live on-chain pool balances"
+      ? "Live market balances available now."
       : data.currentLiquiditySource === "mixed"
-        ? `Live on-chain with ${data.currentLiquidityFailedPools ?? 0} DB fallback(s)`
-        : "DB fallback pool liquidity";
+        ? `${data.currentLiquidityFailedPools ?? 0} market balance${data.currentLiquidityFailedPools === 1 ? "" : "s"} used the last saved value.`
+        : "Last saved market balance.";
 
   const stats = [
-    { icon: <Users className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Users", value: String(data.totalUsers), sub: `Indexed users · +${data.users24h} today · +${data.users7d} this week` },
-    { icon: <Activity className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Trades", value: String(data.totalTrades), sub: `Executed indexed trades · +${data.trades24h} today` },
-    { icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Volume", value: fmt(data.totalVolume), sub: `All-time collateral volume · ${fmt(data.volume24h)} in last 24h` },
-    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "TVL (Vault)", value: tvlVaultValue, sub: tvlVaultSub ?? "Current on-chain USDC held in vault escrows" },
-    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Book TVL", value: fmt(data.tvl), sub: `Indexed net vault position · ${fmt(data.totalDeposits)} deposits · ${fmt(data.totalWithdrawals)} withdrawn` },
-    { icon: <Landmark className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Starting Liquidity", value: fmt(data.startingLiquidity ?? 0), sub: "Total house liquidity seeded into markets" },
-    { icon: <Landmark className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Ending Liquidity", value: fmt(data.endingLiquidity ?? 0), sub: "Resolution-time pool liquidity for ended markets" },
-    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Current Liquidity", value: fmt(data.currentLiquidity ?? 0), sub: `${currentLiquiditySource} · ${fmt(data.totalRedemptions ?? 0)} redeemed` },
-    { icon: <TrendingUp className="w-4 h-4" style={{ color: housePnl >= 0 ? "var(--yes)" : "var(--no)" }} />, label: "House P&L", value: fmtSigned(data.housePnl ?? 0), sub: `${data.housePnlFinalCount ?? 0} final · ${data.housePnlEstimatedCount ?? 0} estimated`, valueClassName: housePnlClassName },
-    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Fees", value: fmt(data.totalFees ?? 0), sub: "Indexed protocol fees from AMM and CLOB fills" },
-    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Active Liquidity", value: fmt(data.activeLiquidity ?? 0), sub: "Liquidity currently supporting open markets" },
-    { icon: <AlertTriangle className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Liquidity At Risk", value: fmt(data.liquidityAtRisk ?? 0), sub: `${fmt(data.reservedClaims ?? 0)} reserved + ${fmt(data.outstandingWinningClaims ?? 0)} pending claims` },
-    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Liquidity Withdrawn", value: fmt(data.liquidityWithdrawn ?? 0), sub: "Liquidity removed after market resolution" },
+    { icon: <Users className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Users", value: String(data.totalUsers), sub: `People who have joined the app. +${data.users24h} today, +${data.users7d} this week.` },
+    { icon: <Activity className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Trades", value: String(data.totalTrades), sub: `Completed trades across all markets. +${data.trades24h} today.` },
+    { icon: <TrendingUp className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Trade Value", value: fmt(data.totalVolume), sub: `Total money users have traded. ${fmt(data.volume24h)} was traded in the last 24 hours.` },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Vault Balance", value: tvlVaultValue, sub: tvlVaultSub ?? "Money currently held in the vault for markets." },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Saved Vault Balance", value: fmt(data.tvl), sub: `Balance from saved activity: ${fmt(data.totalDeposits)} added, ${fmt(data.totalWithdrawals)} removed.` },
+    { icon: <Landmark className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Money Added To Markets", value: fmt(data.startingLiquidity ?? 0), sub: "Total house money supplied when markets were created." },
+    { icon: <Landmark className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Money Left At Close", value: fmt(data.endingLiquidity ?? 0), sub: "Money remaining in markets after they ended." },
+    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Current Market Money", value: fmt(data.currentLiquidity ?? 0), sub: `${currentLiquiditySource} ${fmt(data.totalRedemptions ?? 0)} has been paid out to winners.` },
+    { icon: <TrendingUp className="w-4 h-4" style={{ color: housePnl >= 0 ? "var(--yes)" : "var(--no)" }} />, label: "House Profit/Loss", value: fmtSigned(data.housePnl ?? 0), sub: `How much the house is up or down after payouts. ${data.housePnlFinalCount ?? 0} markets are final, ${data.housePnlEstimatedCount ?? 0} still need final numbers.`, valueClassName: housePnlClassName },
+    { icon: <DollarSign className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Total Fees", value: fmt(data.totalFees ?? 0), sub: "Fees collected by the platform from completed trades." },
+    { icon: <Layers className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Money In Open Markets", value: fmt(data.activeLiquidity ?? 0), sub: "House money currently being used by markets that are still open." },
+    { icon: <AlertTriangle className="w-4 h-4" style={{ color: "var(--no)" }} />, label: "Possible Payouts", value: fmt(data.liquidityAtRisk ?? 0), sub: `Money that may need to be paid to winners: ${fmt(data.reservedClaims ?? 0)} ready, ${fmt(data.outstandingWinningClaims ?? 0)} still pending.` },
+    { icon: <ArrowUpRight className="w-4 h-4" style={{ color: "var(--yes)" }} />, label: "Money Withdrawn", value: fmt(data.liquidityWithdrawn ?? 0), sub: "House money removed from markets after they ended." },
   ];
 
   return (
